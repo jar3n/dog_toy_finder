@@ -1,0 +1,44 @@
+# ROS 2 / colcon
+ros2_ws/build/
+ros2_ws/install/
+ros2_ws/log/
+
+# Pico / micro-ROS build output
+firmware/pico_microros/build/*
+!firmware/pico_microros/build/.gitkeep
+firmware/pico_microros/lib/*
+!firmware/pico_microros/lib/.gitkeep
+firmware/pico_microros/microros/builder/*
+!firmware/pico_microros/microros/builder/.gitkeep
+*.uf2
+*.elf
+*.bin
+*.hex
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+*.egg-info/
+
+# Secrets / local config (API keys, WiFi credentials)
+.env
+*.env
+config/env/*
+!config/env/.gitkeep
+!config/env/README.md
+**/wifi_config.h
+**/secrets*
+
+# Data
+data/logs/*
+!data/logs/.gitkeep
+rosa_agent/memory/*.db
+*.bag
+*.mcap
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
