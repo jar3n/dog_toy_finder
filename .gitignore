@@ -8,7 +8,8 @@ firmware/pico_microros/build/*
 !firmware/pico_microros/build/.gitkeep
 firmware/pico_microros/lib/*
 !firmware/pico_microros/lib/.gitkeep
-firmware/pico_microros/microros/builder/*
+firmware/pico_microros/microros/builder/.build/*
+firmware/pico_microros/microros/builder/artefacts/*
 !firmware/pico_microros/microros/builder/.gitkeep
 *.uf2
 *.elf
