@@ -8,10 +8,11 @@
 
 `docker-compose.yml` defines all three (run from this folder). The repo root is mounted at `/workspace`.
 
-The micro-ROS builder can also be opened as a VS Code dev container via
-`.devcontainer/microros-builder/devcontainer.json` at the repo root.
+Do not run both the ros2 and the gazebo docker containers. ros2 is for running with the real robot and gazebo is for running a simulation.
 
 ## micro-ROS agent (from the old notes)
+
+Run this to enable the microROS firmware on the pico to talk with the ROS 2 graph on the computer.
 
 ```
 docker run --rm -it \
