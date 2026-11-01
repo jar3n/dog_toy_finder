@@ -40,4 +40,4 @@ ENV PICO_SDK_PATH=/opt/pico-sdk
 RUN echo 'source /opt/ros/humble/setup.bash' >> /root/.bashrc \
     && echo 'source /opt/micro_ros_ws/install/local_setup.bash' >> /root/.bashrc
 
-WORKDIR /workspace/firmware/pico_microros/microros/builder
+WORKDIR /workspace/docker/microros_builder/microros

@@ -5,18 +5,16 @@ ros2_ws/log/
 
 # Pico / micro-ROS build output
 firmware/pico_microros/build/*
-!firmware/pico_microros/build/.gitkeep
 firmware/pico_microros/lib/*
-!firmware/pico_microros/lib/.gitkeep
-firmware/pico_microros/microros/builder/.build/*
-firmware/pico_microros/microros/builder/artefacts/*
-!firmware/pico_microros/microros/builder/.gitkeep
 firmware/esp_cam/.pio/*
-firmware/pico_microros/include/libmicroros/*
 *.uf2
 *.elf
 *.bin
 *.hex
+
+# microros builder artefacts ignore
+docker/microros_builder/microros/.build/*
+docker/microros_builder/microros/artifacts/*
 
 # Python
 __pycache__/
