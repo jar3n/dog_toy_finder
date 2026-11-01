@@ -11,6 +11,8 @@ firmware/pico_microros/lib/*
 firmware/pico_microros/microros/builder/.build/*
 firmware/pico_microros/microros/builder/artefacts/*
 !firmware/pico_microros/microros/builder/.gitkeep
+firmware/esp_cam/.pio/*
+firmware/pico_microros/include/libmicroros/*
 *.uf2
 *.elf
 *.bin
