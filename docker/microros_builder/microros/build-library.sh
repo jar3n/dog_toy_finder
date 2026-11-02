@@ -51,6 +51,8 @@ cp -R "${FIRMWARE_BUILD}/include" "${STAGING_DIR}/include"
 cp "${ARCHIVE}" "${STAGING_DIR}/libmicroros.a"
 cp attributes.txt "${STAGING_DIR}/architecture.txt"
 
+date -Iseconds > "${STAGING_DIR}/builddate.txt"
+
 rm -rf "${OUTPUT_DIR}"
 mv "${STAGING_DIR}" "${OUTPUT_DIR}"
 
