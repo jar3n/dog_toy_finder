@@ -27,9 +27,9 @@
 // To use different pins, pick another valid I2C0 pair (for example GPIO0/1 or
 // GPIO16/17) or switch BNO055_I2C to i2c1 and use that instance's pins. Both
 // lines need pull-ups; most BNO055 breakouts already have them.
-#define BNO055_I2C i2c0
-#define BNO055_I2C_SDA_PIN 4
-#define BNO055_I2C_SCL_PIN 5
+#define BNO055_I2C i2c1
+#define BNO055_I2C_SDA_PIN 14
+#define BNO055_I2C_SCL_PIN 15
 
 // BNO055 supports 100 kHz and 400 kHz. 400 kHz keeps the IMU readout fast.
 #define BNO055_I2C_FREQUENCY_HZ 400000
