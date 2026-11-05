@@ -6,6 +6,7 @@ and a coloured point cloud from `stereo_image_proc`.
 
 ## Topics
 
+### Stereo pipeline
 | Topic | Type | Source |
 |---|---|---|
 | `/stereo/left/image_raw` | `sensor_msgs/Image` | `stereo_camera_node` |
@@ -15,6 +16,24 @@ and a coloured point cloud from `stereo_image_proc`.
 | `/stereo/disparity` | `stereo_msgs/DisparityImage` | `stereo_image_proc` |
 | `/stereo/points2` | `sensor_msgs/PointCloud2` | `stereo_image_proc` |
 
+### VLM vision (stereo)
+| Topic | Type | Source |
+|---|---|---|
+| `/stereo/left/image_raw` | `sensor_msgs/Image` | `stereo_camera_node` |
+| `/stereo/right/image_raw` | `sensor_msgs/Image` | `stereo_camera_node` |
+| `/vision/ask` | `std_msgs/String` (JSON) | user / planner |
+| `/vision/result` | `std_msgs/String` (JSON) | `vision_node` |
+
+## Comparing LLMs
+
+The vision node accepts a comma-separated `models` parameter, e.g.
+`models:="gemma3,llava,moondream"`. It runs every model on the same photo and
+publishes a `/vision/result` whose `results` array contains one answer plus
+timing per model, so the models can be compared directly.
+
+The ROSA planner supports the same idea via
+`python3 -m rosa_agent --compare llama3.2,mistral,qwen2.5`.
+
 ## Run
 
 ```bash
@@ -22,9 +41,14 @@ cd /workspace/software/ros2_ws
 colcon build --symlink-install
 source install/setup.bash
 
+# stereo pipeline (images + disparity + point cloud)
 ros2 launch dog_toy_finder_vision stereo.launch.py \
     left_url:=http://esp32cam-left.local/capture \
     right_url:=http://esp32cam-right.local/capture
+
+# VLM vision on the stereo pair (separate shell)
+ros2 launch dog_toy_finder_vision vision.launch.py
+ros2 launch dog_toy_finder_vision vision.launch.py models:="gemma3,llava,moondream"
 ```
 
 The intrinsics (`fx`, `fy`, `cx`, `cy`) and `baseline` are placeholders until

@@ -69,6 +69,21 @@ Go to x 1.0, y 0.5.
 Stop.
 ```
 
+## Comparing LLMs
+
+Run the same request through several models and compare replies and timings:
+
+```bash
+python3 -m rosa_agent --compare llama3.2,mistral,qwen2.5
+python3 -m rosa_agent --compare llama3.2,mistral --prompt "Drive forward 1 meter."
+```
+
+Or pick a single model for a session:
+
+```bash
+python3 -m rosa_agent --model mistral
+```
+
 ## Tools
 
 | Tool | Arguments | Behavior |

@@ -24,10 +24,10 @@ def ollama_url() -> str:
     return os.environ.get("OLLAMA_URL", "http://localhost:11434")
 
 
-def build_agent() -> ROSA:
+def build_agent(model: str = None) -> ROSA:
     """Create the ROSA agent with the robot's motion tools."""
     llm = ChatOllama(
-        model=ollama_model_name(),
+        model=(model if model else ollama_model_name()),
         temperature=0,
         num_ctx=16384,
         base_url=ollama_url(),
