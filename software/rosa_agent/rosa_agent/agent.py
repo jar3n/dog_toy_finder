@@ -10,7 +10,7 @@ import os
 from langchain_ollama import ChatOllama
 from rosa import ROSA
 
-from . import tools
+from . import tools, vision_tools
 from .prompts import build_prompts
 
 
@@ -41,6 +41,9 @@ def build_agent(model: str = None) -> ROSA:
             tools.turn,
             tools.go_to,
             tools.stop_robot,
+            vision_tools.describe_scene,
+            vision_tools.find_toy,
+            vision_tools.is_path_clear,
         ],
         prompts=build_prompts(),
         verbose=True,

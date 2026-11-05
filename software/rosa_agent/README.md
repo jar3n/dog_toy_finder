@@ -93,6 +93,9 @@ python3 -m rosa_agent --model mistral
 | `turn` | `direction`, `degrees` | left/right up to 180 deg |
 | `go_to` | `x`, `y` | drive to a point within 3 m |
 | `stop_robot` | none | publishes zero `/cmd_vel` |
+| `describe_scene` | none | describe what the stereo camera sees |
+| `find_toy` | `target` | whether a toy is visible, where, size, distance |
+| `is_path_clear` | none | whether the path ahead is blocked |
 
 Every move uses `/odometry/filtered` as feedback and reports what the fused
 estimate measured. The robot stops if a tool fails, if the user interrupts, or

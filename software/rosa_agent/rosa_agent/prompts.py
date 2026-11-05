@@ -25,17 +25,21 @@ def build_prompts() -> RobotSystemPrompts:
             "turn(direction, degrees) turns left or right in place. "
             "go_to(x, y) drives to a world-frame point. "
             "stop_robot() stops immediately. Every move is closed-loop on the "
-            "fused estimate and reports the measured result. Vision, the arm, "
-            "and autonomous toy search are not connected yet; do not claim to "
-            "see, grasp, or find a toy until those tools exist."
+            "fused estimate and reports the measured result. "
+            "describe_scene() looks at the stereo camera and describes what is ahead. "
+            "find_toy(target) reports whether a toy is visible, where it is "
+            "(left/center/right), its size, and an estimated distance. "
+            "is_path_clear() checks whether the path ahead is blocked. "
+            "The arm and autonomous toy search are not connected yet."
         ),
         critical_instructions=(
             "Plan one tool call per step the user asks for, in order. Copy numbers "
             "exactly as the user wrote them, for example '0.5'. Use the words "
             "'left', 'right', 'forward', and 'backward' for directions, never "
             "negative numbers. Call stop_robot() if a move fails or the user asks "
-            "to stop. After the tools finish, report the numbers from the tool "
-            "results exactly. Never claim the robot moved unless a tool reported "
-            "that it moved, and never invent a pose or a sensor reading."
+            "to stop. Use find_toy/is_path_clear/describe_scene before driving "
+            "towards an object. After the tools finish, report the numbers from "
+            "the tool results exactly. Never claim the robot moved or saw something "
+            "unless a tool reported it, and never invent a pose or a sensor reading."
         ),
     )

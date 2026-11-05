@@ -15,6 +15,7 @@ import time
 
 from .agent import build_agent, ollama_model_name
 from .robot import close_robot, get_robot
+from .vision import close_vision
 
 
 def build_parser():
@@ -54,6 +55,7 @@ def run_single(model):
                 print("ROSA error: %s. The robot was stopped." % error)
     finally:
         close_robot()
+        close_vision()
 
 
 def run_compare(models, prompt):
@@ -72,6 +74,7 @@ def run_compare(models, prompt):
             print(f"ROSA error: {error}")
             print(f"[{elapsed:.2f} s]")
     close_robot()
+    close_vision()
 
 
 def main():
