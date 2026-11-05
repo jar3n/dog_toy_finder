@@ -1,7 +1,7 @@
 # ROS 2 / colcon
-ros2_ws/build/
-ros2_ws/install/
-ros2_ws/log/
+**/ros2_ws/build/
+**/ros2_ws/install/
+**/ros2_ws/log/
 
 # Pico / micro-ROS build output
 firmware/pico_microros/build/*
@@ -32,12 +32,16 @@ config/env/*
 **/wifi_config.h
 **/ros_config.h
 **/imu_config.h
+**/encoder_config.h
+**/motor_config.h
+**/cmd_vel_config.h
 **/secrets*
 
 # Data
 data/logs/*
 !data/logs/.gitkeep
 rosa_agent/memory/*.db
+**/rosa_agent/memory/*.db
 *.bag
 *.mcap
 

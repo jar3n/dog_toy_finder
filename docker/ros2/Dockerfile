@@ -2,10 +2,20 @@
 # Use linux/arm64 for Apple Silicon Macs, linux/amd64 for Intel Macs and Windows
 FROM ros:humble
 
-# Install Python pip and ROS 2 Python client library
+# Install Python pip, the ROS 2 Python client, and the packages used by the
+# computer-side stack (odometry, EKF, TF, and the URDF publisher).
 RUN apt-get update && apt-get install -y \
     python3-pip \
+    python3-colcon-common-extensions \
     ros-humble-rclpy \
+    ros-humble-robot-localization \
+    ros-humble-tf2-ros \
+    ros-humble-robot-state-publisher \
+    ros-humble-cv-bridge \
+    ros-humble-image-transport \
+    ros-humble-image-proc \
+    ros-humble-stereo-image-proc \
+    ros-humble-camera-info-manager \
     && rm -rf /var/lib/apt/lists/*
 
 # Pre-install Python dependencies (used in the ROSA guide)

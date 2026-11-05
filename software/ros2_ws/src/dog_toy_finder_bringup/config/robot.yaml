@@ -1,0 +1,36 @@
+# Robot geometry and wheel-odometry settings for the Dog Toy Finder.
+#
+# These values must match firmware/pico_microros/config/encoder_config.h and
+# config/cmd_vel_config.h. The defaults are the firmware defaults; measure the
+# real robot and update both sides together.
+wheel_odometry:
+  ros__parameters:
+    # Joint names published by the Pico on /joint_states.
+    left_joint_name: left_wheel_joint
+    right_joint_name: right_wheel_joint
+
+    # Drive-wheel radius and the distance between the two wheel contact
+    # patches, in metres. Defaults match the Module 8 course robot
+    # (wheel diameter 0.065 m, separation 0.133 m); refine on your chassis.
+    wheel_radius: 0.0325
+    wheel_separation: 0.133
+
+    # Flip a side when its JointState position decreases while the robot drives
+    # forward. This mirrors ENCODER_LEFT_INVERT / ENCODER_RIGHT_INVERT.
+    invert_left: false
+    invert_right: false
+
+    # The EKF owns odom -> base_link, so the odometry node does not broadcast it.
+    # Set true only when running without robot_localization.
+    publish_tf: false
+
+    # One standard deviation of the two measurements the EKF fuses.
+    linear_speed_std: 0.03
+    turn_rate_std: 0.10
+
+    # Speed is measured over this window so Wi-Fi bursts do not create spikes.
+    velocity_window: 0.2
+
+    # A position jump larger than this many radians means the Pico restarted and
+    # reset its counters, not that the wheel moved. Roughly 31.4 rad is 5 turns.
+    max_joint_jump_rad: 31.4159

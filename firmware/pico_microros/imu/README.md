@@ -2,8 +2,10 @@
 
 `bno055.c` / `bno055.h` drive a BNO055 9-DoF IMU over I2C. The driver resets
 the sensor, verifies the chip ID, selects metric units, and puts the sensor in
-**NDOF** mode, where the accelerometer, gyroscope, and magnetometer are fused
-into an absolute orientation.
+**IMU** mode, where the accelerometer and gyroscope are fused into a relative
+orientation. The magnetometer is not used, so motor currents and nearby metal
+do not disturb the fused heading. The trade-off is that heading is relative to
+the orientation at power-on and drifts slowly over time.
 
 ## Wiring
 
@@ -13,14 +15,14 @@ The bus and pins live in `../config/pinout.h`:
 |---|---|---|
 | VIN | 3V3 | 3.3 V only |
 | GND | GND | common ground |
-| SDA | GPIO4 | I2C0 SDA, physical pin 6 |
-| SCL | GPIO5 | I2C0 SCL, physical pin 7 |
+| SDA | GPIO14 | I2C1 SDA, physical pin 19 |
+| SCL | GPIO15 | I2C1 SCL, physical pin 20 |
 | ADDR | GND | address `0x28`; tie high for `0x29` |
 
 ```c
-#define BNO055_I2C i2c0
-#define BNO055_I2C_SDA_PIN 4
-#define BNO055_I2C_SCL_PIN 5
+#define BNO055_I2C i2c1
+#define BNO055_I2C_SDA_PIN 14
+#define BNO055_I2C_SCL_PIN 15
 #define BNO055_I2C_FREQUENCY_HZ 400000
 #define BNO055_I2C_ADDRESS 0x28
 ```
@@ -73,7 +75,7 @@ The message contains:
 |---|---|
 | `header.stamp` | `ros_node_time_ns()` (agent epoch, or time since boot) |
 | `header.frame_id` | `IMU_ROS_FRAME_ID` |
-| `orientation` | BNO055 fused quaternion (NDOF) |
+| `orientation` | BNO055 fused quaternion (IMU mode: accel + gyro) |
 | `angular_velocity` | gyro, converted from degrees/s to rad/s |
 | `linear_acceleration` | linear acceleration, gravity removed, m/s^2 |
 | `*_covariance` | diagonal from `IMU_ROS_*_VARIANCE` |
@@ -126,19 +128,23 @@ false when either the BNO055 read or the ROS publish fails.
 ## Calibration
 
 The BNO055 calibrates at runtime and does not keep calibration across power
-cycles. Move the robot slowly through different orientations until
-`bno055_read_calibration()` reports 3 for all four sensors, or call
-`bno055_wait_for_calibration()` during setup. Until then, heading is the least
-trustworthy value.
+cycles. In IMU mode the gyroscope and accelerometer matter; move the robot
+slowly through a few orientations until `bno055_read_calibration()` reports 3
+for `system`, `gyro`, and `accel`, or call `bno055_wait_for_calibration()`
+during setup. The magnetometer level is ignored because IMU mode does not use
+it. Until the other sensors are calibrated, heading is the least trustworthy
+value.
 
 ## Notes
 
 - Reads are blocking I2C transactions at 400 kHz. A burst read of all Euler
   angles or a vector takes well under a millisecond on a healthy bus.
-- NDOF mode runs at 100 Hz internally; polling at 50-100 Hz is plenty for the
+- IMU mode runs at 100 Hz internally; polling at 50-100 Hz is plenty for the
   robot's needs.
-- The magnetometer is sensitive to nearby motors and current-carrying wires.
-  Mount the IMU away from the drive motors and keep its axes aligned with the
-  robot's forward/left/up convention.
+- Heading is relative and drifts, so do not treat it as an absolute compass
+  reading. If the robot needs an absolute heading, switch `bno055_init()` to
+  `BNO055_MODE_NDOF` and keep the IMU away from motor currents.
+- Keep the IMU axes aligned with the robot's forward/left/up convention even
+  though the magnetometer is unused.
 - `bno055_init()` performs a full reset, so call it once at boot rather than in
   the control loop.

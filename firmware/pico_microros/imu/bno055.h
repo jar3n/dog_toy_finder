@@ -10,8 +10,8 @@ extern "C" {
 /**
  * BNO055 operation modes (register 0x3D).
  *
- * NDOF fuses the accelerometer, gyroscope, and magnetometer into an absolute
- * orientation and is the mode bno055_init() selects.
+ * IMU mode fuses the accelerometer and gyroscope into a relative orientation
+ * without using the magnetometer, and is the mode bno055_init() selects.
  */
 typedef enum {
   BNO055_MODE_CONFIG = 0x00,
@@ -60,12 +60,16 @@ typedef struct {
 } bno055_calibration_t;
 
 /**
- * Initialize the I2C bus, reset the sensor, and put it in NDOF mode.
+ * Initialize the I2C bus, reset the sensor, and put it in IMU mode.
+ *
+ * IMU mode fuses the accelerometer and gyroscope only. Heading is relative to
+ * the orientation at power-on and slowly drifts, but it is not disturbed by
+ * motor currents the way magnetometer-based modes are.
  *
  * Blocks for roughly a second while the sensor boots. Safe to call more than
  * once; each call performs a fresh reset.
  *
- * @return true when the chip ID matched and NDOF mode was entered.
+ * @return true when the chip ID matched and IMU mode was entered.
  */
 bool bno055_init(void);
 
@@ -123,14 +127,15 @@ bool bno055_read_temperature(float *celsius);
 bool bno055_read_calibration(bno055_calibration_t *calibration);
 
 /**
- * Poll until every sensor reports full calibration, or the timeout expires.
+ * Poll until the sensors used by IMU mode report full calibration.
  *
- * The robot has to be moved through a few orientations for the gyro, accel,
- * and magnetometer to calibrate. Calibration values are not persisted across
- * power cycles by the sensor.
+ * The robot has to be moved through a few orientations for the gyroscope and
+ * accelerometer to calibrate. The magnetometer level is ignored because IMU
+ * mode does not use it. Calibration values are not persisted across power
+ * cycles by the sensor.
  *
  * @param timeout_ms maximum time to wait; 0 performs a single check.
- * @return true when system, gyro, accel, and mag all reached level 3.
+ * @return true when system, gyro, and accel all reached level 3.
  */
 bool bno055_wait_for_calibration(uint32_t timeout_ms);
 

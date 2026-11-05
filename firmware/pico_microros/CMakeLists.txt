@@ -47,6 +47,9 @@ endfunction()
 dtf_provide_local_config(wifi_config)
 dtf_provide_local_config(ros_config)
 dtf_provide_local_config(imu_config)
+dtf_provide_local_config(encoder_config)
+dtf_provide_local_config(motor_config)
+dtf_provide_local_config(cmd_vel_config)
 
 add_executable(dtf_pico_fw
     dtf_pico_fw_main.c
@@ -58,6 +61,11 @@ add_executable(dtf_pico_fw
     ros/ros_log.c
     imu/bno055.c
     imu/imu_ros.c
+    encoder/quadrature_encoder.c
+    encoder/encoder.c
+    encoder/encoder_ros.c
+    motor/tb6612fng.c
+    motor/cmd_vel.c
 )
 
 # micro ros library
@@ -84,6 +92,8 @@ target_link_libraries(dtf_pico_fw
     pico_stdlib
     pico_cyw43_arch_lwip_threadsafe_background
     hardware_i2c
+    hardware_pwm
+    hardware_clocks
     micro_ros
 )
 

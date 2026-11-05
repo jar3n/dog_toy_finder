@@ -201,8 +201,8 @@ bool bno055_set_operation_mode(bno055_operation_mode_t mode) {
  * Full BNO055 bring-up.
  *
  * Resets the sensor, selects page 0, normal power, and metric units, switches
- * through CONFIG into NDOF, and verifies the mode register. Returns false at
- * the first failed write or read.
+ * through CONFIG into IMU mode, and verifies the mode register. Returns false
+ * at the first failed write or read.
  */
 bool bno055_init(void) {
   if (!bno055_reset()) {
@@ -223,18 +223,18 @@ bool bno055_init(void) {
     return false;
   }
 
-  // NDOF must be entered from CONFIG mode.
+  // Fusion modes must be entered from CONFIG mode.
   if (!bno055_set_operation_mode(BNO055_MODE_CONFIG)) {
     return false;
   }
 
-  if (!bno055_set_operation_mode(BNO055_MODE_NDOF)) {
+  if (!bno055_set_operation_mode(BNO055_MODE_IMU)) {
     return false;
   }
 
   uint8_t mode = 0;
   return read_registers(BNO055_REG_OPERATION_MODE, &mode, 1) &&
-         mode == (uint8_t) BNO055_MODE_NDOF;
+         mode == (uint8_t) BNO055_MODE_IMU;
 }
 
 /**
@@ -366,12 +366,13 @@ bool bno055_read_calibration(bno055_calibration_t *calibration) {
 }
 
 /**
- * Poll calibration status until every sensor reaches level 3.
+ * Poll calibration status until the IMU-mode sensors reach level 3.
  *
  * Checks immediately, then every BNO055_CALIBRATION_POLL_MS until timeout_ms
- * expires. A timeout of 0 performs a single check.
+ * expires. A timeout of 0 performs a single check. The magnetometer level is
+ * ignored because IMU mode does not use that sensor.
  *
- * @return true when system, gyro, accel, and mag are all fully calibrated.
+ * @return true when system, gyro, and accel are all fully calibrated.
  */
 bool bno055_wait_for_calibration(uint32_t timeout_ms) {
   absolute_time_t deadline = make_timeout_time_ms(timeout_ms);
@@ -382,8 +383,7 @@ bool bno055_wait_for_calibration(uint32_t timeout_ms) {
       bool fully_calibrated =
         calibration.system == 3 &&
         calibration.gyro == 3 &&
-        calibration.accel == 3 &&
-        calibration.mag == 3;
+        calibration.accel == 3;
       if (fully_calibrated) {
         return true;
       }
