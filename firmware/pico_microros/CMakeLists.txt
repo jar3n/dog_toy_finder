@@ -25,14 +25,49 @@ include(pico_sdk_import.cmake)
 
 project(dtf_pico_fw C CXX ASM)
 
+# micro-ROS plus the log fan-out use more stack than the SDK default (2 KiB).
+# Core 0's stack lives in the 4 KiB SCRATCH_Y region, so this is the maximum.
+add_compile_definitions(PICO_STACK_SIZE=0x1000)
+
 pico_sdk_init()
+
+function(dtf_provide_local_config name)
+    set(config_file "${CMAKE_CURRENT_LIST_DIR}/config/${name}.h")
+    set(example_file "${CMAKE_CURRENT_LIST_DIR}/config/${name}.example.h")
+    set(config_size 0)
+    if(EXISTS "${config_file}")
+        file(SIZE "${config_file}" config_size)
+    endif()
+    if(config_size EQUAL 0)
+        configure_file("${example_file}" "${config_file}" COPYONLY)
+        message(STATUS "Created ${config_file}; review its settings")
+    endif()
+endfunction()
+
+dtf_provide_local_config(wifi_config)
+dtf_provide_local_config(ros_config)
+dtf_provide_local_config(imu_config)
 
 add_executable(dtf_pico_fw
     dtf_pico_fw_main.c
+    microros_time/microros_time.c
+    udp_transport/picow_udp_transport.c
+    wifi/wifi.c
+    wifi/wifi_log.c
+    ros/ros_node.c
+    ros/ros_log.c
+    imu/bno055.c
+    imu/imu_ros.c
 )
 
-# TODO: add the micro ros library later
-#  for now just simple main hello world
+# micro ros library
+add_library(micro_ros STATIC IMPORTED)
+set_target_properties(micro_ros PROPERTIES
+    IMPORTED_LOCATION
+        "${CMAKE_CURRENT_LIST_DIR}/lib/libmicroros/libmicroros.a"
+    INTERFACE_INCLUDE_DIRECTORIES
+        "${CMAKE_CURRENT_LIST_DIR}/lib/libmicroros/include"
+)
 
 pico_set_program_name(dtf_pico_fw "dtf_pico_fw")
 pico_set_program_version(dtf_pico_fw 1.0)
@@ -42,10 +77,14 @@ pico_enable_stdio_usb(dtf_pico_fw 1)
 
 target_include_directories(dtf_pico_fw PRIVATE
     ${CMAKE_CURRENT_LIST_DIR}
+    ${CMAKE_CURRENT_LIST_DIR}/config
 )
 
 target_link_libraries(dtf_pico_fw
     pico_stdlib
+    pico_cyw43_arch_lwip_threadsafe_background
+    hardware_i2c
+    micro_ros
 )
 
 pico_add_extra_outputs(dtf_pico_fw)

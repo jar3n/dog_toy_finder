@@ -30,6 +30,8 @@ config/env/*
 !config/env/.gitkeep
 !config/env/README.md
 **/wifi_config.h
+**/ros_config.h
+**/imu_config.h
 **/secrets*
 
 # Data
