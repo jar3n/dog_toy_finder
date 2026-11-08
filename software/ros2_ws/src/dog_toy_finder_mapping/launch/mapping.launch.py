@@ -18,6 +18,8 @@ def generate_launch_description():
         DeclareLaunchArgument("obstacle_range", default_value="0.25"),
         DeclareLaunchArgument("publish_period", default_value="1.0"),
         DeclareLaunchArgument("ir_topic", default_value="/ir_obstacle/detected"),
+        DeclareLaunchArgument("use_vision", default_value="true"),
+        DeclareLaunchArgument("vision_obstacle_range", default_value="0.8"),
 
         ExecuteProcess(output="screen", cmd=[
             "python3", NODE, "--ros-args",
@@ -28,5 +30,7 @@ def generate_launch_description():
             "-p", ["origin_y:=", arg("origin_y")],
             "-p", ["obstacle_range:=", arg("obstacle_range")],
             "-p", ["publish_period:=", arg("publish_period")],
-            "-p", ["ir_topic:=", arg("ir_topic")]]),
+            "-p", ["ir_topic:=", arg("ir_topic")],
+            "-p", ["use_vision:=", arg("use_vision")],
+            "-p", ["vision_obstacle_range:=", arg("vision_obstacle_range")]]),
     ])

@@ -20,7 +20,9 @@ from nav_msgs.msg import OccupancyGrid, Odometry, Path
 from rclpy.node import Node
 from rclpy.qos import qos_profile_sensor_data
 from geometry_msgs.msg import PoseStamped
-from std_msgs.msg import Bool
+import json
+
+from std_msgs.msg import Bool, String
 
 
 class OccupancyMapper(Node):
@@ -33,8 +35,10 @@ class OccupancyMapper(Node):
         self.declare_parameter("origin_x", -5.0)        # m
         self.declare_parameter("origin_y", -5.0)        # m
         self.declare_parameter("obstacle_range", 0.25)  # m ahead when IR fires
+        self.declare_parameter("vision_obstacle_range", 0.8)  # m ahead when VLM reports an obstacle
         self.declare_parameter("publish_period", 1.0)   # s
         self.declare_parameter("ir_topic", "/ir_obstacle/detected")
+        self.declare_parameter("use_vision", True)
 
         self.res = float(self.get_parameter("resolution").value)
         self.w = int(self.get_parameter("width").value)
@@ -42,16 +46,22 @@ class OccupancyMapper(Node):
         self.origin_x = float(self.get_parameter("origin_x").value)
         self.origin_y = float(self.get_parameter("origin_y").value)
         self.obs_range = float(self.get_parameter("obstacle_range").value)
+        self.vision_obs_range = float(self.get_parameter("vision_obstacle_range").value)
         period = float(self.get_parameter("publish_period").value)
         ir_topic = self.get_parameter("ir_topic").value
+        self.use_vision = bool(self.get_parameter("use_vision").value)
 
         self.grid = np.full((self.h, self.w), -1, dtype=np.int8)
         self.obstacle_ahead = False
+        self.vision_obstacle = None  # obstacle label from the VLM, or None
 
         self.create_subscription(Odometry, "/odometry/filtered", self.on_pose,
                                  qos_profile_sensor_data)
         self.create_subscription(Bool, ir_topic, self.on_ir,
                                  qos_profile_sensor_data)
+        if self.use_vision:
+            self.create_subscription(String, "/vision/result", self.on_vision,
+                                     qos_profile_sensor_data)
 
         self.map_pub = self.create_publisher(OccupancyGrid, "/map", 10)
         self.path_pub = self.create_publisher(Path, "/tracked_path", 10)
@@ -122,9 +132,20 @@ class OccupancyMapper(Node):
             fy = y + self.obs_range * math.sin(yaw)
             ocell = self.world_to_cell(fx, fy)
             if ocell is not None:
-                # Mark a small block ahead.
                 for dr in range(-1, 2):
                     for dc in range(-1, 2):
+                        rr, cc = ocell[0] + dr, ocell[1] + dc
+                        if 0 <= rr < self.h and 0 <= cc < self.w:
+                            self.grid[rr, cc] = 100  # occupied
+
+        # Mark obstacle cells ahead when vision reports a central obstacle.
+        if self.use_vision and self.vision_obstacle is not None and self.last_pose is not None:
+            fx = x + self.vision_obs_range * math.cos(yaw)
+            fy = y + self.vision_obs_range * math.sin(yaw)
+            ocell = self.world_to_cell(fx, fy)
+            if ocell is not None:
+                for dr in range(-2, 3):
+                    for dc in range(-2, 3):
                         rr, cc = ocell[0] + dr, ocell[1] + dc
                         if 0 <= rr < self.h and 0 <= cc < self.w:
                             self.grid[rr, cc] = 100  # occupied
@@ -142,6 +163,24 @@ class OccupancyMapper(Node):
 
     def on_ir(self, msg):
         self.obstacle_ahead = bool(msg.data)
+
+    def on_vision(self, msg):
+        try:
+            data = json.loads(msg.data)
+        except json.JSONDecodeError:
+            return
+        # Collect obstacle labels from single or multi-model results.
+        labels = []
+        if isinstance(data.get("results"), list):
+            for r in data["results"]:
+                obs = r.get("obstacle_ahead", "none")
+                if obs and obs.lower() not in ("", "none", "nothing", "no", "n/a"):
+                    labels.append(obs)
+        else:
+            obs = data.get("obstacle_ahead", "none")
+            if obs and obs.lower() not in ("", "none", "nothing", "no", "n/a"):
+                labels.append(obs)
+        self.vision_obstacle = labels[0] if labels else None
 
     def publish(self):
         grid_msg = OccupancyGrid()

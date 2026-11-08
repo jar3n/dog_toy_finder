@@ -17,5 +17,7 @@ ros2 launch dog_toy_finder_mapping mapping.launch.py
 ```
 
 Cells the robot travels through are marked free (0); when the IR obstacle
-sensor fires, cells a short distance ahead are marked occupied (100); unknown
-cells stay -1 (255 in ROS convention? here -1). The map is published at 1 Hz.
+sensor fires, cells a short distance ahead are marked occupied (100); when the
+vision node reports a central obstacle, a larger block further ahead is marked
+occupied. Unknown cells stay -1. The map is published at 1 Hz. Vision can be
+disabled with `use_vision:=false`.
