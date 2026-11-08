@@ -1,6 +1,15 @@
 # Run from the docker/ folder:  docker compose build   |   docker compose run --rm ros2
 # The whole repo is mounted at /workspace in every container.
 services:
+  # micro-ROS agent for the Pico's Wi-Fi/UDP link. The ROS 2 image does not
+  # include this package, so it runs as its own container. Host networking lets
+  # the Pico reach UDP port 8888 on the computer directly.
+  micro_ros_agent:
+    image: microros/micro-ros-agent:humble
+    container_name: micro-ros-agent
+    network_mode: host
+    command: ["udp4", "--port", "8888", "-v6"]
+
   ros2:
     build: ./ros2
     container_name: rosa-ros2
