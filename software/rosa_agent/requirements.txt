@@ -1,5 +1,0 @@
-# ROSA runtime dependencies. The ROS 2 container already installs these, but
-# this file documents the Python side and supports a local virtual environment.
-jpl-rosa
-langchain-ollama<1.0
-langchain-core>=0.3.52,<1.0
