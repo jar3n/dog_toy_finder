@@ -115,11 +115,13 @@
 //   ------     --------
 //   VCC        3V3
 //   GND        GND
-//   S          GPIO10  (signal, active high by default)
-//   EN         GPIO11  (high enables the sensor)
+//   S          GPIO6   (signal, active high by default)
+//   EN         GPIO7   (high enables the sensor)
 //
-// GPIO10/11 are free on the Pico 2 W and do not overlap the encoders
-// (GPIO6-9), the motor controller (GPIO16-22), the IMU (GPIO14/15), or the
-// wireless chip (GPIO23/24/25/29).
-#define IR_OBSTACLE_SIGNAL_PIN 10
-#define IR_OBSTACLE_ENABLE_PIN 11
+// NOTE: GPIO6 and GPIO7 are also the left wheel encoder channels
+// (ENCODER_LEFT_PIN_A/B). The IR sensor and the left encoder cannot share
+// these pins. If both are wired, move one of them to a free GPIO (for
+// example GPIO10/GPIO11) and update this section. Free GPIOs on the Pico 2 W
+// include 0-5, 10-13, 26-28.
+#define IR_OBSTACLE_SIGNAL_PIN 6
+#define IR_OBSTACLE_ENABLE_PIN 7
