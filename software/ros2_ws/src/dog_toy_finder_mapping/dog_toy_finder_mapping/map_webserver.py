@@ -1,13 +1,13 @@
 """Simple web server that visualises the robot's map in 3D in a browser.
 
 Subscribes to /map (nav_msgs/OccupancyGrid) and /tracked_path (nav_msgs/Path)
-and serves an HTTP page on port 8080 with a Three.js 3D view. Occupied cells
+and serves an HTTP page on port 8765 with a Three.js 3D view. Occupied cells
 are drawn as raised blocks, free cells as a flat plane, and the robot's
 travelled path as a line.
 
 Usage:
     ros2 run dog_toy_finder_mapping map_webserver
-    # then open http://<computer-ip>:8080 in a browser
+    # then open http://<computer-ip>:8765 in a browser
 """
 
 import json
@@ -144,9 +144,10 @@ addEventListener('resize', () => {
 
 
 class MapWebServer(Node):
-    def __init__(self, port=8080):
+    def __init__(self):
         super().__init__("map_webserver")
-        self.port = port
+        self.declare_parameter("port", 8765)
+        self.port = int(self.get_parameter("port").value)
         self._lock = threading.Lock()
         self._map = None
         self._path = None
@@ -156,10 +157,10 @@ class MapWebServer(Node):
         self.create_subscription(Path, "/tracked_path", self.on_path,
                                  qos_profile_sensor_data)
 
-        self.httpd = ThreadingHTTPServer(("0.0.0.0", port), self._handler_factory())
+        self.httpd = ThreadingHTTPServer(("0.0.0.0", self.port), self._handler_factory())
         self.http_thread = threading.Thread(target=self.httpd.serve_forever, daemon=True)
         self.http_thread.start()
-        self.get_logger().info(f"Map web viewer running at http://0.0.0.0:{port}")
+        self.get_logger().info(f"Map web viewer running at http://0.0.0.0:{self.port}")
 
     def _handler_factory(self):
         node = self

@@ -27,7 +27,8 @@ disabled with `use_vision:=false`.
 - Web viewer (3D, in a browser):
   ```bash
   ros2 run dog_toy_finder_mapping map_webserver
-  # open http://<computer-ip>:8080
+  # open http://<computer-ip>:8765
+  # (override with: ros2 run ... map_webserver --ros-args -p port:=9000)
   ```
 - Save to PGM+YAML: `ros2 run dog_toy_finder_mapping save_map -o /tmp/my_map`
 - ASCII view: `ros2 run dog_toy_finder_mapping view_map`
