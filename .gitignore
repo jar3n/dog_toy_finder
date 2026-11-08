@@ -35,6 +35,7 @@ config/env/*
 **/encoder_config.h
 **/motor_config.h
 **/cmd_vel_config.h
+**/ir_obstacle_config.h
 **/secrets*
 
 # Data

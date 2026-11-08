@@ -50,6 +50,7 @@ dtf_provide_local_config(imu_config)
 dtf_provide_local_config(encoder_config)
 dtf_provide_local_config(motor_config)
 dtf_provide_local_config(cmd_vel_config)
+dtf_provide_local_config(ir_obstacle_config)
 
 add_executable(dtf_pico_fw
     dtf_pico_fw_main.c
@@ -66,6 +67,8 @@ add_executable(dtf_pico_fw
     encoder/encoder_ros.c
     motor/tb6612fng.c
     motor/cmd_vel.c
+    ir_obstacle/ir_obstacle.c
+    ir_obstacle/ir_obstacle_ros.c
 )
 
 # micro ros library

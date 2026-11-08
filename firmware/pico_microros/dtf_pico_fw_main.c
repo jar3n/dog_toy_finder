@@ -11,9 +11,12 @@ Dog Toy Finder Pico 2 W firmware Main file
 
 #include "config/cmd_vel_config.h"
 #include "config/encoder_config.h"
+#include "config/ir_obstacle_config.h"
 #include "encoder/encoder_ros.h"
 #include "imu/bno055.h"
 #include "imu/imu_ros.h"
+#include "ir_obstacle/ir_obstacle.h"
+#include "ir_obstacle/ir_obstacle_ros.h"
 #include "motor/cmd_vel.h"
 #include "motor/tb6612fng.h"
 #include "ros/ros_log.h"
@@ -72,11 +75,20 @@ int main(void){
             "cmd_vel: subscriber unavailable; motors stay coasting\n");
     }
 
+    bool ir_obstacle_ready = ir_obstacle_ros_init();
+    if (ir_obstacle_ready) {
+        ros_log_printf("ir_obstacle: sensor ready\n");
+    } else {
+        ros_log_printf(
+            "ir_obstacle: unavailable; check the wiring in config/pinout.h\n");
+    }
+
     absolute_time_t next_publish = get_absolute_time();
     absolute_time_t next_log = get_absolute_time();
     absolute_time_t next_encoder_publish = get_absolute_time();
     absolute_time_t next_encoder_log = get_absolute_time();
     absolute_time_t next_cmd_vel = get_absolute_time();
+    absolute_time_t next_ir_obstacle_publish = get_absolute_time();
 
     while (true) {
         absolute_time_t now = get_absolute_time();
@@ -91,6 +103,13 @@ int main(void){
             absolute_time_diff_us(now, next_publish) <= 0) {
             imu_ros_publish();
             next_publish = delayed_by_ms(now, IMU_PUBLISH_PERIOD_MS);
+        }
+
+        if (ir_obstacle_ready &&
+            absolute_time_diff_us(now, next_ir_obstacle_publish) <= 0) {
+            ir_obstacle_ros_publish();
+            next_ir_obstacle_publish =
+                delayed_by_ms(now, IR_OBSTACLE_PUBLISH_PERIOD_MS);
         }
 
         if (imu_ready && absolute_time_diff_us(now, next_log) <= 0) {

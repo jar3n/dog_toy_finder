@@ -100,3 +100,26 @@
 #define MOTOR_BIN1_PIN 20
 #define MOTOR_BIN2_PIN 21
 #define MOTOR_STBY_PIN 19
+
+// ---------------------------------------------------------------------------
+// Keyestudio KS0051 infrared obstacle avoidance sensor
+// ---------------------------------------------------------------------------
+//
+// The sensor has a digital (TTL) output that goes active when an obstacle is
+// detected 2-40 cm in front of it (distance set by the on-board trimmer), plus
+// an enable (EN) line. Working voltage 3.3-5 V; power the sensor from 3V3.
+//
+// Wiring on the Pico 2 W:
+//
+//   Sensor     Pico 2 W
+//   ------     --------
+//   VCC        3V3
+//   GND        GND
+//   S          GPIO10  (signal, active high by default)
+//   EN         GPIO11  (high enables the sensor)
+//
+// GPIO10/11 are free on the Pico 2 W and do not overlap the encoders
+// (GPIO6-9), the motor controller (GPIO16-22), the IMU (GPIO14/15), or the
+// wireless chip (GPIO23/24/25/29).
+#define IR_OBSTACLE_SIGNAL_PIN 10
+#define IR_OBSTACLE_ENABLE_PIN 11

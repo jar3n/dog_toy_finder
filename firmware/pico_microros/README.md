@@ -7,6 +7,7 @@
 - `imu/` - BNO055 9-DoF IMU driver over I2C and `sensor_msgs/msg/Imu` publisher
 - `encoder/` - hall quadrature decoders, wheel odometry, and `JointState` publisher
 - `motor/` - TB6612FNG dual motor controller and `/cmd_vel` subscriber
+- `ir_obstacle/` - Keyestudio KS0051 infrared obstacle avoidance sensor and `/ir_obstacle/detected` publisher
 - `microros_time/` - agent time synchronization helper
 - `config/` - pin maps and tunables (WiFi secrets stay out of git)
 - `microros/` - micro-ROS colcon config and library builder
