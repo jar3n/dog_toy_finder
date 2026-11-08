@@ -69,6 +69,15 @@ Note the printed IPs / mDNS names (`esp32cam-left.local`, `esp32cam-right.local`
 
 ## 4. Start the ROS 2 stack
 
+A tmux-based launcher opens one pane per component:
+
+```bash
+# on the host:
+./scripts/launch_all.sh
+# or, already inside the ros2 container:
+./scripts/launch_all.sh
+```
+
 On the host:
 
 ```bash
