@@ -1,9 +1,15 @@
 # Pico micro-ROS firmware
 
-- `src/`, `include/` - main application
-- `transport/` - WiFi UDP transport for micro-ROS
-- `drivers/` - motors, encoders, IMU, arm servos, other sensors
+- `dtf_pico_fw_main.c` - firmware entry point and main publish/log/control loop
+- `udp_transport/` - custom UDP transport for micro-ROS over Wi-Fi
+- `wifi/` - Wi-Fi station setup and serial/UDP log mirror
+- `ros/` - micro-ROS session and ROS 2 log publisher
+- `imu/` - BNO055 9-DoF IMU driver over I2C and `sensor_msgs/msg/Imu` publisher
+- `encoder/` - hall quadrature decoders, wheel odometry, and `JointState` publisher
+- `motor/` - TB6612FNG dual motor controller and `/cmd_vel` subscriber
+- `ir_obstacle/` - Keyestudio KS0051 infrared obstacle avoidance sensor and `/ir_obstacle/detected` publisher
+- `microros_time/` - agent time synchronization helper
 - `config/` - pin maps and tunables (WiFi secrets stay out of git)
 - `microros/` - micro-ROS colcon config and library builder
 - `lib/` - generated libmicroros (ignored)
-- `tests/`, `tools/`, `build/`
+- `build/` - CMake/Ninja output and staged artifacts (ignored)
