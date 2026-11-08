@@ -78,6 +78,12 @@ A tmux-based launcher opens one pane per component:
 ./scripts/launch_all.sh
 ```
 
+Stop everything with:
+
+```bash
+./scripts/stop_all.sh
+```
+
 On the host:
 
 ```bash
