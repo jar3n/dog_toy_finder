@@ -17,11 +17,10 @@ and has an enable (EN) line. See the [module documentation](https://docs.keyestu
 | S | GPIO6 | digital signal, active high by default |
 | EN | GPIO7 | high enables the sensor |
 
-WARNING: GPIO6 and GPIO7 are also the left wheel encoder channels
-(ENCODER_LEFT_PIN_A/B). The IR sensor and the left encoder cannot share these
-pins. If both are wired, move one of them to a free GPIO (for example
-GPIO10/GPIO11) and update `config/pinout.h`. Free GPIOs on the Pico 2 W
-include 0-5, 10-13, 26-28.
+The IR sensor now occupies GPIO6/7 and the left encoder GPIO8/9, the right
+encoder GPIO10/11. All four are distinct. If you re-wire, keep the sensor,
+both encoders and the motor controller on disjoint pins (free GPIOs include
+0-5, 12-13, 26-28).
 
 ## Configuration
 

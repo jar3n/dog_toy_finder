@@ -49,20 +49,20 @@
 //
 // Wiring on the Pico 2 W:
 //
-//   Left encoder A    GPIO6   (physical pin 9)
-//   Left encoder B    GPIO7   (physical pin 10)
-//   Right encoder A   GPIO8   (physical pin 11)
-//   Right encoder B   GPIO9   (physical pin 12)
+//   Left encoder A    GPIO8   (physical pin 11)
+//   Left encoder B    GPIO9   (physical pin 12)
+//   Right encoder A   GPIO10  (physical pin 14)
+//   Right encoder B   GPIO11  (physical pin 15)
 //
 // These four pins are free on the Pico 2 W, support edge interrupts, and do
-// not overlap the BNO055 (GPIO14/15), the motor controller (GPIO16-22), or the
-// wireless chip (GPIO23/24/25/29). Swap A/B or set the matching *_INVERT flag
-// in config/encoder_config.h to flip the counting direction. Encoder geometry
-// and joint names live there.
-#define ENCODER_LEFT_PIN_A 6
-#define ENCODER_LEFT_PIN_B 7
-#define ENCODER_RIGHT_PIN_A 8
-#define ENCODER_RIGHT_PIN_B 9
+// not overlap the IR obstacle sensor (GPIO6/7), the BNO055 (GPIO14/15), the
+// motor controller (GPIO16-22), or the wireless chip (GPIO23/24/25/29). Swap
+// A/B or set the matching *_INVERT flag in config/encoder_config.h to flip the
+// counting direction. Encoder geometry and joint names live there.
+#define ENCODER_LEFT_PIN_A 8
+#define ENCODER_LEFT_PIN_B 9
+#define ENCODER_RIGHT_PIN_A 10
+#define ENCODER_RIGHT_PIN_B 11
 
 // ---------------------------------------------------------------------------
 // TB6612FNG dual motor controller
@@ -118,10 +118,8 @@
 //   S          GPIO6   (signal, active high by default)
 //   EN         GPIO7   (high enables the sensor)
 //
-// NOTE: GPIO6 and GPIO7 are also the left wheel encoder channels
-// (ENCODER_LEFT_PIN_A/B). The IR sensor and the left encoder cannot share
-// these pins. If both are wired, move one of them to a free GPIO (for
-// example GPIO10/GPIO11) and update this section. Free GPIOs on the Pico 2 W
-// include 0-5, 10-13, 26-28.
+// GPIO6/7 (IR sensor) are distinct from the left encoder (GPIO8/9), the right
+// encoder (GPIO10/11), the IMU (GPIO14/15) and the motor controller
+// (GPIO16-22). Free GPIOs on the Pico 2 W include 0-5, 12-13, 26-28.
 #define IR_OBSTACLE_SIGNAL_PIN 6
 #define IR_OBSTACLE_ENABLE_PIN 7
