@@ -20,13 +20,13 @@ in `../config/motor_config.h`.
 | VCC | 3V3 | logic supply, 2.7-5.5 V |
 | GND | GND | common ground with the Pico and motor battery |
 | VM | battery + | motor supply, 3-15 V, never the Pico 3V3 |
-| PWMA | GPIO6 | left PWM (slice 3, channel A) |
-| AIN1 | GPIO7 | left direction 1 |
-| AIN2 | GPIO8 | left direction 2 |
-| PWMB | GPIO9 | right PWM (slice 4, channel B) |
-| BIN1 | GPIO10 | right direction 1 |
-| BIN2 | GPIO11 | right direction 2 |
-| STBY | GPIO12 | high enables both bridges |
+| PWMA | GPIO16 | left PWM |
+| AIN1 | GPIO18 | left direction 1 |
+| AIN2 | GPIO17 | left direction 2 |
+| PWMB | GPIO22 | right PWM |
+| BIN1 | GPIO20 | right direction 1 |
+| BIN2 | GPIO21 | right direction 2 |
+| STBY | GPIO19 | high enables both bridges |
 | AO1 / AO2 | left motor | motor winding only |
 | BO1 / BO2 | right motor | motor winding only |
 
@@ -35,13 +35,13 @@ independently. These GPIOs do not overlap the BNO055 (`GPIO14/15`), the encoders
 (`GPIO16-19`), or the wireless chip (`GPIO23/24/25/29`).
 
 ```c
-#define MOTOR_LEFT_PWM_PIN 6
-#define MOTOR_LEFT_IN1_PIN 7
-#define MOTOR_LEFT_IN2_PIN 8
-#define MOTOR_RIGHT_PWM_PIN 9
-#define MOTOR_RIGHT_IN1_PIN 10
-#define MOTOR_RIGHT_IN2_PIN 11
-#define MOTOR_STANDBY_PIN 12
+#define MOTOR_LEFT_PWM_PIN 16
+#define MOTOR_LEFT_IN1_PIN 18
+#define MOTOR_LEFT_IN2_PIN 17
+#define MOTOR_RIGHT_PWM_PIN 22
+#define MOTOR_RIGHT_IN1_PIN 20
+#define MOTOR_RIGHT_IN2_PIN 21
+#define MOTOR_STANDBY_PIN 19
 ```
 
 Add a 0.1 uF decoupling capacitor across VCC/GND and a bulk capacitor
