@@ -20,6 +20,8 @@ setup(
     entry_points={
         "console_scripts": [
             "occupancy_mapper = dog_toy_finder_mapping.occupancy_mapper:main",
+            "save_map = dog_toy_finder_mapping.save_map:main",
+            "view_map = dog_toy_finder_mapping.view_map:main",
         ],
     },
 )

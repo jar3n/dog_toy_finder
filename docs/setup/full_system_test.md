@@ -155,6 +155,22 @@ ros2 run dog_toy_finder_data dataset_summary /tmp/dog_toy_dataset/run1
 Metrics reported: success, time/steps to find, path length, vision call count
 and average latency, target-visible rate, final pose.
 
+## 6.5 Viewing the map
+
+The occupancy mapper publishes `/map` (nav_msgs/OccupancyGrid) and
+`/tracked_path` (nav_msgs/Path).
+
+- Save to a PGM+YAML file (map_server format):
+  ```bash
+  ros2 run dog_toy_finder_mapping save_map -o /tmp/my_map
+  ```
+- Print an ASCII view in the terminal:
+  ```bash
+  ros2 run dog_toy_finder_mapping view_map
+  ```
+- Visualise in RViz2 (install `ros-humble-rviz2`): add a Map display on
+  `/map` and a Path display on `/tracked_path`.
+
 ## 7. Unit tests
 
 ```bash

@@ -11,6 +11,7 @@ RUN apt-get update && apt-get install -y \
     ros-humble-robot-localization \
     ros-humble-tf2-ros \
     ros-humble-robot-state-publisher \
+    ros-humble-rviz2 \
     ros-humble-cv-bridge \
     ros-humble-image-transport \
     ros-humble-image-proc \
