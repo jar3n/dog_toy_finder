@@ -14,13 +14,12 @@ and has an enable (EN) line. See the [module documentation](https://docs.keyestu
 |---|---|---|
 | VCC | 3V3 | 3.3-5 V supply |
 | GND | GND | common ground |
-| S | GPIO6 | digital signal, active high by default |
-| EN | GPIO7 | high enables the sensor |
+| S | GPIO4 | digital signal, active high by default |
+| EN | GPIO5 | high enables the sensor |
 
-The IR sensor now occupies GPIO6/7 and the left encoder GPIO8/9, the right
-encoder GPIO10/11. All four are distinct. If you re-wire, keep the sensor,
-both encoders and the motor controller on disjoint pins (free GPIOs include
-0-5, 12-13, 26-28).
+GPIO4/5 (IR sensor) are distinct from the encoders (GPIO6-9), the IMU
+(GPIO14/15) and the motor controller (GPIO16-22). Free GPIOs on the Pico 2 W
+include 0-3, 10-13, 26-28.
 
 ## Configuration
 
