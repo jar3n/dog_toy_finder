@@ -1,0 +1,30 @@
+"""Launch the autonomous (non-LLM) search planner."""
+
+from launch import LaunchDescription
+from launch.actions import DeclareLaunchArgument, ExecuteProcess
+from launch.substitutions import LaunchConfiguration
+
+NODE = "/workspace/software/ros2_ws/src/dog_toy_finder_planning/dog_toy_finder_planning/autonomous_search_node.py"
+
+
+def generate_launch_description():
+    arg = LaunchConfiguration
+    return LaunchDescription([
+        DeclareLaunchArgument("target", default_value="red ball"),
+        DeclareLaunchArgument("side", default_value="0.5"),
+        DeclareLaunchArgument("side_increment", default_value="0.5"),
+        DeclareLaunchArgument("loops", default_value="3"),
+        DeclareLaunchArgument("max_time", default_value="120.0"),
+        DeclareLaunchArgument("output_csv", default_value="/tmp/autonomous_search.csv"),
+        DeclareLaunchArgument("run_id", default_value="auto1"),
+
+        ExecuteProcess(output="screen", cmd=[
+            "python3", NODE, "--ros-args",
+            "-p", ["target:=", arg("target")],
+            "-p", ["side:=", arg("side")],
+            "-p", ["side_increment:=", arg("side_increment")],
+            "-p", ["loops:=", arg("loops")],
+            "-p", ["max_time:=", arg("max_time")],
+            "-p", ["output_csv:=", arg("output_csv")],
+            "-p", ["run_id:=", arg("run_id")]]),
+    ])

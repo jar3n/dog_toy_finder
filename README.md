@@ -12,8 +12,10 @@ A ROS 2 robot that finds dog toys: a robot arm mounted on a differential-drive p
 | Folder | What lives there |
 |---|---|
 | `firmware/pico_microros/` | Everything that runs on the Pico: drivers, micro-ROS app, WiFi transport, build config |
-| `ros2_ws/src/` | Computer-side ROS 2 packages (description, bringup, bridge, navigation, arm, perception, behaviors, messages) |
-| `rosa_agent/` | ROSA agent, its tools, prompts, MCP servers, and memory |
+| `firmware/esp_cam/` | ESP32-CAM stereo-vision firmware (left/right eye, JPEG + MJPEG over HTTP) |
+| `software/ros2_ws/src/` | Computer-side ROS 2 packages (bringup, odometry, motion, vision, data, planning, mapping; navigation and arm to follow) |
+| `software/rosa_agent/` | ROSA agent, its tools, prompts, and tests |
+| `software/pico_ros2_led/` | Early LED connection test for the Pico |
 | `simulation/` | Gazebo worlds, models, launch files, and sim-specific config |
 | `hardware/` | CAD, electronics, wiring/pinouts, bill of materials |
 | `docker/` | Containers: `ros2`, `gazebo`, `microros_builder` (plus compose file) |
