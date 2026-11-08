@@ -68,8 +68,8 @@ TB6612 BO1/BO2 --> right motor
 ```
 Pico 3V3   --> sensor VCC
 Pico GND   --> sensor GND
-Pico GPIO10 (phys 16?) <-- sensor S  (digital signal, active high)
-Pico GPIO11            --> sensor EN (high enables)
+Pico GPIO4  <-- sensor S  (digital signal, active high)
+Pico GPIO5  --> sensor EN (high enables)
 ```
 
 ## ESP32-CAM (each eye, x2)
@@ -84,12 +84,12 @@ ESP32-CAM GND --> GND
 
 | GPIO | Function |
 |---|---|
+| 4 | IR obstacle signal (S) |
+| 5 | IR obstacle enable (EN) |
 | 6 | Left encoder A |
 | 7 | Left encoder B |
 | 8 | Right encoder A |
 | 9 | Right encoder B |
-| 10 | IR obstacle signal (S) |
-| 11 | IR obstacle enable (EN) |
 | 14 | BNO055 SDA (I2C1) |
 | 15 | BNO055 SCL (I2C1) |
 | 16 | Motor PWMA |
