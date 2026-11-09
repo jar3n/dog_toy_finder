@@ -35,8 +35,8 @@ on pins 11/12.
 
 The hall outputs are open-drain, so the driver enables the Pico's internal
 pull-ups on all four channels. No external resistors are needed. The four pins
-do not overlap the BNO055 (`GPIO14/15`), the motor controller (`GPIO16-22`), or
-the wireless chip (`GPIO23/24/25/29`).
+do not overlap the IR obstacle sensor (GPIO4/5), the BNO055 (`GPIO14/15`), the
+motor controller (`GPIO16-22`), or the wireless chip (`GPIO23/24/25/29`).
 
 ```c
 #define ENCODER_LEFT_PIN_A 6
