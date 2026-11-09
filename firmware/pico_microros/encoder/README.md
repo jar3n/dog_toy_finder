@@ -34,9 +34,7 @@ This is physical pins 9-12 on the Pico 2 W: left A/B on pins 9/10 and right A/B
 on pins 11/12.
 
 The hall outputs are open-drain, so the driver enables the Pico's internal
-pull-ups on all four channels. No external resistors are needed. The four pins
-do not overlap the IR obstacle sensor (GPIO4/5), the BNO055 (`GPIO14/15`), the
-motor controller (`GPIO16-22`), or the wireless chip (`GPIO23/24/25/29`).
+pull-ups on all four channels. No external resistors are needed. The four pins support edge interrupts.
 
 ```c
 #define ENCODER_LEFT_PIN_A 6

@@ -21,8 +21,7 @@
 //   SCL        GPIO15 (physical pin 20)
 //   ADDR       GND    -> I2C address 0x28
 //
-// I2C1 is used on GPIO14/15, one of its valid pin pairs. GPIO14/15 are free on
-// the Pico 2 W (the wireless chip uses GPIO23/24/25/29).
+// I2C1 is used on GPIO14/15, one of its valid pin pairs.
 //
 // To use different pins, pick another valid I2C1 pair (for example GPIO2/3 or
 // GPIO26/27) or switch BNO055_I2C to i2c0 and use that instance's pins. Both
@@ -56,10 +55,8 @@
 //
 // A/B are swapped relative to the original assignment; this is equivalent to
 // swapping the two hall wires or setting the matching *_INVERT flag. These
-// four pins are free on the Pico 2 W, support edge interrupts, and do not
-// overlap the IR obstacle sensor (GPIO4/5), the BNO055 (GPIO14/15), the
-// motor controller (GPIO16-22), or the wireless chip (GPIO23/24/25/29).
-// Encoder geometry and joint names live in config/encoder_config.h.
+// four pins support edge interrupts. Encoder geometry and joint names live in
+// config/encoder_config.h.
 #define ENCODER_LEFT_PIN_A 7
 #define ENCODER_LEFT_PIN_B 6
 #define ENCODER_RIGHT_PIN_A 9
@@ -91,9 +88,7 @@
 // diodes, but short motor leads and a common ground still matter.
 //
 // The two PWM pins intentionally use different slices so each channel can be
-// configured independently. These GPIOs are free on the Pico 2 W and do not
-// overlap the BNO055 (GPIO14/15), the encoders (GPIO6-9), or the wireless
-// chip (GPIO23/24/25/29).
+// configured independently.
 #define MOTOR_PWMA_PIN 16
 #define MOTOR_AIN1_PIN 18
 #define MOTOR_AIN2_PIN 17
@@ -116,11 +111,8 @@
 //   ------     --------
 //   VCC        3V3
 //   GND        GND
-//   S          GPIO6   (signal, active high by default)
-//   EN         GPIO7   (high enables the sensor)
+//   S          GPIO4   (signal, active high by default)
+//   EN         GPIO5   (high enables the sensor)
 //
-// GPIO4/5 (IR sensor) are distinct from the encoders (GPIO6-9), the IMU
-// (GPIO14/15) and the motor controller (GPIO16-22). Free GPIOs on the Pico 2 W
-// include 0-3, 10-13, 26-28.
 #define IR_OBSTACLE_SIGNAL_PIN 4
 #define IR_OBSTACLE_ENABLE_PIN 5

@@ -31,9 +31,7 @@ in `../config/motor_config.h`.
 | BO1 / BO2 | right motor | motor winding only |
 
 The two PWM pins use different slices so each channel can be configured
-independently. These GPIOs do not overlap the IR obstacle sensor (GPIO4/5),
-the encoders (GPIO6-9), the BNO055 (GPIO14/15), or the wireless chip
-(GPIO23/24/25/29).
+independently.
 
 ```c
 #define MOTOR_LEFT_PWM_PIN 16

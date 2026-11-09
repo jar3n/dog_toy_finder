@@ -17,9 +17,7 @@ and has an enable (EN) line. See the [module documentation](https://docs.keyestu
 | S | GPIO4 | digital signal, active high by default |
 | EN | GPIO5 | high enables the sensor |
 
-GPIO4/5 (IR sensor) are distinct from the encoders (GPIO6-9), the IMU
-(GPIO14/15) and the motor controller (GPIO16-22). Free GPIOs on the Pico 2 W
-include 0-3, 10-13, 26-28.
+Free GPIOs on the Pico 2 W include 0-3, 10-13, 26-28.
 
 ## Configuration
 
