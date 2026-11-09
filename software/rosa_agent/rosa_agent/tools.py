@@ -13,6 +13,7 @@ from langchain_core.tools import tool
 
 from dog_toy_finder_motion.mover import local_change
 from dog_toy_finder_motion.transforms import distance_and_bearing, wrap_angle
+from dog_toy_finder_planning.autonomous_search_node import AutonomousSearch
 
 from .robot import get_robot
 
@@ -199,6 +200,67 @@ def go_to(x: str, y: str) -> str:
     return _report(
         robot, start, "Drove to x %.2f m, y %.2f m" % (goal_x, goal_y)
     )
+
+
+@tool
+def run_search(target: str, mode: str) -> str:
+    """Run the autonomous search for a toy. This is the evaluation/demo search.
+
+    mode 'one': search for a single toy and stop when it is found (evaluation).
+    mode 'all': demo - find every toy in the swept area, recording each one
+    and continuing until the planned coverage finishes.
+
+    target: the toy to find, exactly as the user wrote it, for example
+    'red ball'. The vision node must be running (/vision/ask is answered by
+    dog_toy_finder_vision vision.launch.py), otherwise each vision check
+    times out. Approval gates the whole search; Ctrl-C stops it.
+    """
+    word = _word(mode, ("one", "all"))
+    toy = str(target).strip()
+    if word is None or not toy:
+        return (
+            "Invalid search: mode must be 'one' or 'all' and target must be "
+            "a non-empty toy description. The robot did not move."
+        )
+    robot, error = _ready_or_error()
+    if error is not None:
+        return error
+    find_all = word == "all"
+    purpose = "Find every toy called '%s'" % toy if find_all else \
+        "Search for '%s' and stop when found" % toy
+    if not _approved(purpose):
+        return "The human declined. The robot did not move."
+
+    start = robot.pose()
+    search = AutonomousSearch()
+    search.target = toy
+    search.find_all = find_all
+    search.side = 0.5
+    search.side_increment = 0.5
+    search.loops = 3
+    search.max_time = 120.0
+    search.vision_timeout = 10.0
+    search.found_distance = 0.4
+    stamp = time.strftime("%Y%m%d_%H%M%S")
+    search.run_id = "rosa_%s" % stamp
+    search.output_csv = "/tmp/rosa_search_%s.csv" % stamp
+    robot.executor.add_node(search)
+    try:
+        search.run()
+    finally:
+        robot.executor.remove_node(search)
+        search.destroy_node()
+
+    toys_text = "; ".join(
+        "#%d at (%.2f, %.2f)" % (i, tx, ty)
+        for i, (tx, ty) in enumerate(search.toys, 1)
+    ) or "none"
+    text = (
+        "Search for '%s' finished (%s mode). Toys found: %d (%s). "
+        "CSV log: %s."
+        % (toy, word, len(search.toys), toys_text, search.output_csv)
+    )
+    return _report(robot, start, text)
 
 
 @tool

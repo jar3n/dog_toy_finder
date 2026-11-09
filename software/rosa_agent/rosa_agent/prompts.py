@@ -21,6 +21,9 @@ def build_prompts() -> RobotSystemPrompts:
         ),
         about_your_capabilities=(
             "get_pose() reports the fused position and heading. "
+            "run_search(target, mode) runs the autonomous search: "
+            "mode 'one' searches for one toy and stops when it is found, "
+            "mode 'all' finds every toy in the swept area. "
             "drive_distance(direction, meters) drives forward or backward. "
             "turn(direction, degrees) turns left or right in place. "
             "go_to(x, y) drives to a world-frame point. "
@@ -34,14 +37,17 @@ def build_prompts() -> RobotSystemPrompts:
             "find_toy(target) reports whether a toy is visible, where it is "
             "(left/center/right), its size, and an estimated distance. "
             "is_path_clear() checks whether the path ahead is blocked. "
-            "The arm and autonomous toy search are not connected yet."
+            "The arm is not connected yet."
         ),
         critical_instructions=(
             "Plan one tool call per step the user asks for, in order. Copy numbers "
             "exactly as the user wrote them, for example '0.5'. Use the words "
             "'left', 'right', 'forward', and 'backward' for directions, never "
             "negative numbers. Call stop_robot() if a move fails or the user asks "
-            "to stop. Use find_toy/is_path_clear/describe_scene before driving "
+            "to stop. For a search or find task, call run_search(target, 'one') "
+            "to find one toy and stop, or run_search(target, 'all') to find "
+            "every toy in the area. Use find_toy/is_path_clear/describe_scene "
+            "before driving "
             "towards an object. After the tools finish, report the numbers from "
             "the tool results exactly. Never claim the robot moved or saw something "
             "unless a tool reported it, and never invent a pose or a sensor reading."

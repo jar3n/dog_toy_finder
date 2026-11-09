@@ -92,6 +92,7 @@ python3 -m rosa_agent --model mistral
 | `drive_distance` | `direction`, `meters` | forward/backward up to 2 m |
 | `turn` | `direction`, `degrees` | left/right up to 180 deg |
 | `go_to` | `x`, `y` | drive to a point within 3 m |
+| `run_search` | `target`, `mode` | autonomous search: `one` stops at the first toy, `all` finds every toy |
 | `check_failsafe` | none | whether the Pico IR failsafe sees an obstacle now |
 | `stop_robot` | none | publishes zero `/cmd_vel` |
 | `describe_scene` | none | describe what the stereo camera sees |

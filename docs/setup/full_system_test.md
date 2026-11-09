@@ -148,6 +148,13 @@ source scripts/full_system_eval.conf
 
 ### 5.1 LLM (ROSA) planner
 
+ROSA can command both workflows with its `run_search` tool: mode `one` runs
+the single-toy evaluation search (stops when the toy is found) and mode `all`
+runs the find-all demo search. The vision node must be running first
+(sections 4/stereo + vision), otherwise each vision check times out. The
+search writes `/tmp/rosa_search_<timestamp>.csv` and reports every toy found
+with its position.
+
 ```bash
 cd /workspace/software/rosa_agent
 # compare several models on one prompt:
@@ -155,6 +162,11 @@ python3 -m rosa_agent --compare "$ROSA_COMPARE" --prompt "$ROSA_PROMPT"
 # or interactive:
 python3 -m rosa_agent
 ```
+
+In the interactive session, ask for a search ("Search for the red ball and
+stop when you find it") or a demo find-all ("Find every red ball in the
+area"); the agent calls `run_search` with the matching mode. Approval gates
+the whole search, and Ctrl-C stops it.
 
 Or drive a search with the test harness (uses ROSA tools under the hood is not
 automatic; use the autonomous node for deterministic runs, or drive manually
