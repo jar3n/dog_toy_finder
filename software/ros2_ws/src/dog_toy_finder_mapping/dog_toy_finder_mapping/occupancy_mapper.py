@@ -17,9 +17,11 @@ colour them separately:
 
 When both sensors agree, both the near (IR) and far (vision) obstacle regions
 are marked as "both". The toy location is estimated from the VLM's
-``target_visible``/``position`` fields and a configurable range/bearing; it is
-published on /detected_toys as a separate marker layer, not written into the
-occupancy grid.
+``target_visible``/``position`` fields plus its ``distance_m`` estimate: the
+distance gives the forward offset and the position gives the lateral offset to
+the left or right. When the VLM has no usable distance, ``toy_forward_distance``
+is used. Toy markers are published on /detected_toys as a separate layer, not
+written into the occupancy grid.
 """
 
 import json
@@ -43,7 +45,7 @@ BOTH = 85
 IR_ONLY = 100
 
 NO_OBSTACLE_LABELS = ("", "none", "nothing", "no", "n/a")
-TOY_BEARINGS = {"left": -1.0, "center": 0.0, "right": 1.0}
+TOY_SIDES = {"left": 1.0, "center": 0.0, "right": -1.0}
 
 
 class OccupancyMapper(Node):
@@ -63,9 +65,10 @@ class OccupancyMapper(Node):
         self.declare_parameter("use_vision", True)
 
         # Toy marker estimate.
-        self.declare_parameter("toy_detection_range", 0.6)  # m ahead
-        self.declare_parameter("toy_bearing_deg", 30.0)     # left/right offset
-        self.declare_parameter("toy_dedupe_radius", 0.15)   # m
+        self.declare_parameter("toy_forward_distance", 0.6)  # fallback m ahead
+        self.declare_parameter("toy_side_offset", 0.25)      # m left/right
+        self.declare_parameter("toy_max_distance", 5.0)      # clamp VLM estimates
+        self.declare_parameter("toy_dedupe_radius", 0.15)    # m
         self.declare_parameter("toy_max_count", 500)
 
         self.res = float(self.get_parameter("resolution").value)
@@ -79,8 +82,9 @@ class OccupancyMapper(Node):
         period = float(self.get_parameter("publish_period").value)
         ir_topic = self.get_parameter("ir_topic").value
         self.use_vision = bool(self.get_parameter("use_vision").value)
-        self.toy_range = float(self.get_parameter("toy_detection_range").value)
-        self.toy_bearing = math.radians(float(self.get_parameter("toy_bearing_deg").value))
+        self.toy_forward = float(self.get_parameter("toy_forward_distance").value)
+        self.toy_side = float(self.get_parameter("toy_side_offset").value)
+        self.toy_max_distance = float(self.get_parameter("toy_max_distance").value)
         self.toy_dedupe = float(self.get_parameter("toy_dedupe_radius").value)
         self.toy_max_count = int(self.get_parameter("toy_max_count").value)
 
@@ -233,7 +237,7 @@ class OccupancyMapper(Node):
             results = [data]
 
         labels = []
-        toy_positions = []
+        toys = []  # [(position, distance_m or None), ...]
         for result in results:
             if not isinstance(result, dict):
                 continue
@@ -242,24 +246,39 @@ class OccupancyMapper(Node):
                 labels.append(obs)
             if result.get("target_visible") is True:
                 position = str(result.get("position", "none")).strip().lower()
-                if position in TOY_BEARINGS:
-                    toy_positions.append(position)
+                if position in TOY_SIDES:
+                    toys.append((position, self._toy_distance(result)))
 
         self.vision_obstacle = labels[0] if labels else None
         self.vision_stamp = time.monotonic()
 
-        if toy_positions:
-            position = Counter(toy_positions).most_common(1)[0][0]
-            self.record_toy(position)
+        if toys:
+            position = Counter(p for p, _ in toys).most_common(1)[0][0]
+            distances = [d for p, d in toys if p == position and d is not None]
+            distance = float(np.median(distances)) if distances else None
+            self.record_toy(position, distance)
 
-    def record_toy(self, position):
-        """Add one toy marker at the estimated world position, deduplicated."""
+    def _toy_distance(self, result):
+        """Return a sane VLM distance in metres, or None to use the fallback."""
+        value = result.get("distance_m", result.get("distance"))
+        try:
+            distance = float(value)
+        except (TypeError, ValueError):
+            return None
+        if not math.isfinite(distance) or distance <= 0.0:
+            return None
+        return min(distance, self.toy_max_distance)
+
+    def record_toy(self, position, distance=None):
+        """Add one toy marker ahead and to the side, deduplicated."""
         if self.last_pose is None:
             return
         x, y, yaw = self.last_pose
-        bearing = yaw + TOY_BEARINGS[position] * self.toy_bearing
-        tx = x + self.toy_range * math.cos(bearing)
-        ty = y + self.toy_range * math.sin(bearing)
+        ahead = self.toy_forward if distance is None else distance
+        side = TOY_SIDES[position] * self.toy_side
+        # ROS convention: +x forward, +y left, yaw counter-clockwise.
+        tx = x + ahead * math.cos(yaw) - side * math.sin(yaw)
+        ty = y + ahead * math.sin(yaw) + side * math.cos(yaw)
         if self.world_to_cell(tx, ty) is None:
             return
 
@@ -271,7 +290,8 @@ class OccupancyMapper(Node):
         if len(self.toys) > self.toy_max_count:
             self.toys = self.toys[-self.toy_max_count:]
         self.get_logger().info(
-            f"Toy detected ({position}) at ({tx:.2f}, {ty:.2f}) in odom")
+            f"Toy detected ({position}) at ({tx:.2f}, {ty:.2f}) in odom"
+            f" [{ahead:.2f} m ahead, {side:+.2f} m lateral]")
 
     def publish(self):
         data = self.free_grid.copy()

@@ -43,9 +43,11 @@ ANSWER_SCHEMA = {
         "target_visible": {"type": "boolean"},
         "position": {"type": "string", "enum": ["left", "center", "right", "none"]},
         "size": {"type": "string", "enum": ["small", "medium", "large", "none"]},
+        "distance_m": {"type": "number", "minimum": 0},
         "obstacle_ahead": {"type": "string"},
     },
-    "required": ["description", "target_visible", "position", "size", "obstacle_ahead"],
+    "required": ["description", "target_visible", "position", "size",
+                 "distance_m", "obstacle_ahead"],
 }
 
 COMMON = (
@@ -66,19 +68,19 @@ TARGET_PROMPT = COMMON.format(description=TARGET_DESC) + (
     "(none if not visible). "
     "size: how wide the target looks compared with the image width: small (less than one "
     "tenth), medium, or large (more than one quarter); none if not visible. "
+    "distance_m: your best estimate of the target's distance from the camera in metres, "
+    "using the stereo pair to judge depth; 0 if not visible or unknown. "
     "obstacle_ahead: the name of the object, other than the target, that stands in the "
     "center third of the image where the robot would drive into it if it drove straight "
-    "ahead; write none if there is no such object. Walls do not count. "
-    "Also state the target's approximate distance in metres if you can estimate it from "
-    "the stereo pair.")
+    "ahead; write none if there is no such object. Walls do not count.")
 
 SCENE_PROMPT = COMMON.format(description=SCENE_DESC) + (
-    "There is no target: set target_visible false, position none, and size none. "
+    "There is no target: set target_visible false, position none, size none, "
+    "distance_m 0. "
     "obstacle_ahead: the name of the object that stands in the center third of the image "
     "where the robot would drive into it if it drove straight ahead; write none if there "
-    "is no such object. Walls do not count. "
-    "Also state how far away the nearest central obstacle is in metres if you can "
-    "estimate it from the stereo pair.")
+    "is no such object. Walls do not count."
+)
 
 
 def tidy(answer):
@@ -87,8 +89,14 @@ def tidy(answer):
         obstacle = "none"
     answer["obstacle_ahead"] = obstacle
     answer["path_clear"] = obstacle == "none"
+    try:
+        distance = float(answer.get("distance_m") or 0.0)
+    except (TypeError, ValueError):
+        distance = 0.0
+    answer["distance_m"] = max(0.0, distance)
     if not answer["target_visible"]:
         answer["position"] = answer["size"] = "none"
+        answer["distance_m"] = 0.0
     return answer
 
 
@@ -186,8 +194,8 @@ class VisionNode(Node):
                     if len(self.models) == 1:
                         single = result["results"][0]
                         for key in ("description", "target_visible", "position",
-                                    "size", "obstacle_ahead", "path_clear",
-                                    "seconds"):
+                                    "size", "distance_m", "obstacle_ahead",
+                                    "path_clear", "seconds"):
                             if key in single:
                                 result[key] = single[key]
             except Exception as error:

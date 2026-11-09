@@ -194,14 +194,15 @@ The map distinguishes where each obstacle came from:
 | white floor | `0` | driven-through free space |
 
 Vision obstacles expire after `vision_timeout` (default 5 s), so blue/orange
-blocks reflect recent VLM results rather than old ones. Toy spheres are
-estimated from the VLM's `position` (`left`/`center`/`right`) at
-`toy_detection_range` metres ahead (default 0.6 m) and merged within
-`toy_dedupe_radius` (default 0.15 m). Tune these with:
+blocks reflect recent VLM results rather than old ones. Toy spheres use the
+VLM's `distance_m` as the distance ahead and `toy_side_offset` metres to the
+left or right (default 0.25 m); if `distance_m` is missing or zero, the
+fallback `toy_forward_distance` (default 0.6 m) is used. Markers are merged
+within `toy_dedupe_radius` (default 0.15 m). Tune these with:
 
 ```bash
 ros2 launch dog_toy_finder_mapping mapping.launch.py \
-    toy_detection_range:=0.4 toy_bearing_deg:=25.0 \
+    toy_side_offset:=0.2 toy_forward_distance:=0.4 \
     vision_timeout:=3.0
 ```
 
