@@ -44,7 +44,7 @@ result has `target_visible: true` and a `position` of `left`, `center`, or
 heading, offset `toy_side_offset` metres to that side (default 0.25 m). If the
 VLM does not provide a usable `distance_m`, the fallback `toy_forward_distance`
 (default 0.6 m) is used; estimates are clamped to `toy_max_distance` (default
-5 m). Markers closer than `toy_dedupe_radius` (default 0.15 m) are merged.
+5 m). Markers closer than `toy_merge_radius` (default 0.15 m) are merged.
 
 Each toy also marks a `(2 * toy_occupancy_radius + 1)` square of cells as
 occupied with value `60`, so the toy appears as occupied space in `/map`
@@ -69,7 +69,7 @@ memory.
 | `toy_forward_distance` | `0.6` | fallback toy distance ahead when the VLM gives none (m) |
 | `toy_side_offset` | `0.25` | left/right lateral offset from the heading (m) |
 | `toy_max_distance` | `5.0` | clamp for VLM distance estimates (m) |
-| `toy_dedupe_radius` | `0.15` | merge toy markers within this radius (m) |
+| `toy_merge_radius` | `0.15` | toys within this distance are treated as the same toy (m) |
 | `toy_occupancy_radius` | `1` | cells marked around each toy (1 = 3x3) |
 | `toy_max_count` | `500` | maximum stored toy markers |
 

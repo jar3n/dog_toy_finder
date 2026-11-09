@@ -71,7 +71,7 @@ class OccupancyMapper(Node):
         self.declare_parameter("toy_forward_distance", 0.6)  # fallback m ahead
         self.declare_parameter("toy_side_offset", 0.25)      # m left/right
         self.declare_parameter("toy_max_distance", 5.0)      # clamp VLM estimates
-        self.declare_parameter("toy_dedupe_radius", 0.15)    # m
+        self.declare_parameter("toy_merge_radius", 0.15)    # m
         self.declare_parameter("toy_occupancy_radius", 1)    # cells around toy
         self.declare_parameter("toy_max_count", 500)
 
@@ -89,7 +89,7 @@ class OccupancyMapper(Node):
         self.toy_forward = float(self.get_parameter("toy_forward_distance").value)
         self.toy_side = float(self.get_parameter("toy_side_offset").value)
         self.toy_max_distance = float(self.get_parameter("toy_max_distance").value)
-        self.toy_dedupe = float(self.get_parameter("toy_dedupe_radius").value)
+        self.toy_merge = float(self.get_parameter("toy_merge_radius").value)
         self.toy_occupancy_radius = int(self.get_parameter("toy_occupancy_radius").value)
         self.toy_max_count = int(self.get_parameter("toy_max_count").value)
 
@@ -293,7 +293,7 @@ class OccupancyMapper(Node):
             return
 
         for ox, oy in self.toys:
-            if (ox - tx) ** 2 + (oy - ty) ** 2 <= self.toy_dedupe ** 2:
+            if (ox - tx) ** 2 + (oy - ty) ** 2 <= self.toy_merge ** 2:
                 return
 
         self.toys.append((tx, ty))

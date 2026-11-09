@@ -76,7 +76,7 @@ MAP_CMD="$MAP_CMD vision_timeout:=$VISION_TIMEOUT"
 MAP_CMD="$MAP_CMD toy_forward_distance:=$TOY_FORWARD_DISTANCE"
 MAP_CMD="$MAP_CMD toy_side_offset:=$TOY_SIDE_OFFSET"
 MAP_CMD="$MAP_CMD toy_max_distance:=$TOY_MAX_DISTANCE"
-MAP_CMD="$MAP_CMD toy_dedupe_radius:=$TOY_DEDUPE_RADIUS"
+MAP_CMD="$MAP_CMD toy_merge_radius:=$TOY_MERGE_RADIUS"
 MAP_CMD="$MAP_CMD toy_occupancy_radius:=$TOY_OCCUPANCY_RADIUS"
 
 WEB_CMD="ros2 run dog_toy_finder_mapping map_webserver --ros-args -p port:=$WEBMAP_PORT"

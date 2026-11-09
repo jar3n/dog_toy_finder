@@ -233,7 +233,7 @@ and are never mistaken for an IR or vision detection. Toy spheres use the
 VLM's `distance_m` as the distance ahead and `toy_side_offset` metres to the
 left or right (default 0.25 m); if `distance_m` is missing or zero, the
 fallback `toy_forward_distance` (default 0.6 m) is used. Markers are merged
-within `toy_dedupe_radius` (default 0.15 m), and each toy marks a
+within `toy_merge_radius` (default 0.15 m), and each toy marks a
 `(2 * toy_occupancy_radius + 1)` square of cells (default radius `1`, a 3x3
 patch). Tune these with:
 

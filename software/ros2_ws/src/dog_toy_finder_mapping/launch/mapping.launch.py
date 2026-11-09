@@ -24,7 +24,7 @@ def generate_launch_description():
         DeclareLaunchArgument("toy_forward_distance", default_value="0.6"),
         DeclareLaunchArgument("toy_side_offset", default_value="0.25"),
         DeclareLaunchArgument("toy_max_distance", default_value="5.0"),
-        DeclareLaunchArgument("toy_dedupe_radius", default_value="0.15"),
+        DeclareLaunchArgument("toy_merge_radius", default_value="0.15"),
         DeclareLaunchArgument("toy_occupancy_radius", default_value="1"),
 
         ExecuteProcess(output="screen", cmd=[
@@ -43,6 +43,6 @@ def generate_launch_description():
             "-p", ["toy_forward_distance:=", arg("toy_forward_distance")],
             "-p", ["toy_side_offset:=", arg("toy_side_offset")],
             "-p", ["toy_max_distance:=", arg("toy_max_distance")],
-            "-p", ["toy_dedupe_radius:=", arg("toy_dedupe_radius")],
+            "-p", ["toy_merge_radius:=", arg("toy_merge_radius")],
             "-p", ["toy_occupancy_radius:=", arg("toy_occupancy_radius")]]),
     ])
