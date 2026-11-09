@@ -6,6 +6,7 @@ setup(
     name=package_name,
     version="0.1.0",
     packages=[package_name],
+    package_data={package_name: ["static/*"]},
     data_files=[
         ("share/ament_index/resource_index/packages", ["resource/" + package_name]),
         ("share/" + package_name, ["package.xml"]),
@@ -20,8 +21,6 @@ setup(
     entry_points={
         "console_scripts": [
             "occupancy_mapper = dog_toy_finder_mapping.occupancy_mapper:main",
-            "save_map = dog_toy_finder_mapping.save_map:main",
-            "view_map = dog_toy_finder_mapping.view_map:main",
             "map_webserver = dog_toy_finder_mapping.map_webserver:main",
         ],
     },

@@ -95,7 +95,7 @@ ros2 launch dog_toy_finder_vision stereo.launch.py \
     right_url:=http://esp32cam-right.local/capture
 ros2 launch dog_toy_finder_vision vision.launch.py models:="gemma3,llava"
 ros2 launch dog_toy_finder_mapping mapping.launch.py
-ros2 run dog_toy_finder_mapping map_webserver   # 3D map at http://<ip>:8765
+ros2 run dog_toy_finder_mapping map_webserver   # live map at http://<ip>:8765 (Save PNG button)
 cd /workspace/software/rosa_agent && python3 -m rosa_agent
 ```
 

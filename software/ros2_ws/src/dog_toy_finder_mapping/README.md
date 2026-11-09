@@ -24,11 +24,21 @@ disabled with `use_vision:=false`.
 
 ## View the map
 
-- Web viewer (3D, in a browser):
-  ```bash
-  ros2 run dog_toy_finder_mapping map_webserver
-  # open http://<computer-ip>:8765
-  # (override with: ros2 run ... map_webserver --ros-args -p port:=9000)
-  ```
-- Save to PGM+YAML: `ros2 run dog_toy_finder_mapping save_map -o /tmp/my_map`
-- ASCII view: `ros2 run dog_toy_finder_mapping view_map`
+The live map is viewed in a browser. The server listens on all interfaces, so
+any phone, tablet, or computer on the same network can open it.
+
+```bash
+ros2 run dog_toy_finder_mapping map_webserver
+# open http://<computer-ip>:8765
+# (override with: ros2 run ... map_webserver --ros-args -p port:=9000)
+```
+
+The page updates automatically as `/map` and `/tracked_path` change and prints
+the URL to use in the node log. Three.js is bundled in the package, so the
+viewing computer does not need internet access. Use **Save PNG** in the page to
+download the current view to the computer running the browser (no file is
+written on the robot computer). **Reset view** returns the camera to its
+default angle.
+
+This is the only map viewer: the old `save_map` (PGM/YAML) and `view_map`
+(ASCII) commands have been removed.

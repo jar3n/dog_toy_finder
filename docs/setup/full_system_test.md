@@ -171,18 +171,20 @@ and average latency, target-visible rate, final pose.
 ## 6.5 Viewing the map
 
 The occupancy mapper publishes `/map` (nav_msgs/OccupancyGrid) and
-`/tracked_path` (nav_msgs/Path).
+`/tracked_path` (nav_msgs/Path). Start the browser viewer:
 
-- Save to a PGM+YAML file (map_server format):
-  ```bash
-  ros2 run dog_toy_finder_mapping save_map -o /tmp/my_map
-  ```
-- Print an ASCII view in the terminal:
-  ```bash
-  ros2 run dog_toy_finder_mapping view_map
-  ```
-- Visualise in RViz2 (install `ros-humble-rviz2`): add a Map display on
-  `/map` and a Path display on `/tracked_path`.
+```bash
+ros2 run dog_toy_finder_mapping map_webserver
+# next line of the log prints the URL, e.g. http://192.168.1.50:8765
+```
+
+Open that URL on any computer or phone on the same network. The 3D view
+updates automatically. Click **Save PNG** to download the current view to the
+computer running the browser; **Reset view** restores the camera angle.
+
+The old `save_map` and `view_map` commands have been removed. If you need a
+one-off screenshot on the robot computer, use the browser's download instead
+of writing files on the robot.
 
 ## 7. Unit tests
 
