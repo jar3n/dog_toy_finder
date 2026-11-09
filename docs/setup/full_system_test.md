@@ -137,12 +137,21 @@ ros2 topic echo /rosout | grep FAILED
 
 ## 5. Run the full test evaluation
 
+All evaluation parameters (target, search sizes, run IDs, CSV paths, data
+collection) live in `scripts/full_system_eval.conf`. Source it first so the
+commands below expand to the configured values:
+
+```bash
+cd /workspace
+source scripts/full_system_eval.conf
+```
+
 ### 5.1 LLM (ROSA) planner
 
 ```bash
 cd /workspace/software/rosa_agent
 # compare several models on one prompt:
-python3 -m rosa_agent --compare llama3.2,mistral,qwen2.5 --prompt "Find the red ball."
+python3 -m rosa_agent --compare "$ROSA_COMPARE" --prompt "$ROSA_PROMPT"
 # or interactive:
 python3 -m rosa_agent
 ```
@@ -155,23 +164,30 @@ and log with the data collector).
 
 ```bash
 ros2 launch dog_toy_finder_planning autonomous_search.launch.py \
-    target:="red ball" side:=0.5 loops:=3 max_time:=120 \
-    output_csv:=/tmp/auto1.csv run_id:=auto1
+    target:="$AUTO_TARGET" side:=$AUTO_SIDE \
+    side_increment:=$AUTO_SIDE_INCREMENT loops:=$AUTO_LOOPS \
+    max_time:=$AUTO_MAX_TIME output_csv:=$AUTO_OUTPUT_CSV \
+    run_id:=$AUTO_RUN_ID
 ```
 
 ### 5.3 LLM-driven search via toy_search harness (baseline)
 
 ```bash
 ros2 launch dog_toy_finder_experiments toy_search.launch.py \
-    target:="red ball" side:=0.5 loops:=3 max_time:=120 \
-    output_csv:=/tmp/llm1.csv run_id:=llm1
+    target:="$TOY_TARGET" pattern:=$TOY_PATTERN side:=$TOY_SIDE \
+    side_increment:=$TOY_SIDE_INCREMENT loops:=$TOY_LOOPS \
+    max_time:=$TOY_MAX_TIME output_csv:=$TOY_OUTPUT_CSV \
+    run_id:=$TOY_RUN_ID
 ```
 
 ### 5.4 Collect richer data (optional)
 
 ```bash
 ros2 launch dog_toy_finder_data collect.launch.py \
-    output_dir:=/tmp/dog_toy_dataset run_id:=run1 image_every:=5
+    output_dir:=$COLLECT_OUTPUT_DIR run_id:=$COLLECT_RUN_ID \
+    record_images:=$COLLECT_RECORD_IMAGES \
+    image_every:=$COLLECT_IMAGE_EVERY \
+    record_disparity:=$COLLECT_RECORD_DISPARITY
 ```
 
 ## 6. Evaluate
