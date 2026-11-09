@@ -167,7 +167,7 @@ ros2 launch dog_toy_finder_planning autonomous_search.launch.py \
     target:="$AUTO_TARGET" side:=$AUTO_SIDE \
     side_increment:=$AUTO_SIDE_INCREMENT loops:=$AUTO_LOOPS \
     max_time:=$AUTO_MAX_TIME output_csv:=$AUTO_OUTPUT_CSV \
-    run_id:=$AUTO_RUN_ID
+    run_id:=$AUTO_RUN_ID found_distance:=$AUTO_FOUND_DISTANCE
 ```
 
 ### 5.3 LLM-driven search via toy_search harness (baseline)
@@ -177,7 +177,7 @@ ros2 launch dog_toy_finder_experiments toy_search.launch.py \
     target:="$TOY_TARGET" pattern:=$TOY_PATTERN side:=$TOY_SIDE \
     side_increment:=$TOY_SIDE_INCREMENT loops:=$TOY_LOOPS \
     max_time:=$TOY_MAX_TIME output_csv:=$TOY_OUTPUT_CSV \
-    run_id:=$TOY_RUN_ID
+    run_id:=$TOY_RUN_ID found_distance:=$TOY_FOUND_DISTANCE
 ```
 
 ### 5.4 Collect richer data (optional)
@@ -190,11 +190,33 @@ ros2 launch dog_toy_finder_data collect.launch.py \
     record_disparity:=$COLLECT_RECORD_DISPARITY
 ```
 
-## 6. Evaluate
+## 6. Reset and run again
+
+The autonomous and toy-search nodes are one-shot: each launch runs one search
+and exits. The search stops by itself when the target is found (visible and
+medium/large, or within `found_distance`), printing `found: True` and writing
+its CSV. The ROSA planner (section 5.1) is interactive instead — the operator
+drives and stops it.
+
+To run the test again from the same starting spot:
+
+1. Physically place the robot back at the start mark, facing the same way.
+2. **Restart the bringup and mapping nodes** (in `launch_all.sh`, the
+   `bringup`, `mapping`, and `webmap` panes). This zeroes the EKF/odometry
+   frame at the new pose and clears the occupancy map and toy markers.
+   Without this, poses and the map keep accumulating from the previous run.
+   The stereo and vision panes can stay up.
+3. Give each run its own `run_id` and `output_csv` in
+   `scripts/full_system_eval.conf` — the search nodes overwrite the CSV file
+   on every run, so reusing a path destroys the previous run's log.
+4. Run section 5.2 or 5.3 again. The search starts from `x=0, y=0` in the
+   fresh odometry frame.
+
+## 7. Evaluate
 
 ```bash
-ros2 run dog_toy_finder_experiments evaluate_runs /tmp/llm1.csv /tmp/auto1.csv
-ros2 run dog_toy_finder_data dataset_summary /tmp/dog_toy_dataset/run1
+ros2 run dog_toy_finder_experiments evaluate_runs "$TOY_OUTPUT_CSV" "$AUTO_OUTPUT_CSV"
+ros2 run dog_toy_finder_data dataset_summary "$COLLECT_OUTPUT_DIR/$COLLECT_RUN_ID"
 ```
 
 Metrics reported: success, time/steps to find, path length, vision call count

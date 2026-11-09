@@ -17,6 +17,7 @@ def generate_launch_description():
         DeclareLaunchArgument("max_time", default_value="120.0"),
         DeclareLaunchArgument("output_csv", default_value="/tmp/autonomous_search.csv"),
         DeclareLaunchArgument("run_id", default_value="auto1"),
+        DeclareLaunchArgument("found_distance", default_value="0.4"),
 
         ExecuteProcess(output="screen", cmd=[
             "python3", NODE, "--ros-args",
@@ -26,5 +27,6 @@ def generate_launch_description():
             "-p", ["loops:=", arg("loops")],
             "-p", ["max_time:=", arg("max_time")],
             "-p", ["output_csv:=", arg("output_csv")],
-            "-p", ["run_id:=", arg("run_id")]]),
+            "-p", ["run_id:=", arg("run_id")],
+            "-p", ["found_distance:=", arg("found_distance")]]),
     ])

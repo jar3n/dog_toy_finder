@@ -50,6 +50,7 @@ class ToySearchTest(Mover):
         self.declare_parameter("vision_timeout", 10.0)
         self.declare_parameter("output_csv", "/tmp/toy_search.csv")
         self.declare_parameter("run_id", "run1")
+        self.declare_parameter("found_distance", 0.4)  # m, stop when this close
 
         self.target = self.get_parameter("target").value
         self.pattern = self.get_parameter("pattern").value
@@ -60,6 +61,7 @@ class ToySearchTest(Mover):
         self.vision_timeout = float(self.get_parameter("vision_timeout").value)
         self.output_csv = self.get_parameter("output_csv").value
         self.run_id = self.get_parameter("run_id").value
+        self.found_distance = float(self.get_parameter("found_distance").value)
 
         self.ask_pub = self.create_publisher(String, "/vision/ask", 10)
         self.create_subscription(String, "/vision/result", self.on_vision_result,
@@ -101,6 +103,33 @@ class ToySearchTest(Mover):
             return 0.0, 0.0, 0.0
         return pose
 
+    def _entry(self, result):
+        """Return the single-model result dict (handles results[] wrapping)."""
+        if not isinstance(result, dict):
+            return {}
+        if "target_visible" not in result:
+            results = result.get("results")
+            if isinstance(results, list) and results and isinstance(results[0], dict):
+                return results[0]
+        return result
+
+    def _is_found(self, result):
+        """Decide whether the target counts as found.
+
+        Found when the target is visible and either looks medium/large in the
+        image or the VLM estimates it within found_distance metres.
+        """
+        entry = self._entry(result)
+        if not entry.get("target_visible"):
+            return False
+        if entry.get("size") in ("medium", "large"):
+            return True
+        try:
+            distance = float(entry.get("distance_m") or 0.0)
+        except (TypeError, ValueError):
+            return False
+        return 0.0 < distance <= self.found_distance
+
     def log_step(self, step, result, found_now, t0):
         x, y, theta = self.current_pose()
         vision_seconds = None
@@ -135,7 +164,15 @@ class ToySearchTest(Mover):
 
     def run(self):
         t0 = time.time()
-        self.wait_for_odom()
+        try:
+            self.wait_for_odom()
+        except RuntimeError as error:
+            # No pose feedback: still write the (empty) log so the failed run
+            # leaves an artifact instead of a bare traceback.
+            self.get_logger().error(str(error))
+            self._write_csv()
+            self._print_summary(t0)
+            return
         step = 0
         side = self.side
 
@@ -150,13 +187,10 @@ class ToySearchTest(Mover):
                 step += 1
                 result = self.ask_vision()
                 found_now = False
-                if result is not None:
-                    tv = result.get("target_visible", False)
-                    sz = result.get("size", "none")
-                    if tv and sz in ("medium", "large"):
-                        found_now = True
-                        self.found = True
-                        self.found_step = step
+                if result is not None and self._is_found(result):
+                    found_now = True
+                    self.found = True
+                    self.found_step = step
                 self.log_step(step, result, found_now, t0)
                 self.get_logger().info(
                     f"step {step}: found={found_now} visible={result.get('target_visible') if result else None} "

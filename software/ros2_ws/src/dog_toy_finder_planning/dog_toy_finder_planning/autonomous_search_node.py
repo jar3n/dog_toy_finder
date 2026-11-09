@@ -47,6 +47,7 @@ class AutonomousSearch(Mover):
         self.declare_parameter("output_csv", "/tmp/autonomous_search.csv")
         self.declare_parameter("run_id", "auto1")
         self.declare_parameter("home_on_visible", True)
+        self.declare_parameter("found_distance", 0.4)  # m, stop when this close
 
         self.target = self.get_parameter("target").value
         self.side = float(self.get_parameter("side").value)
@@ -57,6 +58,7 @@ class AutonomousSearch(Mover):
         self.output_csv = self.get_parameter("output_csv").value
         self.run_id = self.get_parameter("run_id").value
         self.home_on_visible = bool(self.get_parameter("home_on_visible").value)
+        self.found_distance = float(self.get_parameter("found_distance").value)
 
         self.ask_pub = self.create_publisher(String, "/vision/ask", 10)
         self.create_subscription(String, "/vision/result", self.on_vision_result,
@@ -98,6 +100,38 @@ class AutonomousSearch(Mover):
             return 0.0, 0.0, 0.0
         return pose
 
+    def _entry(self, result):
+        """Return the single-model result dict (handles results[] wrapping)."""
+        if not isinstance(result, dict):
+            return {}
+        if "target_visible" not in result:
+            results = result.get("results")
+            if isinstance(results, list) and results and isinstance(results[0], dict):
+                return results[0]
+        return result
+
+    def _distance(self, entry):
+        """Return a sane VLM distance in metres, or None when unknown."""
+        try:
+            distance = float(entry.get("distance_m") or 0.0)
+        except (TypeError, ValueError):
+            return None
+        return distance if distance > 0.0 else None
+
+    def _is_found(self, result):
+        """Decide whether the target counts as found.
+
+        Found when the target is visible and either looks medium/large in the
+        image or the VLM estimates it within found_distance metres.
+        """
+        entry = self._entry(result)
+        if not entry.get("target_visible"):
+            return False
+        if entry.get("size") in ("medium", "large"):
+            return True
+        distance = self._distance(entry)
+        return distance is not None and distance <= self.found_distance
+
     def log_step(self, action, result, found_now, t0):
         x, y, theta = self.current_pose()
         target_visible = False
@@ -136,9 +170,10 @@ class AutonomousSearch(Mover):
 
     def home_on_target(self, result, t0):
         """Turn toward a visible target and drive a short step."""
-        if not result or not result.get("target_visible"):
+        if not result or not self._entry(result).get("target_visible"):
             return False
-        pos = result.get("position", "center")
+        entry = self._entry(result)
+        pos = entry.get("position", "center")
         turn_angle = 0.0
         if pos == "left":
             turn_angle = math.radians(15)
@@ -146,21 +181,26 @@ class AutonomousSearch(Mover):
             turn_angle = math.radians(-15)
         if turn_angle != 0.0:
             self.turn(turn_angle)
-        # Drive a short step toward the target.
-        size = result.get("size", "none")
-        step_dist = 0.2 if size in ("small", "none") else 0.1
+        # Drive a short step toward the target. Shrink the step as the VLM
+        # distance shrinks so homing slows down near the toy.
+        distance = self._distance(entry)
+        size = entry.get("size", "none")
+        if distance is not None:
+            step_dist = max(0.05, min(0.2, distance / 2.0))
+        else:
+            step_dist = 0.2 if size in ("small", "none") else 0.1
         self.straight(step_dist)
         self.step += 1
+        if self.failsafe_hit():
+            # The Pico IR failsafe stopped us at the toy; do not push further.
+            self.get_logger().info(
+                "Pico failsafe stopped homing next to the toy; re-checking.")
         # Re-check.
         new_result = self.ask_vision()
-        found_now = False
-        if new_result is not None:
-            tv = new_result.get("target_visible", False)
-            sz = new_result.get("size", "none")
-            if tv and sz in ("medium", "large"):
-                found_now = True
-                self.found = True
-                self.found_step = self.step
+        found_now = self._is_found(new_result)
+        if found_now:
+            self.found = True
+            self.found_step = self.step
         self.log_step("home", new_result, found_now, t0)
         return found_now
 
@@ -173,7 +213,15 @@ class AutonomousSearch(Mover):
 
     def run(self):
         t0 = time.time()
-        self.wait_for_odom()
+        try:
+            self.wait_for_odom()
+        except RuntimeError as error:
+            # No pose feedback: still write the (empty) log so the failed run
+            # leaves an artifact instead of a bare traceback.
+            self.get_logger().error(str(error))
+            self._write_csv()
+            self._print_summary(t0)
+            return
         side = self.side
 
         for loop in range(self.loops):
@@ -197,13 +245,11 @@ class AutonomousSearch(Mover):
                 result = self.ask_vision()
                 found_now = False
                 if result is not None:
-                    tv = result.get("target_visible", False)
-                    sz = result.get("size", "none")
-                    if tv and sz in ("medium", "large"):
+                    if self._is_found(result):
                         found_now = True
                         self.found = True
                         self.found_step = self.step
-                    elif tv and self.home_on_visible:
+                    elif self._entry(result).get("target_visible") and self.home_on_visible:
                         # Try to home in on the visible target.
                         if self.home_on_target(result, t0):
                             found_now = True
