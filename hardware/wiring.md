@@ -30,14 +30,14 @@ BNO055 ADDR            --GND-->  (I2C address 0x28)
 
 ```
 Left encoder:
-  Pico GPIO6  (phys 9)  <-- A --  encoder A  (open-drain, internal pull-up)
-  Pico GPIO7  (phys 10) <-- B --  encoder B
+  Pico GPIO7  (phys 10) <-- A --  encoder A  (open-drain, internal pull-up)
+  Pico GPIO6  (phys 9)  <-- B --  encoder B
   Pico 3V3              --> VCC
   Pico GND              --> GND
 
 Right encoder:
-  Pico GPIO8  (phys 11) <-- A --  encoder A
-  Pico GPIO9  (phys 12) <-- B --  encoder B
+  Pico GPIO9  (phys 12) <-- A --  encoder A
+  Pico GPIO8  (phys 11) <-- B --  encoder B
   Pico 3V3              --> VCC
   Pico GND              --> GND
 ```
@@ -86,10 +86,10 @@ ESP32-CAM GND --> GND
 |---|---|
 | 4 | IR obstacle signal (S) |
 | 5 | IR obstacle enable (EN) |
-| 6 | Left encoder A |
-| 7 | Left encoder B |
-| 8 | Right encoder A |
-| 9 | Right encoder B |
+| 6 | Left encoder B |
+| 7 | Left encoder A |
+| 8 | Right encoder B |
+| 9 | Right encoder A |
 | 14 | BNO055 SDA (I2C1) |
 | 15 | BNO055 SCL (I2C1) |
 | 16 | Motor PWMA |

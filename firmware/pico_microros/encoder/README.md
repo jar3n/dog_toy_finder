@@ -26,8 +26,8 @@ Encoder pins live in `../config/pinout.h`; geometry and ROS settings live in
 |---|---|---|
 | VCC | 3V3 | encoder is rated 3.3-5 V |
 | GND | GND | common ground with the motor driver |
-| A | GPIO6 (left), GPIO8 (right) | hall channel A |
-| B | GPIO7 (left), GPIO9 (right) | hall channel B |
+| A | GPIO7 (left), GPIO9 (right) | hall channel A |
+| B | GPIO6 (left), GPIO8 (right) | hall channel B |
 | Motor + / - | motor driver | never connect the motor to the Pico |
 
 This is physical pins 9-12 on the Pico 2 W: left A/B on pins 9/10 and right A/B

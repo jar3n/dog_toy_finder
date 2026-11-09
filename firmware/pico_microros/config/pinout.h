@@ -49,20 +49,21 @@
 //
 // Wiring on the Pico 2 W:
 //
-//   Left encoder A    GPIO6   (physical pin 9)
-//   Left encoder B    GPIO7   (physical pin 10)
-//   Right encoder A   GPIO8   (physical pin 11)
-//   Right encoder B   GPIO9   (physical pin 12)
+//   Left encoder A    GPIO7   (physical pin 10)
+//   Left encoder B    GPIO6   (physical pin 9)
+//   Right encoder A   GPIO9   (physical pin 12)
+//   Right encoder B   GPIO8   (physical pin 11)
 //
-// These four pins are free on the Pico 2 W, support edge interrupts, and do
-// not overlap the IR obstacle sensor (GPIO4/5), the BNO055 (GPIO14/15), the
-// motor controller (GPIO16-22), or the wireless chip (GPIO23/24/25/29). Swap
-// A/B or set the matching *_INVERT flag in config/encoder_config.h to flip the
-// counting direction. Encoder geometry and joint names live there.
-#define ENCODER_LEFT_PIN_A 6
-#define ENCODER_LEFT_PIN_B 7
-#define ENCODER_RIGHT_PIN_A 8
-#define ENCODER_RIGHT_PIN_B 9
+// A/B are swapped relative to the original assignment; this is equivalent to
+// swapping the two hall wires or setting the matching *_INVERT flag. These
+// four pins are free on the Pico 2 W, support edge interrupts, and do not
+// overlap the IR obstacle sensor (GPIO4/5), the BNO055 (GPIO14/15), the
+// motor controller (GPIO16-22), or the wireless chip (GPIO23/24/25/29).
+// Encoder geometry and joint names live in config/encoder_config.h.
+#define ENCODER_LEFT_PIN_A 7
+#define ENCODER_LEFT_PIN_B 6
+#define ENCODER_RIGHT_PIN_A 9
+#define ENCODER_RIGHT_PIN_B 8
 
 // ---------------------------------------------------------------------------
 // TB6612FNG dual motor controller
