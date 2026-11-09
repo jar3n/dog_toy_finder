@@ -6,9 +6,10 @@
 dual H-bridge. Each channel gets a PWM speed input and two direction pins, and
 one shared standby pin enables or disables both bridges.
 
-The driver is low-level only: it accepts a signed duty from -1.0 to +1.0 per
-motor. There is no `/cmd_vel` subscriber yet, so the firmware initializes the
-controller with both channels coasting and never commands motion.
+The driver accepts a signed duty from -1.0 to +1.0 per motor. `cmd_vel.c`
+sits above it: it subscribes to `/cmd_vel`, mixes `Twist` into left/right
+wheel duty, stops the motors when commands time out, and applies a local IR
+reflex brake when the obstacle sensor sees something ahead.
 
 ## Wiring
 
@@ -155,17 +156,24 @@ dropping STBY, so re-enabling never resumes the previous speed.
 - STBY is pulled low in `tb6612fng_init()` before either bridge is configured
   and again by `tb6612fng_set_enabled(false)`. Call the latter from any fault
   handler or command watchdog.
-- There is no command timeout yet. When a ROS command path is added, stop or
-  brake the motors if no command arrives within a short timeout.
+- `cmd_vel.c` brakes both motors when no `/cmd_vel` message arrives for
+  `CMD_VEL_TIMEOUT_MS` (default 500 ms), so a stalled computer or Wi-Fi link
+  cannot leave the robot driving.
+- The IR reflex brakes on the Pico itself when an obstacle is within the
+  sensor's range, independent of the network. It blocks forward and
+  turn-in-place commands, and allows a reverse command so the robot can back
+  away. Configure it with `CMD_VEL_IR_REFLEX` and
+  `CMD_VEL_IR_REFLEX_ALLOW_REVERSE` in `../config/cmd_vel_config.h`.
 - Verify the actual motor supply voltage, motor lead polarity, and wheel
   geometry before running the robot on the floor.
 
-## Next steps
+## Tuning
 
-A motion command path still needs to be added. The likely shape is a
-`geometry_msgs/msg/Twist` subscriber on `/cmd_vel`, a differential-drive
-conversion to left/right duty using the wheel separation, and a timeout that
-calls `tb6612fng_stop_all()` when commands stop arriving. That subscriber would
-need a micro-ROS subscription slot and, if a new publisher is also added, a
-rebuilt `libmicroros.a` because all three publisher slots are currently used by
-logs, the IMU, and `/joint_states`.
+The geometry and speed defaults live in `../config/cmd_vel_config.h`. Measure
+the wheel separation and top speed on your own chassis, then adjust
+`CMD_VEL_WHEEL_SEPARATION_M` and `CMD_VEL_MAX_WHEEL_SPEED_M_S`. Set
+`CMD_VEL_STOP_BRAKE` to 1 for an active brake on timeout or 0 to coast.
+
+The micro-ROS subscription needs one slot; the current `libmicroros.a` is
+built with enough slots for the log, IMU, joint-state, and IR publishers plus
+this subscription.

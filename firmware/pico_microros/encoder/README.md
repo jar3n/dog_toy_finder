@@ -114,9 +114,9 @@ ros2 topic hz /joint_states
 ros2 topic echo /joint_states
 ```
 
-The micro-ROS library is built with `RMW_UXRCE_MAX_PUBLISHERS=3`. Logs, the
-IMU, and this encoder publisher use all three slots. Increasing that limit
-requires rebuilding `libmicroros.a` with the Docker builder.
+The micro-ROS library is built with `RMW_UXRCE_MAX_PUBLISHERS=4`. Logs, the
+IMU, this encoder publisher, and the IR sensor use the four slots. Increasing
+that limit requires rebuilding `libmicroros.a` with the Docker builder.
 
 ## Usage
 

@@ -14,14 +14,16 @@ colour them separately:
     100  IR only
      70  vision only
      85  both sensors (concurrent detections or overlapping regions)
+     60  toy (occupied by a detected toy)
 
 When both sensors agree, both the near (IR) and far (vision) obstacle regions
 are marked as "both". The toy location is estimated from the VLM's
 ``target_visible``/``position`` fields plus its ``distance_m`` estimate: the
 distance gives the forward offset and the position gives the lateral offset to
 the left or right. When the VLM has no usable distance, ``toy_forward_distance``
-is used. Toy markers are published on /detected_toys as a separate layer, not
-written into the occupancy grid.
+is used. Each toy also marks a small occupied patch in the grid (value 60) so
+it is treated as occupied space, in addition to being published on
+/detected_toys.
 """
 
 import json
@@ -40,6 +42,7 @@ from std_msgs.msg import Bool, String
 
 UNKNOWN = -1
 FREE = 0
+TOY = 60
 VISION_ONLY = 70
 BOTH = 85
 IR_ONLY = 100
@@ -69,6 +72,7 @@ class OccupancyMapper(Node):
         self.declare_parameter("toy_side_offset", 0.25)      # m left/right
         self.declare_parameter("toy_max_distance", 5.0)      # clamp VLM estimates
         self.declare_parameter("toy_dedupe_radius", 0.15)    # m
+        self.declare_parameter("toy_occupancy_radius", 1)    # cells around toy
         self.declare_parameter("toy_max_count", 500)
 
         self.res = float(self.get_parameter("resolution").value)
@@ -86,6 +90,7 @@ class OccupancyMapper(Node):
         self.toy_side = float(self.get_parameter("toy_side_offset").value)
         self.toy_max_distance = float(self.get_parameter("toy_max_distance").value)
         self.toy_dedupe = float(self.get_parameter("toy_dedupe_radius").value)
+        self.toy_occupancy_radius = int(self.get_parameter("toy_occupancy_radius").value)
         self.toy_max_count = int(self.get_parameter("toy_max_count").value)
 
         # Free/unknown space and one mask per obstacle source.
@@ -93,6 +98,7 @@ class OccupancyMapper(Node):
         self.ir_mask = np.zeros((self.h, self.w), dtype=bool)
         self.vision_mask = np.zeros((self.h, self.w), dtype=bool)
         self.both_mask = np.zeros((self.h, self.w), dtype=bool)
+        self.toy_mask = np.zeros((self.h, self.w), dtype=bool)
 
         self.obstacle_ahead = False
         self.vision_obstacle = None   # obstacle label from the VLM, or None
@@ -157,10 +163,9 @@ class OccupancyMapper(Node):
             self.vision_mask[r, c] = False
             self.both_mask[r, c] = False
 
-    def mark_ahead(self, mask, x, y, yaw, distance, radius):
-        """Mark a square obstacle patch ``distance`` metres ahead."""
-        cell = self.world_to_cell(x + distance * math.cos(yaw),
-                                  y + distance * math.sin(yaw))
+    def mark_patch(self, mask, x, y, radius):
+        """Mark a square patch of cells around a world point."""
+        cell = self.world_to_cell(x, y)
         if cell is None:
             return
         r0 = max(0, cell[0] - radius)
@@ -168,6 +173,11 @@ class OccupancyMapper(Node):
         c0 = max(0, cell[1] - radius)
         c1 = min(self.w, cell[1] + radius + 1)
         mask[r0:r1, c0:c1] = True
+
+    def mark_ahead(self, mask, x, y, yaw, distance, radius):
+        """Mark a square obstacle patch ``distance`` metres ahead."""
+        self.mark_patch(mask, x + distance * math.cos(yaw),
+                        y + distance * math.sin(yaw), radius)
 
     def vision_is_active(self):
         if self.vision_obstacle is None or self.vision_stamp is None:
@@ -287,6 +297,7 @@ class OccupancyMapper(Node):
                 return
 
         self.toys.append((tx, ty))
+        self.mark_patch(self.toy_mask, tx, ty, self.toy_occupancy_radius)
         if len(self.toys) > self.toy_max_count:
             self.toys = self.toys[-self.toy_max_count:]
         self.get_logger().info(
@@ -301,6 +312,8 @@ class OccupancyMapper(Node):
         # at different times) and the explicit joint near/far patches.
         data[self.ir_mask & self.vision_mask] = BOTH
         data[self.both_mask] = BOTH
+        # Toys are occupied space, drawn separately from sensor obstacles.
+        data[self.toy_mask] = TOY
 
         grid_msg = OccupancyGrid()
         grid_msg.header.stamp = self.get_clock().now().to_msg()

@@ -32,7 +32,8 @@ Dog Toy Finder Pico 2 W firmware Main file
  * Starts USB serial, connects Wi-Fi, brings up micro-ROS logging, and
  * initializes the BNO055, both wheel encoders, and the TB6612FNG motor
  * controller. It then subscribes to /cmd_vel and drives the motors from Twist
- * messages, stopping them when commands time out. The main loop publishes Imu
+ * messages, stopping them when commands time out and braking immediately when
+ * the IR obstacle sensor sees something ahead. The main loop publishes Imu
  * and JointState messages at 50 Hz, services /cmd_vel at 50 Hz, and logs IMU
  * and encoder status at 2 Hz and 1 Hz respectively.
  */

@@ -25,6 +25,7 @@ const LAYERS = [
   { key: 'ir', value: 100, color: 0xcc3333, height: 2.0 },
   { key: 'vision', value: 70, color: 0x3377dd, height: 1.6 },
   { key: 'both', value: 85, color: 0xffaa22, height: 2.6 },
+  { key: 'toy', value: 60, color: 0x22bb66, height: 1.4 },
 ];
 
 function clearGroup() {
@@ -89,8 +90,8 @@ function rebuildMap(m, path, toys) {
   plane.position.set(ox + w * res / 2, 0, oy + h * res / 2);
   group.add(plane);
 
-  // One instanced mesh per obstacle source: IR, vision, and both.
-  const counts = { ir: 0, vision: 0, both: 0 };
+  // One instanced mesh per occupied-source value: IR, vision, both, and toy.
+  const counts = { ir: 0, vision: 0, both: 0, toy: 0 };
   for (const layer of LAYERS) {
     const positions = [];
     for (let r = 0; r < h; r++) {
@@ -117,12 +118,12 @@ function rebuildMap(m, path, toys) {
     group.add(mesh);
   }
 
-  // Toy detections as green spheres.
+  // Toy detections as bright green spheres above their occupied cells.
   if (toys && toys.length) {
     const toyRadius = Math.max(res * 1.5, 0.05);
     const toyGeo = new THREE.SphereGeometry(toyRadius, 16, 12);
     const toyMat = new THREE.MeshStandardMaterial({
-      color: 0x33dd77,
+      color: 0x99ffbb,
       emissive: 0x0a3a1a,
     });
     const mesh = new THREE.InstancedMesh(toyGeo, toyMat, toys.length);
@@ -148,6 +149,7 @@ function rebuildMap(m, path, toys) {
                    + `  \u00b7  IR ${counts.ir}`
                    + `  \u00b7  vision ${counts.vision}`
                    + `  \u00b7  both ${counts.both}`
+                   + `  \u00b7  toy cells ${counts.toy}`
                    + `  \u00b7  toys ${toys ? toys.length : 0}`;
 }
 

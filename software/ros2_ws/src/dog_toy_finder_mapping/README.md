@@ -25,6 +25,7 @@ separately:
 |---|---|---|
 | `-1` | unknown | not drawn |
 | `0` | free floor | white |
+| `60` | toy (occupied space) | green |
 | `70` | vision only | blue |
 | `85` | both IR and vision | orange |
 | `100` | IR only | red |
@@ -43,8 +44,14 @@ result has `target_visible: true` and a `position` of `left`, `center`, or
 heading, offset `toy_side_offset` metres to that side (default 0.25 m). If the
 VLM does not provide a usable `distance_m`, the fallback `toy_forward_distance`
 (default 0.6 m) is used; estimates are clamped to `toy_max_distance` (default
-5 m). Markers closer than `toy_dedupe_radius` (default 0.15 m) are merged. Toy
-markers are never written into the occupancy grid.
+5 m). Markers closer than `toy_dedupe_radius` (default 0.15 m) are merged.
+
+Each toy also marks a `(2 * toy_occupancy_radius + 1)` square of cells as
+occupied with value `60`, so the toy appears as occupied space in `/map`
+without being confused with IR, vision, or fused obstacles. The browser draws
+those cells green and puts a bright green sphere at the estimated centre.
+Toy cells are not cleared when the robot drives nearby; they persist as map
+memory.
 
 ### Parameters
 
@@ -63,6 +70,7 @@ markers are never written into the occupancy grid.
 | `toy_side_offset` | `0.25` | left/right lateral offset from the heading (m) |
 | `toy_max_distance` | `5.0` | clamp for VLM distance estimates (m) |
 | `toy_dedupe_radius` | `0.15` | merge toy markers within this radius (m) |
+| `toy_occupancy_radius` | `1` | cells marked around each toy (1 = 3x3) |
 | `toy_max_count` | `500` | maximum stored toy markers |
 
 ## View the map

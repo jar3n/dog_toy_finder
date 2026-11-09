@@ -190,20 +190,25 @@ The map distinguishes where each obstacle came from:
 | red | `100` | IR only |
 | blue | `70` | vision only |
 | orange | `85` | both IR and vision |
-| green sphere | `/detected_toys` pose | VLM toy detection |
+| green cells | `60` | occupied by a detected toy |
+| bright green sphere | `/detected_toys` pose | VLM toy detection (centre) |
 | white floor | `0` | driven-through free space |
 
 Vision obstacles expire after `vision_timeout` (default 5 s), so blue/orange
-blocks reflect recent VLM results rather than old ones. Toy spheres use the
+blocks reflect recent VLM results rather than old ones. Toy cells are a
+separate occupied value (`60`) so they stay visually distinct from obstacles
+and are never mistaken for an IR or vision detection. Toy spheres use the
 VLM's `distance_m` as the distance ahead and `toy_side_offset` metres to the
 left or right (default 0.25 m); if `distance_m` is missing or zero, the
 fallback `toy_forward_distance` (default 0.6 m) is used. Markers are merged
-within `toy_dedupe_radius` (default 0.15 m). Tune these with:
+within `toy_dedupe_radius` (default 0.15 m), and each toy marks a
+`(2 * toy_occupancy_radius + 1)` square of cells (default radius `1`, a 3x3
+patch). Tune these with:
 
 ```bash
 ros2 launch dog_toy_finder_mapping mapping.launch.py \
     toy_side_offset:=0.2 toy_forward_distance:=0.4 \
-    vision_timeout:=3.0
+    toy_occupancy_radius:=2 vision_timeout:=3.0
 ```
 
 ## 7. Unit tests
@@ -218,5 +223,13 @@ cd /workspace/software/ros2_ws/src/dog_toy_finder_planning && python3 -m unittes
 - Keep `ROSA_REQUIRE_APPROVAL=1` during development to avoid unintended motion.
 - The Pico's 500 ms `/cmd_vel` watchdog stops the robot if the computer or
   Wi-Fi link stalls.
+- The Pico also runs a local IR reflex: when the obstacle sensor sees something
+  within range it brakes and blocks forward/turn commands, but still allows a
+  reverse command to back away. This works without Wi-Fi. Configure it with
+  `CMD_VEL_IR_REFLEX` and `CMD_VEL_IR_REFLEX_ALLOW_REVERSE` in
+  `firmware/pico_microros/config/cmd_vel_config.h`.
+- Toy cells in `/map` are map memory for display; the local IR reflex is what
+  prevents the robot from driving into an obstacle or toy. Do not rely on the
+  map alone for collision avoidance.
 - All geometry values must agree between `encoder_config.h`,
   `cmd_vel_config.h`, `robot.yaml`, and the launch defaults.

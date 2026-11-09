@@ -32,3 +32,13 @@
 
 // Timeout stop behaviour: 1 = active short brake, 0 = coast.
 #define CMD_VEL_STOP_BRAKE 1
+
+// Reflex stop: 1 = brake locally when the IR obstacle sensor sees something in
+// front, 0 = ignore the sensor. This runs on the Pico, so it still protects the
+// robot if Wi-Fi or the ROS 2 computer is slow or disconnected.
+#define CMD_VEL_IR_REFLEX 1
+
+// While the IR reflex is active, allow a reverse command (negative linear.x) so
+// the robot can back away from the obstacle. Forward and turn-in-place commands
+// are still blocked. Set to 0 to block every command until the path is clear.
+#define CMD_VEL_IR_REFLEX_ALLOW_REVERSE 1

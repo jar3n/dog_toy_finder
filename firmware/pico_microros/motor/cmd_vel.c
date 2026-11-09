@@ -14,6 +14,7 @@
 #include "pico/time.h"
 
 #include "config/cmd_vel_config.h"
+#include "ir_obstacle/ir_obstacle.h"
 #include "ros/ros_node.h"
 #include "wifi/wifi_log.h"
 
@@ -41,6 +42,9 @@ static bool first_command_reported = false;
 static bool invalid_command_reported = false;
 static bool drive_error_reported = false;
 static bool spin_error_reported = false;
+#if CMD_VEL_IR_REFLEX
+static bool reflex_active = false;
+#endif
 
 static uint64_t last_command_us = 0;
 static float target_linear_m_s = 0.0f;
@@ -139,6 +143,50 @@ static void apply_command(float linear_m_s, float angular_rad_s) {
   motors_active =
     fabsf(left_duty) > 0.001f || fabsf(right_duty) > 0.001f;
 }
+
+/**
+ * Apply the local IR reflex and decide whether a command may drive.
+ *
+ * Refreshes the IR debounce filter, then brakes and rejects forward or
+ * turn-in-place commands while an obstacle is close. A reverse command is
+ * allowed through when CMD_VEL_IR_REFLEX_ALLOW_REVERSE is set so the robot can
+ * back away. Logs only on state transitions so a steady obstacle does not flood
+ * the serial/Wi-Fi log.
+ *
+ * @param linear_m_s commanded forward speed; negative means reverse.
+ * @return true when the command may be applied, false when it was blocked.
+ */
+#if CMD_VEL_IR_REFLEX
+static bool ir_reflex_allows(float linear_m_s) {
+  ir_obstacle_update();
+  bool blocked = ir_obstacle_detected();
+
+  if (blocked) {
+    if (!reflex_active) {
+      reflex_active = true;
+      wifi_log_printf(
+        "cmd_vel: IR obstacle ahead; braking and blocking forward/turn\n");
+    }
+
+    bool reverse_allowed =
+      CMD_VEL_IR_REFLEX_ALLOW_REVERSE != 0 && linear_m_s < 0.0f;
+    if (!reverse_allowed) {
+      if (motors_active) {
+        tb6612fng_stop_all(motor_driver, true);
+        motors_active = false;
+      }
+      return false;
+    }
+    return true;
+  }
+
+  if (reflex_active) {
+    reflex_active = false;
+    wifi_log_printf("cmd_vel: IR path clear; commands resumed\n");
+  }
+  return true;
+}
+#endif
 
 /**
  * Stop both motors after a command timeout and clear the latched command.
@@ -304,6 +352,12 @@ void cmd_vel_process(void) {
       return;
     }
   }
+
+#if CMD_VEL_IR_REFLEX
+  if (!ir_reflex_allows(target_linear_m_s)) {
+    return;
+  }
+#endif
 
   apply_command(target_linear_m_s, target_angular_rad_s);
 }
