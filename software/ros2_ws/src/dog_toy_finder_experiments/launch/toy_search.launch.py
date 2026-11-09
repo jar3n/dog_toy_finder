@@ -33,6 +33,16 @@ def generate_launch_description():
                               description="label stored in the log"),
         DeclareLaunchArgument("found_distance", default_value="0.4",
                               description="stop when the VLM estimates the toy within this (m)"),
+        DeclareLaunchArgument("find_all", default_value="false",
+                              description="demo: keep searching after each find"),
+        DeclareLaunchArgument("toy_side_offset", default_value="0.25",
+                              description="left/right offset in the found-toy estimate (m)"),
+        DeclareLaunchArgument("toy_forward_distance", default_value="0.6",
+                              description="fallback distance ahead in the estimate (m)"),
+        DeclareLaunchArgument("toy_merge_radius", default_value="0.15",
+                              description="toys closer than this are the same toy (m)"),
+        DeclareLaunchArgument("escape_distance", default_value="0.3",
+                              description="metres backed up after each find"),
 
         ExecuteProcess(output="screen", cmd=[
             "python3", TEST_NODE, "--ros-args",
@@ -44,5 +54,10 @@ def generate_launch_description():
             "-p", ["max_time:=", arg("max_time")],
             "-p", ["output_csv:=", arg("output_csv")],
             "-p", ["run_id:=", arg("run_id")],
-            "-p", ["found_distance:=", arg("found_distance")]]),
+            "-p", ["found_distance:=", arg("found_distance")],
+            "-p", ["find_all:=", arg("find_all")],
+            "-p", ["toy_side_offset:=", arg("toy_side_offset")],
+            "-p", ["toy_forward_distance:=", arg("toy_forward_distance")],
+            "-p", ["toy_merge_radius:=", arg("toy_merge_radius")],
+            "-p", ["escape_distance:=", arg("escape_distance")]]),
     ])

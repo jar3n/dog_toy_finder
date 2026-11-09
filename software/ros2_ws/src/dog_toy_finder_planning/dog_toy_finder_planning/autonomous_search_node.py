@@ -7,6 +7,12 @@ Strategy ("smart search"):
   4. If the path ahead is blocked, avoid by turning and continuing.
   5. Stop when the target is found or the time budget is exhausted.
 
+With find_all=true (the demo mode), a found toy is recorded and the robot
+backs away and keeps searching instead of stopping, until the planned
+coverage is complete. Found toys are estimated in the odom frame from the
+robot pose plus the VLM position/distance, and deduplicated within
+toy_merge_radius metres, so the summary reports every distinct toy found.
+
 This deterministic planner is the baseline against which the LLM planner
 (ROSA) is compared. Both write the same CSV schema so evaluate_runs can
 compare them.
@@ -48,6 +54,12 @@ class AutonomousSearch(Mover):
         self.declare_parameter("run_id", "auto1")
         self.declare_parameter("home_on_visible", True)
         self.declare_parameter("found_distance", 0.4)  # m, stop when this close
+        self.declare_parameter("find_all", False)      # demo: keep searching
+        self.declare_parameter("toy_side_offset", 0.25)  # m left/right estimate
+        self.declare_parameter("toy_forward_distance", 0.6)  # fallback m ahead
+        self.declare_parameter("toy_merge_radius", 0.15)  # m, same-toy radius
+        self.declare_parameter("toy_max_count", 500)
+        self.declare_parameter("escape_distance", 0.3)  # m backed up per find
 
         self.target = self.get_parameter("target").value
         self.side = float(self.get_parameter("side").value)
@@ -59,6 +71,12 @@ class AutonomousSearch(Mover):
         self.run_id = self.get_parameter("run_id").value
         self.home_on_visible = bool(self.get_parameter("home_on_visible").value)
         self.found_distance = float(self.get_parameter("found_distance").value)
+        self.find_all = bool(self.get_parameter("find_all").value)
+        self.toy_side = float(self.get_parameter("toy_side_offset").value)
+        self.toy_forward = float(self.get_parameter("toy_forward_distance").value)
+        self.toy_merge = float(self.get_parameter("toy_merge_radius").value)
+        self.toy_max_count = int(self.get_parameter("toy_max_count").value)
+        self.escape_distance = float(self.get_parameter("escape_distance").value)
 
         self.ask_pub = self.create_publisher(String, "/vision/ask", 10)
         self.create_subscription(String, "/vision/result", self.on_vision_result,
@@ -72,6 +90,7 @@ class AutonomousSearch(Mover):
         self.found = False
         self.found_step = None
         self.step = 0
+        self.toys = []  # [(x, y), ...] distinct found toys in the odom frame
 
     def on_vision_result(self, msg):
         try:
@@ -131,6 +150,60 @@ class AutonomousSearch(Mover):
             return True
         distance = self._distance(entry)
         return distance is not None and distance <= self.found_distance
+
+    def _record_toy(self, result):
+        """Estimate one found toy in the odom frame; True when it is new.
+
+        Uses the same placement as the occupancy mapper: the VLM distance (or
+        the forward fallback) ahead, offset sideways for left/right. Estimates
+        within toy_merge_radius of an already-recorded toy are the same toy.
+        """
+        entry = self._entry(result)
+        position = str(entry.get("position", "center")).strip().lower()
+        sides = {"left": 1.0, "center": 0.0, "right": -1.0}
+        if position not in sides:
+            return False
+        x, y, yaw = self.current_pose()
+        ahead = self._distance(entry)
+        if ahead is None:
+            ahead = self.toy_forward
+        side = sides[position] * self.toy_side
+        # ROS convention: +x forward, +y left, yaw counter-clockwise.
+        tx = x + ahead * math.cos(yaw) - side * math.sin(yaw)
+        ty = y + ahead * math.sin(yaw) + side * math.cos(yaw)
+        for ox, oy in self.toys:
+            if (ox - tx) ** 2 + (oy - ty) ** 2 <= self.toy_merge ** 2:
+                return False
+        self.toys.append((tx, ty))
+        if len(self.toys) > self.toy_max_count:
+            self.toys = self.toys[-self.toy_max_count:]
+        self.get_logger().info(
+            f"Toy #{len(self.toys)} found at ({tx:.2f}, {ty:.2f}) in odom"
+            f" [{ahead:.2f} m ahead, {side:+.2f} m lateral]")
+        return True
+
+    def _note_found(self, result):
+        """Count a found toy; True when a new toy was found this check.
+
+        Single-target mode latches self.found (the run stops). Find-all mode
+        records the toy and keeps searching.
+        """
+        if not self._is_found(result):
+            return False
+        if not self._record_toy(result):
+            return False
+        if self.find_all:
+            return True
+        self.found = True
+        self.found_step = self.step
+        return True
+
+    def _escape_from_toy(self):
+        """Back away from a just-found toy before searching again."""
+        self.get_logger().info(
+            f"Backing up {self.escape_distance:.2f} m from the toy "
+            "before continuing the search.")
+        self.straight(-abs(self.escape_distance))
 
     def log_step(self, action, result, found_now, t0):
         x, y, theta = self.current_pose()
@@ -197,10 +270,7 @@ class AutonomousSearch(Mover):
                 "Pico failsafe stopped homing next to the toy; re-checking.")
         # Re-check.
         new_result = self.ask_vision()
-        found_now = self._is_found(new_result)
-        if found_now:
-            self.found = True
-            self.found_step = self.step
+        found_now = self._note_found(new_result)
         self.log_step("home", new_result, found_now, t0)
         return found_now
 
@@ -244,21 +314,24 @@ class AutonomousSearch(Mover):
                         "from the stopped pose.")
                 result = self.ask_vision()
                 found_now = False
+                home_new = False
                 if result is not None:
                     if self._is_found(result):
-                        found_now = True
-                        self.found = True
-                        self.found_step = self.step
+                        found_now = self._note_found(result)
                     elif self._entry(result).get("target_visible") and self.home_on_visible:
-                        # Try to home in on the visible target.
-                        if self.home_on_target(result, t0):
-                            found_now = True
+                        # Try to home in on the visible target. Home logs its
+                        # own row, so the side row below is not marked found
+                        # for the same toy.
+                        home_new = self.home_on_target(result, t0)
                 self.log_step("side", result, found_now, t0)
                 if self.found:
                     self.stop()
                     self._write_csv()
                     self._print_summary(t0)
                     return
+                if (found_now or home_new) and self.find_all:
+                    # Found a new toy in demo mode: back away and keep sweeping.
+                    self._escape_from_toy()
                 self.turn(math.pi / 2.0)
             side += self.side_increment
 
@@ -283,8 +356,12 @@ class AutonomousSearch(Mover):
         print("\n===== AUTONOMOUS SEARCH SUMMARY =====")
         print(f"run_id:        {self.run_id}")
         print(f"target:        {self.target}")
+        print(f"find_all:      {self.find_all}")
         print(f"found:         {self.found}")
         print(f"found_step:    {self.found_step}")
+        print(f"toys_found:    {len(self.toys)}")
+        for i, (tx, ty) in enumerate(self.toys, 1):
+            print(f"  toy #{i}:       ({tx:.2f}, {ty:.2f})")
         print(f"time (s):     {elapsed:.2f}")
         print(f"steps:         {len(self.rows)}")
         if self.rows:

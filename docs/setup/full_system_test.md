@@ -167,7 +167,11 @@ ros2 launch dog_toy_finder_planning autonomous_search.launch.py \
     target:="$AUTO_TARGET" side:=$AUTO_SIDE \
     side_increment:=$AUTO_SIDE_INCREMENT loops:=$AUTO_LOOPS \
     max_time:=$AUTO_MAX_TIME output_csv:=$AUTO_OUTPUT_CSV \
-    run_id:=$AUTO_RUN_ID found_distance:=$AUTO_FOUND_DISTANCE
+    run_id:=$AUTO_RUN_ID found_distance:=$AUTO_FOUND_DISTANCE \
+    find_all:=$AUTO_FIND_ALL toy_side_offset:=$AUTO_TOY_SIDE_OFFSET \
+    toy_forward_distance:=$AUTO_TOY_FORWARD_DISTANCE \
+    toy_merge_radius:=$AUTO_TOY_MERGE_RADIUS \
+    escape_distance:=$AUTO_ESCAPE_DISTANCE
 ```
 
 ### 5.3 LLM-driven search via toy_search harness (baseline)
@@ -177,8 +181,27 @@ ros2 launch dog_toy_finder_experiments toy_search.launch.py \
     target:="$TOY_TARGET" pattern:=$TOY_PATTERN side:=$TOY_SIDE \
     side_increment:=$TOY_SIDE_INCREMENT loops:=$TOY_LOOPS \
     max_time:=$TOY_MAX_TIME output_csv:=$TOY_OUTPUT_CSV \
-    run_id:=$TOY_RUN_ID found_distance:=$TOY_FOUND_DISTANCE
+    run_id:=$TOY_RUN_ID found_distance:=$TOY_FOUND_DISTANCE \
+    find_all:=$TOY_FIND_ALL toy_side_offset:=$TOY_TOY_SIDE_OFFSET \
+    toy_forward_distance:=$TOY_TOY_FORWARD_DISTANCE \
+    toy_merge_radius:=$TOY_TOY_MERGE_RADIUS \
+    escape_distance:=$TOY_ESCAPE_DISTANCE
 ```
+
+### 5.3.1 Demo: find all toys
+
+The demo workflow searches for every toy in the environment instead of
+stopping at the first one. Set `AUTO_FIND_ALL=true` (or `TOY_FIND_ALL=true`)
+in `scripts/full_system_eval.conf` and run section 5.2 or 5.3 as above. The
+robot sweeps the same expanding-square coverage, homes on each visible toy,
+records it, backs up `escape_distance` (default 0.3 m), and keeps searching
+until the loops/time budget end. The summary prints `toys_found` with every
+estimated position, and the map shows each toy as an occupied cell plus a
+sphere. "All toys" means all toys inside the swept area — coverage sized with
+`side`/`side_increment`/`loops` decides what area that is.
+
+To re-run the demo, reset as described in section 6 (place the robot back at
+the start, restart bringup/mapping, new `run_id`/`output_csv`).
 
 ### 5.4 Collect richer data (optional)
 

@@ -18,6 +18,11 @@ def generate_launch_description():
         DeclareLaunchArgument("output_csv", default_value="/tmp/autonomous_search.csv"),
         DeclareLaunchArgument("run_id", default_value="auto1"),
         DeclareLaunchArgument("found_distance", default_value="0.4"),
+        DeclareLaunchArgument("find_all", default_value="false"),
+        DeclareLaunchArgument("toy_side_offset", default_value="0.25"),
+        DeclareLaunchArgument("toy_forward_distance", default_value="0.6"),
+        DeclareLaunchArgument("toy_merge_radius", default_value="0.15"),
+        DeclareLaunchArgument("escape_distance", default_value="0.3"),
 
         ExecuteProcess(output="screen", cmd=[
             "python3", NODE, "--ros-args",
@@ -28,5 +33,10 @@ def generate_launch_description():
             "-p", ["max_time:=", arg("max_time")],
             "-p", ["output_csv:=", arg("output_csv")],
             "-p", ["run_id:=", arg("run_id")],
-            "-p", ["found_distance:=", arg("found_distance")]]),
+            "-p", ["found_distance:=", arg("found_distance")],
+            "-p", ["find_all:=", arg("find_all")],
+            "-p", ["toy_side_offset:=", arg("toy_side_offset")],
+            "-p", ["toy_forward_distance:=", arg("toy_forward_distance")],
+            "-p", ["toy_merge_radius:=", arg("toy_merge_radius")],
+            "-p", ["escape_distance:=", arg("escape_distance")]]),
     ])
