@@ -310,6 +310,14 @@ cd /workspace/software/rosa_agent && python3 -m unittest discover -s tests
 cd /workspace/software/ros2_ws/src/dog_toy_finder_planning && python3 -m unittest discover -s tests
 ```
 
+End-to-end search workflow tests (fake robot + scripted vision, no hardware
+needed) live in `tests_e2e/`:
+
+```bash
+./scripts/run_e2e_tests.sh                 # everything (several minutes)
+./scripts/run_e2e_tests.sh note_found size # just two scenarios
+```
+
 ## Notes
 
 - Keep `ROSA_REQUIRE_APPROVAL=1` during development to avoid unintended motion.
