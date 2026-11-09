@@ -24,14 +24,12 @@ docker compose build
 
 ```bash
 cd firmware/pico_microros
-# Fill in Wi-Fi / ROS agent details (ignored by git):
-cp config/wifi_config.example.h config/wifi_config.h
-cp config/ros_config.example.h   config/ros_config.h
-cp config/encoder_config.example.h config/encoder_config.h
-cp config/motor_config.example.h  config/motor_config.h
-cp config/cmd_vel_config.example.h config/cmd_vel_config.h
-cp config/imu_config.example.h    config/imu_config.h
-# edit the copied files: SSID, password, agent IP/port, pin/geometry values
+# Create the local Wi-Fi config (git-ignored) from its template:
+../../scripts/setup_firmware_config.sh
+# Set the SSID/password in config/wifi_config.h. Then edit the committed
+# configs in place: ros_config.h (agent IP/port), encoder_config.h,
+# motor_config.h, cmd_vel_config.h, imu_config.h, ir_obstacle_config.h,
+# and pinout.h.
 ```
 
 Build:

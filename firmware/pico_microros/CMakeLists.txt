@@ -44,13 +44,9 @@ function(dtf_provide_local_config name)
     endif()
 endfunction()
 
+# Only the Wi-Fi config holds credentials and is kept out of git. All other
+# config headers are committed and edited in place.
 dtf_provide_local_config(wifi_config)
-dtf_provide_local_config(ros_config)
-dtf_provide_local_config(imu_config)
-dtf_provide_local_config(encoder_config)
-dtf_provide_local_config(motor_config)
-dtf_provide_local_config(cmd_vel_config)
-dtf_provide_local_config(ir_obstacle_config)
 
 add_executable(dtf_pico_fw
     dtf_pico_fw_main.c

@@ -1,10 +1,6 @@
 #pragma once
 
-// Copy this file to config/ros_config.h and set your micro-ROS agent address.
-// ros_config.h is ignored by git.
-//
-// The build creates ros_config.h from this file automatically when it is
-// missing or empty.
+// micro-ROS agent address and node settings. Edit this file in place.
 
 // IPv4 address of the computer running the micro-ROS agent. The Pico must be
 // able to reach it over Wi-Fi.

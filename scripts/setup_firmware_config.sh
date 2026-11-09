@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Set up the Pico firmware config files by copying the .example.h templates
-# to their real (git-ignored) names. Existing non-empty files are left alone.
+# Create the local Wi-Fi config by copying wifi_config.example.h to the
+# git-ignored wifi_config.h. All other firmware config headers are committed
+# and should be edited in place. Existing non-empty files are left alone.
 #
 # Usage:
 #   ./scripts/setup_firmware_config.sh
@@ -44,4 +45,5 @@ done
 
 echo ""
 echo "Created $created, skipped $skipped."
-echo "Edit the created files (wifi_config.h, ros_config.h, ...) before building."
+echo "Edit config/wifi_config.h (SSID/password/log target) before building."
+echo "The other config headers are committed; edit them in place."

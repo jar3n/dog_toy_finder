@@ -20,9 +20,7 @@ skipped and the serial/UDP output still works.
 
 ## Configuration
 
-Settings live in `config/ros_config.h`, which is ignored by git. When that file
-is missing or empty, CMake copies `config/ros_config.example.h` into place
-during configure. Edit the generated file:
+Settings live in `config/ros_config.h`, which is committed. Edit it in place:
 
 ```c
 #define ROS_AGENT_IP "192.168.1.100"

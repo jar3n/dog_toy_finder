@@ -70,8 +70,7 @@ coasts. `tb6612fng_stop()` selects coast or active brake explicitly.
 
 ## Configuration
 
-`config/motor_config.h` is git-ignored and created from
-`config/motor_config.example.h` by the build when missing. Important values:
+`config/motor_config.h` is committed; edit it in place. Important values:
 
 | Setting | Default | Meaning |
 |---|---|---|

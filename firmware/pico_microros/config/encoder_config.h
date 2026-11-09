@@ -1,11 +1,7 @@
 #pragma once
 
-// Copy this file to config/encoder_config.h and adjust to the robot.
-// encoder_config.h is ignored by git; the build creates it from this file
-// automatically when it is missing or empty.
-//
-// Wiring (GPIO numbers) lives in config/pinout.h. This file holds the encoder
-// geometry, direction, filtering, and ROS settings.
+// Encoder geometry, direction, filtering, and ROS settings. Edit this file in
+// place. Wiring (GPIO numbers) lives in config/pinout.h.
 
 // ---------------------------------------------------------------------------
 // TT encoded gearmotor geometry

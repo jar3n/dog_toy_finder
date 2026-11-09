@@ -47,9 +47,12 @@ is optional for a first build.
 
 ```bash
 cd firmware/pico_microros
-# Create the (git-ignored) config files from their templates:
+# Create the local Wi-Fi config (git-ignored) from its template:
 ../../scripts/setup_firmware_config.sh
-# edit the created files: SSID, password, agent IP/port, pin/geometry
+# Set the SSID/password in config/wifi_config.h. Then edit the committed
+# configs in place: ros_config.h (agent IP/port), encoder_config.h,
+# motor_config.h, cmd_vel_config.h, imu_config.h, ir_obstacle_config.h,
+# and pinout.h.
 cd ../..
 firmware/scripts/pico_build/build.sh
 ```

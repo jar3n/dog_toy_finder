@@ -63,8 +63,7 @@ drives forward. Match the sign convention used by the URDF/joint names.
 
 ## Configuration
 
-`config/encoder_config.h` is git-ignored and created from
-`config/encoder_config.example.h` by the build when missing. Important values:
+`config/encoder_config.h` is committed; edit it in place. Important values:
 
 | Setting | Default | Meaning |
 |---|---|---|

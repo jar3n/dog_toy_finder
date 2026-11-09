@@ -1,11 +1,8 @@
 #pragma once
 
-// Copy this file to config/cmd_vel_config.h and adjust to the robot.
-// cmd_vel_config.h is ignored by git; the build creates it from this file
-// automatically when it is missing or empty.
-//
 // These settings describe how ROS 2 Twist commands map to the two wheel
-// motors. Electrical motor settings live in config/motor_config.h.
+// motors. Edit this file in place. Electrical motor settings live in
+// config/motor_config.h.
 
 // Topic carrying geometry_msgs/msg/Twist commands.
 #define CMD_VEL_TOPIC "/cmd_vel"

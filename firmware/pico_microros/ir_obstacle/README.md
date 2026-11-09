@@ -22,7 +22,7 @@ Free GPIOs on the Pico 2 W include 0-3, 10-13, 26-28.
 ## Configuration
 
 Pins live in `../config/pinout.h`; timing and topic live in
-`../config/ir_obstacle_config.h` (created from the `.example.h` by the build).
+`../config/ir_obstacle_config.h`.
 
 | Setting | Default | Meaning |
 |---|---|---|
