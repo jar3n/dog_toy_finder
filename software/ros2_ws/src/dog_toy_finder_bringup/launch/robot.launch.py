@@ -4,6 +4,8 @@ Starts:
   * dog_toy_finder_odometry: /joint_states -> /wheel/odom
   * a static base_link -> imu_link transform for the BNO055 mounting
   * robot_localization EKF: /wheel/odom + /imu/data -> /odometry/filtered
+  * dog_toy_finder_diagnostics health monitor: logs an ERROR on /rosout when
+    a Pico sensor, a camera, or the fused odometry stops publishing
 
 The micro-ROS agent runs in its own container (see docker/docker-compose.yml),
 so this launch file only starts the computer-side ROS 2 nodes.
@@ -20,10 +22,12 @@ Usage inside the ROS 2 container:
 Common overrides:
     ... wheel_radius:=0.0325 wheel_separation:=0.133
     ... publish_tf:=true          # only when running without the EKF
+    ... health_monitor:=false     # skip the sensor heartbeat monitor
 """
 
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
+from launch.conditions import IfCondition
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node
 from launch_ros.parameter_descriptions import ParameterValue
@@ -36,6 +40,7 @@ def generate_launch_description() -> LaunchDescription:
     wheel_radius = LaunchConfiguration("wheel_radius")
     wheel_separation = LaunchConfiguration("wheel_separation")
     publish_tf = LaunchConfiguration("publish_tf")
+    health_monitor = LaunchConfiguration("health_monitor")
 
     config_dir = PathJoinSubstitution(
         [FindPackageShare("dog_toy_finder_bringup"), "config"]
@@ -64,6 +69,11 @@ def generate_launch_description() -> LaunchDescription:
                 "publish_tf",
                 default_value="false",
                 description="Let the odometry node publish odom -> base_link",
+            ),
+            DeclareLaunchArgument(
+                "health_monitor",
+                default_value="true",
+                description="Start the sensor heartbeat health monitor",
             ),
             DeclareLaunchArgument(
                 "imu_x", default_value="0.0", description="IMU x offset from base_link"
@@ -141,6 +151,14 @@ def generate_launch_description() -> LaunchDescription:
                     ekf_config,
                     {"use_sim_time": ParameterValue(use_sim_time, value_type=bool)},
                 ],
+            ),
+            Node(
+                package="dog_toy_finder_diagnostics",
+                executable="health_monitor",
+                name="health_monitor",
+                output="screen",
+                condition=IfCondition(health_monitor),
+                parameters=[{"use_sim_time": ParameterValue(use_sim_time, value_type=bool)}],
             ),
         ]
     )

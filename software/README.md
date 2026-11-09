@@ -10,6 +10,7 @@ software/
     dog_toy_finder_bringup/    launch files, EKF config, robot geometry
     dog_toy_finder_odometry/   /joint_states -> /wheel/odom
     dog_toy_finder_motion/     closed-loop moves used by tests and ROSA
+    dog_toy_finder_diagnostics/ sensor heartbeat health monitor (logged failures)
   rosa_agent/                  LLM agent, prompts, and agent-facing tools
   pico_ros2_led/               early LED connection test
 ```

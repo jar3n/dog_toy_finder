@@ -4,7 +4,7 @@ Launch files and shared YAML for the computer-side real-robot stack.
 
 | File | Purpose |
 |---|---|
-| `launch/robot.launch.py` | odometry, IMU mounting transform, EKF, optional micro-ROS agent |
+| `launch/robot.launch.py` | odometry, IMU mounting transform, EKF, sensor heartbeat health monitor |
 | `config/robot.yaml` | wheel radius, wheel separation, joint names, odometry tuning |
 | `config/ekf.yaml` | `robot_localization` inputs and frame names |
 
@@ -47,6 +47,11 @@ ros2 topic echo /wheel/odom --once
 ros2 topic echo /odometry/filtered --once
 ros2 run tf2_ros tf2_echo odom base_link
 ```
+
+The health monitor (`dog_toy_finder_diagnostics`) watches every sensor
+heartbeat and logs an ERROR on `/rosout` when one goes silent — check with
+`ros2 topic echo /rosout`. Pass `health_monitor:=false` to skip it. See that
+package's README for timeouts.
 
 ## Tuning
 

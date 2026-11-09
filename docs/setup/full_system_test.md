@@ -119,6 +119,14 @@ ros2 topic hz /stereo/disparity
 ros2 topic echo /odometry/filtered --once
 ```
 
+If any sensor (Pico IMU, encoders, IR, either camera eye, or the fused
+odometry) stops publishing, the health monitor started by the bringup launch
+logs an ERROR on `/rosout`. Watch for failures with:
+
+```bash
+ros2 topic echo /rosout | grep FAILED
+```
+
 ## 5. Run the full test evaluation
 
 ### 5.1 LLM (ROSA) planner
