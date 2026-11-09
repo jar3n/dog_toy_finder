@@ -205,12 +205,15 @@ ros2 launch dog_toy_finder_experiments toy_search.launch.py \
 The demo workflow searches for every toy in the environment instead of
 stopping at the first one. Set `AUTO_FIND_ALL=true` (or `TOY_FIND_ALL=true`)
 in `scripts/full_system_eval.conf` and run section 5.2 or 5.3 as above. The
-robot sweeps the same expanding-square coverage, homes on each visible toy,
-records it, backs up `escape_distance` (default 0.3 m), and keeps searching
-until the loops/time budget end. The summary prints `toys_found` with every
-estimated position, and the map shows each toy as an occupied cell plus a
-sphere. "All toys" means all toys inside the swept area — coverage sized with
-`side`/`side_increment`/`loops` decides what area that is.
+`target` accepts a comma-separated list, so several toy kinds can be searched
+in one run — e.g. `EVAL_TARGET=red ball,blue bone`. The robot sweeps the same
+expanding-square coverage, homes on each visible toy, records it, backs up
+`escape_distance` (default 0.3 m), and keeps searching until the loops/time
+budget end. Each found toy is labelled with the target that found it. The
+summary prints `toys_found` with every estimated position, and the map shows
+each toy as an occupied cell plus a sphere. "All toys" means all toys inside
+the swept area — coverage sized with `side`/`side_increment`/`loops` decides
+what area that is.
 
 To re-run the demo, reset as described in section 6 (place the robot back at
 the start, restart bringup/mapping, new `run_id`/`output_csv`).

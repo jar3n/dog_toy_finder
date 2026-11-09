@@ -210,10 +210,12 @@ def run_search(target: str, mode: str) -> str:
     mode 'all': demo - find every toy in the swept area, recording each one
     and continuing until the planned coverage finishes.
 
-    target: the toy to find, exactly as the user wrote it, for example
-    'red ball'. The vision node must be running (/vision/ask is answered by
-    dog_toy_finder_vision vision.launch.py), otherwise each vision check
-    times out. Approval gates the whole search; Ctrl-C stops it.
+    target: the toy or toys to find, exactly as the user wrote it, for
+    example 'red ball'. Several kinds can be searched with a comma-separated
+    list, for example 'red ball,blue bone'. The vision node must be running
+    (/vision/ask is answered by dog_toy_finder_vision vision.launch.py),
+    otherwise each vision check times out. Approval gates the whole search;
+    Ctrl-C stops it.
     """
     word = _word(mode, ("one", "all"))
     toy = str(target).strip()
@@ -252,8 +254,8 @@ def run_search(target: str, mode: str) -> str:
         search.destroy_node()
 
     toys_text = "; ".join(
-        "#%d at (%.2f, %.2f)" % (i, tx, ty)
-        for i, (tx, ty) in enumerate(search.toys, 1)
+        "#%d (%s) at (%.2f, %.2f)" % (i, label, tx, ty)
+        for i, (tx, ty, label) in enumerate(search.toys, 1)
     ) or "none"
     text = (
         "Search for '%s' finished (%s mode). Toys found: %d (%s). "

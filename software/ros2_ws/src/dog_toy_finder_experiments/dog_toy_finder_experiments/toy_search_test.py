@@ -65,6 +65,10 @@ class ToySearchTest(Mover):
         self.declare_parameter("escape_distance", 0.3)  # m backed up per find
 
         self.target = self.get_parameter("target").value
+        # Comma-separated toy descriptions; the search asks the vision node
+        # about each one in turn. A single name searches that one kind.
+        self.targets = [t.strip() for t in str(self.target).split(",")
+                        if t.strip()] or [str(self.target)]
         self.pattern = self.get_parameter("pattern").value
         self.side = float(self.get_parameter("side").value)
         self.side_increment = float(self.get_parameter("side_increment").value)
@@ -92,7 +96,8 @@ class ToySearchTest(Mover):
         self.rows = []
         self.found = False
         self.found_step = None
-        self.toys = []  # [(x, y), ...] distinct found toys in the odom frame
+        # [(x, y, target), ...] distinct found toys in the odom frame.
+        self.toys = []
 
     def on_vision_result(self, msg):
         try:
@@ -103,18 +108,38 @@ class ToySearchTest(Mover):
             self._vision_result = data
             self._vision_event.set()
 
-    def ask_vision(self):
-        """Publish a /vision/ask and wait for the matching result."""
+    def ask_one(self, target):
+        """Ask the vision node about one target and wait for its result."""
         self._vision_event.clear()
         with self._vision_lock:
             self._vision_result = None
         req_id = str(int(time.time() * 1000))
         self.ask_pub.publish(String(data=json.dumps(
-            {"id": req_id, "target": self.target})))
+            {"id": req_id, "target": target})))
         if not self._vision_event.wait(timeout=self.vision_timeout):
             return None
         with self._vision_lock:
             return self._vision_result
+
+    def ask_vision(self):
+        """Ask about every target in turn; return the most useful result.
+
+        A found result wins immediately, then a visible-but-not-found
+        result, then the last not-visible result (for logging).
+        """
+        seen = None
+        for target in self.targets:
+            result = self.ask_one(target)
+            if result is None:
+                continue
+            if self._is_found(result):
+                return result
+            if seen is None:
+                seen = result
+            elif (self._entry(result).get("target_visible")
+                  and not self._entry(seen).get("target_visible")):
+                seen = result
+        return seen
 
     def current_pose(self):
         pose = self.pose("odom")
@@ -172,15 +197,16 @@ class ToySearchTest(Mover):
         # ROS convention: +x forward, +y left, yaw counter-clockwise.
         tx = x + ahead * math.cos(yaw) - side * math.sin(yaw)
         ty = y + ahead * math.sin(yaw) + side * math.cos(yaw)
-        for ox, oy in self.toys:
+        for ox, oy, _label in self.toys:
             if (ox - tx) ** 2 + (oy - ty) ** 2 <= self.toy_merge ** 2:
                 return False
-        self.toys.append((tx, ty))
+        label = str(entry.get("target") or self.target)
+        self.toys.append((tx, ty, label))
         if len(self.toys) > self.toy_max_count:
             self.toys = self.toys[-self.toy_max_count:]
         self.get_logger().info(
-            f"Toy #{len(self.toys)} found at ({tx:.2f}, {ty:.2f}) in odom"
-            f" [{ahead:.2f} m ahead, {side:+.2f} m lateral]")
+            f"Toy #{len(self.toys)} ({label}) found at ({tx:.2f}, {ty:.2f})"
+            f" in odom [{ahead:.2f} m ahead, {side:+.2f} m lateral]")
         return True
 
     def _note_found(self, result):
@@ -308,8 +334,8 @@ class ToySearchTest(Mover):
         print(f"found:         {self.found}")
         print(f"found_step:    {self.found_step}")
         print(f"toys_found:    {len(self.toys)}")
-        for i, (tx, ty) in enumerate(self.toys, 1):
-            print(f"  toy #{i}:       ({tx:.2f}, {ty:.2f})")
+        for i, (tx, ty, label) in enumerate(self.toys, 1):
+            print(f"  toy #{i}:       ({tx:.2f}, {ty:.2f}) {label}")
         print(f"time (s):     {elapsed:.2f}")
         print(f"steps:         {len(self.rows)}")
         if self.rows:
