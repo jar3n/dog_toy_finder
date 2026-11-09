@@ -236,6 +236,9 @@ def run_search(target: str, mode: str) -> str:
     start = robot.pose()
     search = AutonomousSearch()
     search.target = toy
+    # AutonomousSearch parses its target list in __init__ from the default,
+    # so rebuild it from the tool's target (a single name or a comma list).
+    search.targets = [t.strip() for t in toy.split(",") if t.strip()] or [toy]
     search.find_all = find_all
     search.side = 0.5
     search.side_increment = 0.5
