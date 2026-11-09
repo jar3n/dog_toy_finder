@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dog Toy Finder - Live Map</title>
+<link rel="stylesheet" href="/style.css">
+<script type="importmap">
+{ "imports": { "three": "/static/three.module.js" } }
+</script>
+</head>
+<body>
+<div id="bar">
+  <div id="info">Waiting for map&hellip;</div>
+  <div id="actions">
+    <button id="save">Save PNG</button>
+    <button id="reset" class="secondary">Reset view</button>
+  </div>
+</div>
+<div id="legend">
+  white = free floor &nbsp;&middot;&nbsp; red blocks = obstacles &nbsp;&middot;&nbsp;
+  blue line = path travelled &nbsp;&middot;&nbsp; drag to orbit, scroll to zoom
+</div>
+<script type="module" src="/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,68 @@
+html, body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  background: #111;
+  color: #eee;
+  font-family: system-ui, sans-serif;
+}
+
+canvas {
+  display: block;
+}
+
+#bar {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  right: 10px;
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+#info {
+  background: rgba(0, 0, 0, 0.65);
+  padding: 8px 12px;
+  border-radius: 6px;
+  font-size: 13px;
+}
+
+#actions {
+  margin-left: auto;
+  display: flex;
+  gap: 8px;
+}
+
+button {
+  background: #2d6cdf;
+  color: #fff;
+  border: 0;
+  border-radius: 6px;
+  padding: 9px 16px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+button:hover {
+  background: #3b7ef0;
+}
+
+button.secondary {
+  background: #444;
+}
+
+button.secondary:hover {
+  background: #555;
+}
+
+#legend {
+  position: absolute;
+  bottom: 10px;
+  left: 10px;
+  background: rgba(0, 0, 0, 0.65);
+  padding: 6px 10px;
+  border-radius: 6px;
+  font-size: 12px;
+}

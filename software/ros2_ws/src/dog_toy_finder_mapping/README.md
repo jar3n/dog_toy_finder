@@ -24,7 +24,9 @@ disabled with `use_vision:=false`.
 
 ## View the map
 
-The live map is viewed in a browser. The server listens on all interfaces, so
+The live map is viewed in a browser. The page, styles, and JavaScript live in
+`web/` (`index.html`, `style.css`, `app.js`); `map_webserver.py` only serves
+those files and the map data. Vendored Three.js files are in `static/`. The server listens on all interfaces, so
 any phone, tablet, or computer on the same network can open it.
 
 ```bash
