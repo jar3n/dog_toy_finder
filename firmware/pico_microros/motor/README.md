@@ -160,10 +160,17 @@ dropping STBY, so re-enabling never resumes the previous speed.
   `CMD_VEL_TIMEOUT_MS` (default 500 ms), so a stalled computer or Wi-Fi link
   cannot leave the robot driving.
 - The IR reflex brakes on the Pico itself when an obstacle is within the
-  sensor's range, independent of the network. It blocks forward and
-  turn-in-place commands, and allows a reverse command so the robot can back
-  away. Configure it with `CMD_VEL_IR_REFLEX` and
-  `CMD_VEL_IR_REFLEX_ALLOW_REVERSE` in `../config/cmd_vel_config.h`.
+  sensor's range, independent of the network. It blocks forward commands.
+  Reverse is only allowed in small steps: one step drives back at
+  `CMD_VEL_IR_REFLEX_REVERSE_SPEED_M_S` for
+  `CMD_VEL_IR_REFLEX_REVERSE_STEP_MS`, then the reflex brakes and pauses for
+  `CMD_VEL_IR_REFLEX_REVERSE_PAUSE_MS`. A turn-in-place command is allowed
+  during that pause, so the robot can back away a little and pivot around.
+  There is no unrestricted reverse. Configure it with `CMD_VEL_IR_REFLEX`,
+  `CMD_VEL_IR_REFLEX_REVERSE_STEPS`,
+  `CMD_VEL_IR_REFLEX_REVERSE_SPEED_M_S`,
+  `CMD_VEL_IR_REFLEX_REVERSE_STEP_MS`, and
+  `CMD_VEL_IR_REFLEX_REVERSE_PAUSE_MS` in `../config/cmd_vel_config.h`.
 - Verify the actual motor supply voltage, motor lead polarity, and wheel
   geometry before running the robot on the floor.
 

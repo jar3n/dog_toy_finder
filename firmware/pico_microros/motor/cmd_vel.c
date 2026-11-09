@@ -44,6 +44,10 @@ static bool drive_error_reported = false;
 static bool spin_error_reported = false;
 #if CMD_VEL_IR_REFLEX
 static bool reflex_active = false;
+static bool reverse_step_active = false;
+static bool reverse_paused = false;
+static uint64_t reverse_step_start_us = 0;
+static uint64_t reverse_pause_start_us = 0;
 #endif
 
 static uint64_t last_command_us = 0;
@@ -145,45 +149,132 @@ static void apply_command(float linear_m_s, float angular_rad_s) {
 }
 
 /**
- * Apply the local IR reflex and decide whether a command may drive.
+ * Brake both motors if they are currently driving.
  *
- * Refreshes the IR debounce filter, then brakes and rejects forward or
- * turn-in-place commands while an obstacle is close. A reverse command is
- * allowed through when CMD_VEL_IR_REFLEX_ALLOW_REVERSE is set so the robot can
- * back away. Logs only on state transitions so a steady obstacle does not flood
- * the serial/Wi-Fi log.
- *
- * @param linear_m_s commanded forward speed; negative means reverse.
- * @return true when the command may be applied, false when it was blocked.
+ * Used by the IR reflex so a blocked command never leaves the robot rolling.
  */
 #if CMD_VEL_IR_REFLEX
-static bool ir_reflex_allows(float linear_m_s) {
+static void reflex_brake(void) {
+  if (motors_active) {
+    tb6612fng_stop_all(motor_driver, true);
+    motors_active = false;
+  }
+}
+
+/**
+ * Forget any in-progress reverse step/pause cycle.
+ *
+ * Called when the path clears or the reflex first engages, so the next reverse
+ * request always starts a fresh step.
+ */
+static void reset_reverse_step(void) {
+  reverse_step_active = false;
+  reverse_paused = false;
+}
+
+/**
+ * Apply the local IR reflex and filter the command before it drives.
+ *
+ * Refreshes the IR debounce filter. While an obstacle is close, forward and
+ * turn-in-place commands are blocked and both motors are braked. Reverse is
+ * never unrestricted: it is only allowed in short steps. One step drives
+ * backwards at CMD_VEL_IR_REFLEX_REVERSE_SPEED_M_S for
+ * CMD_VEL_IR_REFLEX_REVERSE_STEP_MS, then the reflex brakes and pauses for
+ * CMD_VEL_IR_REFLEX_REVERSE_PAUSE_MS. A turn-in-place command is only allowed
+ * during that pause, so the robot can pivot around between steps. Logs only on
+ * state transitions so a steady obstacle does not flood the log.
+ *
+ * @param in_linear_m_s commanded forward speed; negative means reverse.
+ * @param in_angular_rad_s commanded turn rate.
+ * @param out_linear_m_s filtered forward speed to apply (set when allowed).
+ * @param out_angular_rad_s filtered turn rate to apply (set when allowed).
+ * @return true when a (possibly capped) command may be applied.
+ */
+static bool ir_reflex_allows(float in_linear_m_s, float in_angular_rad_s,
+                             float *out_linear_m_s,
+                             float *out_angular_rad_s) {
   ir_obstacle_update();
   bool blocked = ir_obstacle_detected();
 
   if (blocked) {
     if (!reflex_active) {
       reflex_active = true;
+      reset_reverse_step();
       wifi_log_printf(
-        "cmd_vel: IR obstacle ahead; braking and blocking forward/turn\n");
+        "cmd_vel: IR obstacle ahead; braking, reverse in small steps only\n");
+    }
+    reflex_brake();
+
+    bool reverse_requested = in_linear_m_s < 0.0f;
+    bool turn_requested = fabsf(in_angular_rad_s) > 0.001f &&
+                          fabsf(in_linear_m_s) <= 0.001f;
+
+    if (reverse_requested) {
+#if CMD_VEL_IR_REFLEX_REVERSE_STEPS
+      uint64_t now_us = time_us_64();
+
+      if (reverse_paused) {
+        if (now_us - reverse_pause_start_us <
+            (uint64_t) CMD_VEL_IR_REFLEX_REVERSE_PAUSE_MS * 1000u) {
+          reflex_brake();
+          return false;
+        }
+        // Pause finished: start the next step.
+        reverse_paused = false;
+        reverse_step_active = true;
+        reverse_step_start_us = now_us;
+      } else if (!reverse_step_active) {
+        reverse_step_active = true;
+        reverse_step_start_us = now_us;
+      }
+
+      if (now_us - reverse_step_start_us >=
+          (uint64_t) CMD_VEL_IR_REFLEX_REVERSE_STEP_MS * 1000u) {
+        // Step finished: brake and start the pause.
+        reverse_step_active = false;
+        reverse_paused = true;
+        reverse_pause_start_us = now_us;
+        reflex_brake();
+        return false;
+      }
+
+      // Cap the step speed and drive straight back, ignoring any turn mixed
+      // into the same command.
+      *out_linear_m_s =
+        fmaxf(in_linear_m_s, -CMD_VEL_IR_REFLEX_REVERSE_SPEED_M_S);
+      *out_angular_rad_s = 0.0f;
+      return true;
+#else
+      return false;
+#endif
     }
 
-    bool reverse_allowed =
-      CMD_VEL_IR_REFLEX_ALLOW_REVERSE != 0 && linear_m_s < 0.0f;
-    if (!reverse_allowed) {
-      if (motors_active) {
-        tb6612fng_stop_all(motor_driver, true);
-        motors_active = false;
+    if (turn_requested) {
+#if CMD_VEL_IR_REFLEX_REVERSE_STEPS
+      // Turning is only allowed between reverse steps, once the robot has
+      // backed away a little, so it can pivot around instead of driving into
+      // the obstacle.
+      if (reverse_paused) {
+        *out_linear_m_s = 0.0f;
+        *out_angular_rad_s = in_angular_rad_s;
+        return true;
       }
+#endif
       return false;
     }
-    return true;
+
+    // Forward is always blocked while blocked. Reverse+turn mixes were
+    // handled in the reverse branch above (straight back, no turn).
+    return false;
   }
 
   if (reflex_active) {
     reflex_active = false;
+    reset_reverse_step();
     wifi_log_printf("cmd_vel: IR path clear; commands resumed\n");
   }
+  *out_linear_m_s = in_linear_m_s;
+  *out_angular_rad_s = in_angular_rad_s;
   return true;
 }
 #endif
@@ -292,6 +383,18 @@ bool cmd_vel_init(tb6612fng_t *driver) {
     return false;
   }
 
+#if CMD_VEL_IR_REFLEX_REVERSE_STEPS
+  if (CMD_VEL_IR_REFLEX_REVERSE_SPEED_M_S <= 0.0f ||
+      CMD_VEL_IR_REFLEX_REVERSE_SPEED_M_S >
+        CMD_VEL_MAX_WHEEL_SPEED_M_S ||
+      CMD_VEL_IR_REFLEX_REVERSE_STEP_MS < 1 ||
+      CMD_VEL_IR_REFLEX_REVERSE_PAUSE_MS < 1) {
+    wifi_log_printf(
+      "cmd_vel: IR reverse step settings are invalid\n");
+    return false;
+  }
+#endif
+
   if (subscriber_ready) {
     return true;
   }
@@ -354,10 +457,15 @@ void cmd_vel_process(void) {
   }
 
 #if CMD_VEL_IR_REFLEX
-  if (!ir_reflex_allows(target_linear_m_s)) {
+  float filtered_linear_m_s = target_linear_m_s;
+  float filtered_angular_rad_s = target_angular_rad_s;
+  if (!ir_reflex_allows(target_linear_m_s, target_angular_rad_s,
+                        &filtered_linear_m_s, &filtered_angular_rad_s)) {
     return;
   }
-#endif
 
+  apply_command(filtered_linear_m_s, filtered_angular_rad_s);
+#else
   apply_command(target_linear_m_s, target_angular_rad_s);
+#endif
 }

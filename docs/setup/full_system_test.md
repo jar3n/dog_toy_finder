@@ -224,9 +224,15 @@ cd /workspace/software/ros2_ws/src/dog_toy_finder_planning && python3 -m unittes
 - The Pico's 500 ms `/cmd_vel` watchdog stops the robot if the computer or
   Wi-Fi link stalls.
 - The Pico also runs a local IR reflex: when the obstacle sensor sees something
-  within range it brakes and blocks forward/turn commands, but still allows a
-  reverse command to back away. This works without Wi-Fi. Configure it with
-  `CMD_VEL_IR_REFLEX` and `CMD_VEL_IR_REFLEX_ALLOW_REVERSE` in
+  within range it brakes and blocks forward commands. Reverse is only allowed
+  in small steps (about 4 cm per step by default), with a brake pause between
+  steps where a turn-in-place is allowed so the robot can back away and turn
+  around. There is no unrestricted reverse. This works without Wi-Fi.
+  Configure it with `CMD_VEL_IR_REFLEX`,
+  `CMD_VEL_IR_REFLEX_REVERSE_STEPS`,
+  `CMD_VEL_IR_REFLEX_REVERSE_SPEED_M_S`,
+  `CMD_VEL_IR_REFLEX_REVERSE_STEP_MS`, and
+  `CMD_VEL_IR_REFLEX_REVERSE_PAUSE_MS` in
   `firmware/pico_microros/config/cmd_vel_config.h`.
 - Toy cells in `/map` are map memory for display; the local IR reflex is what
   prevents the robot from driving into an obstacle or toy. Do not rely on the

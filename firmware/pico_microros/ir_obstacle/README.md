@@ -36,14 +36,21 @@ Pins live in `../config/pinout.h`; timing and topic live in
 The sensor is not only published to ROS 2. `motor/cmd_vel.c` also reads the
 debounced result every control cycle and brakes both motors when it sees an
 obstacle. That reflex runs on the Pico, so it still works if Wi-Fi or the ROS 2
-computer stalls. While the reflex is active, forward and turn-in-place
-commands are blocked; a reverse command is allowed so the robot can back away.
+computer stalls. While the reflex is active, forward commands are blocked.
+Reverse is never unrestricted: it is allowed only in small steps at
+`CMD_VEL_IR_REFLEX_REVERSE_SPEED_M_S` for
+`CMD_VEL_IR_REFLEX_REVERSE_STEP_MS`, followed by a brake and a pause of
+`CMD_VEL_IR_REFLEX_REVERSE_PAUSE_MS`. A turn-in-place command is allowed during
+that pause, so the robot can back away a little and turn around between steps.
 The behaviour is configured in `../config/cmd_vel_config.h`:
 
 | Setting | Default | Meaning |
 |---|---|---|
 | `CMD_VEL_IR_REFLEX` | 1 | 1 = brake locally on an obstacle, 0 = disable |
-| `CMD_VEL_IR_REFLEX_ALLOW_REVERSE` | 1 | 1 = let negative `linear.x` back away |
+| `CMD_VEL_IR_REFLEX_REVERSE_STEPS` | 1 | 1 = allow stepped reverse, 0 = block all commands while blocked |
+| `CMD_VEL_IR_REFLEX_REVERSE_SPEED_M_S` | 0.10 | capped reverse speed during a step (m/s) |
+| `CMD_VEL_IR_REFLEX_REVERSE_STEP_MS` | 400 | how long one reverse step drives (ms) |
+| `CMD_VEL_IR_REFLEX_REVERSE_PAUSE_MS` | 300 | brake pause between steps (ms); turning is allowed here |
 
 The reflex logs one message when it engages and one when the path clears, so a
 steady obstacle does not flood the log.
