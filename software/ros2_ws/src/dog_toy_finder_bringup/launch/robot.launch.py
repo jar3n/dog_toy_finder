@@ -23,6 +23,11 @@ Common overrides:
     ... wheel_radius:=0.0325 wheel_separation:=0.133
     ... publish_tf:=true          # only when running without the EKF
     ... health_monitor:=false     # skip the sensor heartbeat monitor
+    ... health_imu_timeout:=1.0 health_left_camera_timeout:=5.0
+
+All launch arguments (bringup, stereo, vision, mapping, web map, and the ROSA
+environment) are collected in `scripts/full_system_eval.conf` for full-system
+evaluation runs; `scripts/launch_all.sh` reads that file.
 """
 
 from launch import LaunchDescription
@@ -96,6 +101,48 @@ def generate_launch_description() -> LaunchDescription:
                 default_value="0.0",
                 description="IMU yaw mounting angle in radians",
             ),
+            # Health-monitor heartbeat timeouts, forwarded to the
+            # dog_toy_finder_diagnostics node below.
+            DeclareLaunchArgument(
+                "health_check_period",
+                default_value="0.5",
+                description="Seconds between sensor heartbeat checks",
+            ),
+            DeclareLaunchArgument(
+                "health_startup_grace",
+                default_value="10.0",
+                description="Seconds to wait for a sensor's first message",
+            ),
+            DeclareLaunchArgument(
+                "health_imu_timeout",
+                default_value="0.5",
+                description="Seconds without /imu/data before failure",
+            ),
+            DeclareLaunchArgument(
+                "health_joint_states_timeout",
+                default_value="0.5",
+                description="Seconds without /joint_states before failure",
+            ),
+            DeclareLaunchArgument(
+                "health_ir_timeout",
+                default_value="1.0",
+                description="Seconds without /ir_obstacle/detected before failure",
+            ),
+            DeclareLaunchArgument(
+                "health_left_camera_timeout",
+                default_value="3.0",
+                description="Seconds without left images before failure",
+            ),
+            DeclareLaunchArgument(
+                "health_right_camera_timeout",
+                default_value="3.0",
+                description="Seconds without right images before failure",
+            ),
+            DeclareLaunchArgument(
+                "health_odometry_timeout",
+                default_value="2.0",
+                description="Seconds without /odometry/filtered before failure",
+            ),
             Node(
                 package="dog_toy_finder_odometry",
                 executable="odometry_node",
@@ -158,7 +205,43 @@ def generate_launch_description() -> LaunchDescription:
                 name="health_monitor",
                 output="screen",
                 condition=IfCondition(health_monitor),
-                parameters=[{"use_sim_time": ParameterValue(use_sim_time, value_type=bool)}],
+                parameters=[
+                    {"use_sim_time": ParameterValue(use_sim_time, value_type=bool)},
+                    {
+                        "check_period": ParameterValue(
+                            LaunchConfiguration("health_check_period"),
+                            value_type=float,
+                        ),
+                        "startup_grace": ParameterValue(
+                            LaunchConfiguration("health_startup_grace"),
+                            value_type=float,
+                        ),
+                        "imu_timeout": ParameterValue(
+                            LaunchConfiguration("health_imu_timeout"),
+                            value_type=float,
+                        ),
+                        "joint_states_timeout": ParameterValue(
+                            LaunchConfiguration("health_joint_states_timeout"),
+                            value_type=float,
+                        ),
+                        "ir_timeout": ParameterValue(
+                            LaunchConfiguration("health_ir_timeout"),
+                            value_type=float,
+                        ),
+                        "left_camera_timeout": ParameterValue(
+                            LaunchConfiguration("health_left_camera_timeout"),
+                            value_type=float,
+                        ),
+                        "right_camera_timeout": ParameterValue(
+                            LaunchConfiguration("health_right_camera_timeout"),
+                            value_type=float,
+                        ),
+                        "odometry_timeout": ParameterValue(
+                            LaunchConfiguration("health_odometry_timeout"),
+                            value_type=float,
+                        ),
+                    },
+                ],
             ),
         ]
     )

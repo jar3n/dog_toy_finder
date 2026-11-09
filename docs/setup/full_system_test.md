@@ -76,6 +76,14 @@ A tmux-based launcher opens one pane per component:
 ./scripts/launch_all.sh
 ```
 
+All software parameters for the evaluation run (bringup geometry, health
+timeouts, camera URLs/intrinsics, VLM models, map/toy settings, web-map port,
+and the ROSA environment) live in `scripts/full_system_eval.conf`.
+`launch_all.sh` sources that file and passes each value to its launch file.
+Edit the file for a run, pass a different file as the first argument, or
+override one value from the environment (`WEBMAP_PORT=9000 ./scripts/launch_all.sh`).
+`./scripts/launch_all.sh --dry-run` prints the exact commands without starting tmux.
+
 Stop everything with:
 
 ```bash
