@@ -171,6 +171,12 @@ dropping STBY, so re-enabling never resumes the previous speed.
   `CMD_VEL_IR_REFLEX_REVERSE_SPEED_M_S`,
   `CMD_VEL_IR_REFLEX_REVERSE_STEP_MS`, and
   `CMD_VEL_IR_REFLEX_REVERSE_PAUSE_MS` in `../config/cmd_vel_config.h`.
+- The failsafe reports to ROS twice: the Pico mirrors the reflex engage/clear
+  messages and the watchdog stop to `/pico/log`
+  (`ros2 topic echo /pico/log`), and it keeps publishing the sensor state on
+  `/ir_obstacle/detected`, which `Mover` subscribes to. Forward moves and
+  turns abort on that signal and set `failsafe_hit()`, so planners and ROSA
+  know the Pico stopped the robot instead of waiting for the move deadline.
 - Verify the actual motor supply voltage, motor lead polarity, and wheel
   geometry before running the robot on the floor.
 

@@ -15,6 +15,7 @@
 
 #include "config/cmd_vel_config.h"
 #include "ir_obstacle/ir_obstacle.h"
+#include "ros/ros_log.h"
 #include "ros/ros_node.h"
 #include "wifi/wifi_log.h"
 
@@ -200,7 +201,10 @@ static bool ir_reflex_allows(float in_linear_m_s, float in_angular_rad_s,
     if (!reflex_active) {
       reflex_active = true;
       reset_reverse_step();
-      wifi_log_printf(
+      // ros_log_printf (not wifi_log_printf) so the failsafe is mirrored to
+      // ROS on /pico/log as well as serial/UDP: ROS must know the Pico
+      // blocked the command.
+      ros_log_printf(
         "cmd_vel: IR obstacle ahead; braking, reverse in small steps only\n");
     }
     reflex_brake();
@@ -271,7 +275,7 @@ static bool ir_reflex_allows(float in_linear_m_s, float in_angular_rad_s,
   if (reflex_active) {
     reflex_active = false;
     reset_reverse_step();
-    wifi_log_printf("cmd_vel: IR path clear; commands resumed\n");
+    ros_log_printf("cmd_vel: IR path clear; commands resumed\n");
   }
   *out_linear_m_s = in_linear_m_s;
   *out_angular_rad_s = in_angular_rad_s;
@@ -286,7 +290,9 @@ static void stop_after_timeout(void) {
   if (motors_active) {
     tb6612fng_stop_all(motor_driver, CMD_VEL_STOP_BRAKE != 0);
     motors_active = false;
-    wifi_log_printf(
+    // The command watchdog is also a failsafe: mirror it to ROS so the
+    // computer knows the Pico stopped the robot on its own.
+    ros_log_printf(
       "cmd_vel: no command for %u ms; motors %s\n",
       (unsigned) CMD_VEL_TIMEOUT_MS,
       CMD_VEL_STOP_BRAKE ? "braked" : "coasting");

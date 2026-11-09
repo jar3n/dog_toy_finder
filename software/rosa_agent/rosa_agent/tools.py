@@ -83,11 +83,19 @@ def _report(robot, start, description: str) -> str:
     if end is None:
         return "%s. The fused estimate stopped updating." % description
     forward, left, turned = local_change(start, end)
-    return (
+    text = (
         "%s. Fused estimate measured: forward %.3f m, left %.3f m, "
         "turned %+.1f deg. Fused pose now: %s."
         % (description, forward, left, turned, _fmt(end))
     )
+    if robot.mover.failsafe_hit():
+        text += (
+            " Pico failsafe engaged: the IR sensor saw an obstacle ahead "
+            "(/ir_obstacle/detected), so the Pico braked and blocked the "
+            "command. The move was aborted early; reverse in small steps or "
+            "turn once the path is clear."
+        )
+    return text
 
 
 @tool
@@ -191,6 +199,29 @@ def go_to(x: str, y: str) -> str:
     return _report(
         robot, start, "Drove to x %.2f m, y %.2f m" % (goal_x, goal_y)
     )
+
+
+@tool
+def check_failsafe() -> str:
+    """Report whether the Pico failsafe currently sees an obstacle ahead.
+
+    Reads the latest /ir_obstacle/detected value. When true the Pico has
+    braked and is blocking forward/turn commands, allowing only stepped
+    reverse until the path clears.
+    """
+    robot = get_robot()
+    if robot.mover.obstacle_ahead():
+        return (
+            "Pico failsafe is ACTIVE: /ir_obstacle/detected is true, so the "
+            "Pico is braking and blocking forward/turn commands. Reverse in "
+            "small steps or wait for the path to clear."
+        )
+    if robot.mover.failsafe_hit():
+        return (
+            "Pico failsafe interrupted the last move, but the path is clear "
+            "now. You may drive again."
+        )
+    return "Pico failsafe is not active: no obstacle ahead on /ir_obstacle/detected."
 
 
 @tool

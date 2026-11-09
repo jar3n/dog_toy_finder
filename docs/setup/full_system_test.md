@@ -234,6 +234,12 @@ cd /workspace/software/ros2_ws/src/dog_toy_finder_planning && python3 -m unittes
   `CMD_VEL_IR_REFLEX_REVERSE_STEP_MS`, and
   `CMD_VEL_IR_REFLEX_REVERSE_PAUSE_MS` in
   `firmware/pico_microros/config/cmd_vel_config.h`.
+- ROS knows when the failsafe fires: the Pico mirrors the reflex engage/clear
+  messages and the watchdog stop to `/pico/log`
+  (`ros2 topic echo /pico/log`) and publishes `/ir_obstacle/detected`, which
+  the motion layer subscribes to. Forward moves and turns abort on that signal
+  and report it via `failsafe_hit()` / the ROSA `check_failsafe` tool, instead
+  of driving against the brake until the deadline.
 - Toy cells in `/map` are map memory for display; the local IR reflex is what
   prevents the robot from driving into an obstacle or toy. Do not rely on the
   map alone for collision avoidance.

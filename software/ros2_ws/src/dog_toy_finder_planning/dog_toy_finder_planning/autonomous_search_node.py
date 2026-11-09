@@ -189,6 +189,11 @@ class AutonomousSearch(Mover):
 
                 self.straight(side)
                 self.step += 1
+                if self.failsafe_hit():
+                    self.get_logger().warn(
+                        f"Pico failsafe interrupted side {self.step}: IR "
+                        "obstacle ahead, move aborted early. Continuing search "
+                        "from the stopped pose.")
                 result = self.ask_vision()
                 found_now = False
                 if result is not None:
