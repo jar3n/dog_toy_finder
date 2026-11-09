@@ -41,6 +41,3 @@ viewing computer does not need internet access. Use **Save PNG** in the page to
 download the current view to the computer running the browser (no file is
 written on the robot computer). **Reset view** returns the camera to its
 default angle.
-
-This is the only map viewer: the old `save_map` (PGM/YAML) and `view_map`
-(ASCII) commands have been removed.

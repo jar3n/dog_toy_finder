@@ -182,10 +182,6 @@ Open that URL on any computer or phone on the same network. The 3D view
 updates automatically. Click **Save PNG** to download the current view to the
 computer running the browser; **Reset view** restores the camera angle.
 
-The old `save_map` and `view_map` commands have been removed. If you need a
-one-off screenshot on the robot computer, use the browser's download instead
-of writing files on the robot.
-
 ## 7. Unit tests
 
 ```bash
