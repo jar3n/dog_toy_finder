@@ -20,6 +20,13 @@ const group = new THREE.Group();
 scene.add(group);
 const info = document.getElementById('info');
 
+// Occupancy values published by occupancy_mapper.
+const LAYERS = [
+  { key: 'ir', value: 100, color: 0xcc3333, height: 2.0 },
+  { key: 'vision', value: 70, color: 0x3377dd, height: 1.6 },
+  { key: 'both', value: 85, color: 0xffaa22, height: 2.6 },
+];
+
 function clearGroup() {
   while (group.children.length) {
     const obj = group.children.pop();
@@ -67,7 +74,7 @@ async function fetchJSON(url) {
   return r.json();
 }
 
-function rebuildMap(m, path) {
+function rebuildMap(m, path, toys) {
   clearGroup();
 
   const res = m.resolution;
@@ -82,25 +89,49 @@ function rebuildMap(m, path) {
   plane.position.set(ox + w * res / 2, 0, oy + h * res / 2);
   group.add(plane);
 
-  // Occupied cells as raised blocks.
-  const positions = [];
-  for (let r = 0; r < h; r++) {
-    for (let c = 0; c < w; c++) {
-      if (m.data[r * w + c] >= 50) {
-        positions.push(ox + (c + 0.5) * res, res, oy + (r + 0.5) * res);
+  // One instanced mesh per obstacle source: IR, vision, and both.
+  const counts = { ir: 0, vision: 0, both: 0 };
+  for (const layer of LAYERS) {
+    const positions = [];
+    for (let r = 0; r < h; r++) {
+      for (let c = 0; c < w; c++) {
+        if (m.data[r * w + c] === layer.value) {
+          positions.push(ox + (c + 0.5) * res, oy + (r + 0.5) * res);
+        }
       }
     }
-  }
-  if (positions.length) {
-    const blockGeo = new THREE.BoxGeometry(res * 0.9, res * 2, res * 0.9);
-    const blockMat = new THREE.MeshStandardMaterial({ color: 0xcc3333 });
-    const mesh = new THREE.InstancedMesh(blockGeo, blockMat, positions.length / 3);
+    counts[layer.key] = positions.length / 2;
+    if (!positions.length) continue;
+
+    const height = res * layer.height;
+    const blockGeo = new THREE.BoxGeometry(res * 0.9, height, res * 0.9);
+    const blockMat = new THREE.MeshStandardMaterial({ color: layer.color });
+    const mesh = new THREE.InstancedMesh(blockGeo, blockMat, positions.length / 2);
     const dummy = new THREE.Object3D();
-    for (let i = 0; i < positions.length / 3; i++) {
-      dummy.position.set(positions[i * 3], positions[i * 3 + 1], positions[i * 3 + 2]);
+    for (let i = 0; i < positions.length / 2; i++) {
+      dummy.position.set(positions[i * 2], height / 2, positions[i * 2 + 1]);
       dummy.updateMatrix();
       mesh.setMatrixAt(i, dummy.matrix);
     }
+    mesh.instanceMatrix.needsUpdate = true;
+    group.add(mesh);
+  }
+
+  // Toy detections as green spheres.
+  if (toys && toys.length) {
+    const toyRadius = Math.max(res * 1.5, 0.05);
+    const toyGeo = new THREE.SphereGeometry(toyRadius, 16, 12);
+    const toyMat = new THREE.MeshStandardMaterial({
+      color: 0x33dd77,
+      emissive: 0x0a3a1a,
+    });
+    const mesh = new THREE.InstancedMesh(toyGeo, toyMat, toys.length);
+    const dummy = new THREE.Object3D();
+    toys.forEach((toy, i) => {
+      dummy.position.set(toy.x, Math.max(res * 2.5, 0.12), toy.y);
+      dummy.updateMatrix();
+      mesh.setMatrixAt(i, dummy.matrix);
+    });
     mesh.instanceMatrix.needsUpdate = true;
     group.add(mesh);
   }
@@ -114,7 +145,10 @@ function rebuildMap(m, path) {
   }
 
   info.textContent = `Map ${w}\u00d7${h} @ ${res} m/cell`
-                   + `  \u00b7  obstacles: ${positions.length / 3}`;
+                   + `  \u00b7  IR ${counts.ir}`
+                   + `  \u00b7  vision ${counts.vision}`
+                   + `  \u00b7  both ${counts.both}`
+                   + `  \u00b7  toys ${toys ? toys.length : 0}`;
 }
 
 let lastMapStamp = 0;
@@ -131,7 +165,8 @@ async function loop(now) {
       if (m && m.stamp != null && m.stamp !== lastMapStamp) {
         lastMapStamp = m.stamp;
         const path = await fetchJSON('/path.json');
-        rebuildMap(m, path);
+        const toys = await fetchJSON('/toys.json');
+        rebuildMap(m, path, toys ? toys.toys : []);
       }
     } catch (e) {
       info.textContent = 'Map server unreachable; retrying\u2026';

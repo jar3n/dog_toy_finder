@@ -1,9 +1,10 @@
 """Live 3D browser view of the robot's map.
 
-Subscribes to /map (nav_msgs/OccupancyGrid) and /tracked_path (nav_msgs/Path)
-and serves a self-refreshing page on port 8765. The page itself lives in
-`web/` (HTML, CSS, and JavaScript); vendored Three.js files live in `static/`.
-Python only publishes the map data and serves those files.
+Subscribes to /map (nav_msgs/OccupancyGrid), /tracked_path (nav_msgs/Path), and
+/detected_toys (geometry_msgs/PoseArray) and serves a self-refreshing page on
+port 8765. The page itself lives in `web/` (HTML, CSS, and JavaScript);
+vendored Three.js files live in `static/`. Python only publishes the map data
+and serves those files.
 
 The page has a **Save PNG** button that downloads the current view to the
 computer running the browser, and a **Reset view** button for the camera.
@@ -27,6 +28,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path as FilePath
 
 import rclpy
+from geometry_msgs.msg import PoseArray
 from nav_msgs.msg import OccupancyGrid, Path
 from rclpy.node import Node
 from rclpy.qos import qos_profile_sensor_data
@@ -69,10 +71,13 @@ class MapWebServer(Node):
         self._lock = threading.Lock()
         self._map = None
         self._path = None
+        self._toys = None
 
         self.create_subscription(OccupancyGrid, "/map", self.on_map,
                                  qos_profile_sensor_data)
         self.create_subscription(Path, "/tracked_path", self.on_path,
+                                 qos_profile_sensor_data)
+        self.create_subscription(PoseArray, "/detected_toys", self.on_toys,
                                  qos_profile_sensor_data)
 
         self.httpd = ThreadingHTTPServer(("0.0.0.0", self.port), self._handler_factory())
@@ -124,6 +129,13 @@ class MapWebServer(Node):
                         data = {"points": []}
                     self._send(200, json.dumps(data).encode("utf-8"),
                                "application/json")
+                elif path == "/toys.json":
+                    with node._lock:
+                        data = node._toys
+                    if data is None:
+                        data = {"toys": []}
+                    self._send(200, json.dumps(data).encode("utf-8"),
+                               "application/json")
                 elif path.startswith("/static/"):
                     name = path[len("/static/"):]
                     content_type = STATIC_FILES.get(name)
@@ -158,6 +170,13 @@ class MapWebServer(Node):
             pts.append({"x": ps.pose.position.x, "y": ps.pose.position.y})
         with self._lock:
             self._path = {"points": pts}
+
+    def on_toys(self, msg):
+        toys = []
+        for pose in msg.poses:
+            toys.append({"x": pose.position.x, "y": pose.position.y})
+        with self._lock:
+            self._toys = {"toys": toys}
 
     def destroy_node(self):
         try:

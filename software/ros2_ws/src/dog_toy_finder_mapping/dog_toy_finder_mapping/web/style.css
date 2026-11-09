@@ -65,4 +65,31 @@ button.secondary:hover {
   padding: 6px 10px;
   border-radius: 6px;
   font-size: 12px;
+  line-height: 1.7;
+}
+
+.swatch {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  margin-right: 4px;
+  vertical-align: middle;
+}
+
+.swatch.ir {
+  background: #cc3333;
+}
+
+.swatch.vision {
+  background: #3377dd;
+}
+
+.swatch.both {
+  background: #ffaa22;
+}
+
+.swatch.toy {
+  background: #33dd77;
+  border-radius: 50%;
 }

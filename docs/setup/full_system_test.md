@@ -170,8 +170,9 @@ and average latency, target-visible rate, final pose.
 
 ## 6.5 Viewing the map
 
-The occupancy mapper publishes `/map` (nav_msgs/OccupancyGrid) and
-`/tracked_path` (nav_msgs/Path). Start the browser viewer:
+The occupancy mapper publishes `/map` (`nav_msgs/OccupancyGrid`),
+`/tracked_path` (`nav_msgs/Path`), and `/detected_toys`
+(`geometry_msgs/PoseArray`). Start the browser viewer:
 
 ```bash
 ros2 run dog_toy_finder_mapping map_webserver
@@ -181,6 +182,28 @@ ros2 run dog_toy_finder_mapping map_webserver
 Open that URL on any computer or phone on the same network. The 3D view
 updates automatically. Click **Save PNG** to download the current view to the
 computer running the browser; **Reset view** restores the camera angle.
+
+The map distinguishes where each obstacle came from:
+
+| Colour | Occupancy value | Source |
+|---|---|---|
+| red | `100` | IR only |
+| blue | `70` | vision only |
+| orange | `85` | both IR and vision |
+| green sphere | `/detected_toys` pose | VLM toy detection |
+| white floor | `0` | driven-through free space |
+
+Vision obstacles expire after `vision_timeout` (default 5 s), so blue/orange
+blocks reflect recent VLM results rather than old ones. Toy spheres are
+estimated from the VLM's `position` (`left`/`center`/`right`) at
+`toy_detection_range` metres ahead (default 0.6 m) and merged within
+`toy_dedupe_radius` (default 0.15 m). Tune these with:
+
+```bash
+ros2 launch dog_toy_finder_mapping mapping.launch.py \
+    toy_detection_range:=0.4 toy_bearing_deg:=25.0 \
+    vision_timeout:=3.0
+```
 
 ## 7. Unit tests
 
