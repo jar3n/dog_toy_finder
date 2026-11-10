@@ -65,6 +65,52 @@ ros2 run dog_toy_finder_motion mover_test square 0.5 --cw
 ros2 run dog_toy_finder_motion mover_test goto 1.0 0.5
 ```
 
+## Manual keyboard drive
+
+`manual_drive` publishes `/cmd_vel` straight from keyboard input, for moving
+the robot by hand while the bringup stack is running:
+
+```bash
+ros2 run dog_toy_finder_motion manual_drive
+# slower:
+ros2 run dog_toy_finder_motion manual_drive --ros-args \
+    -p linear_speed:=0.10 -p angular_speed:=0.4
+```
+
+On the host, `./scripts/manual_drive.sh` opens the ROS 2 container with a TTY
+and runs the same node.
+
+| Key | Action |
+|---|---|
+| `W` / Up | drive forward |
+| `S` / Down | drive backward |
+| `A` / Left | turn left |
+| `D` / Right | turn right |
+| Space | stop now |
+| `Q` | stop and quit |
+
+The robot never drives and turns at the same time. Every key sets exactly one
+axis and clears the other, so a published `Twist` never has both a linear and
+an angular component; pressing a turn key cancels a drive and vice versa.
+
+A terminal has no key-release event, so the node relies on keyboard auto-repeat:
+hold a key to keep moving, and `key_timeout` seconds (default 0.6 s) without a
+drive key publishes a stop. This makes releasing the key a dead-man stop rather
+than leaving the robot driving. If your keyboard repeat delay is longer than
+the timeout, raise it with `-p key_timeout:=0.8`.
+
+| Parameter | Default | Meaning |
+|---|---|---|
+| `linear_speed` | 0.12 | forward/backward speed (m/s) |
+| `angular_speed` | 0.5 | turn rate (rad/s) |
+| `key_timeout` | 0.6 | stop after this long without a key (s) |
+| `publish_rate` | 20.0 | command publish rate (Hz) |
+| `cmd_topic` | `/cmd_vel` | topic to publish |
+
+The Pico's IR reflex and 500 ms `/cmd_vel` watchdog still apply: the Pico
+brakes locally in front of an obstacle and stops the motors if the node or the
+Wi-Fi link stops publishing.
+
 The unit tests in `software/rosa_agent/tests/` cover the pure transforms.
 
 ## ROSA dependency

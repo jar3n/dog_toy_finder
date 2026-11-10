@@ -31,7 +31,7 @@ platform.
 |---|---|---|
 | `dog_toy_finder_bringup` | Launch files, EKF config, robot geometry | [README](software/ros2_ws/src/dog_toy_finder_bringup/README.md) |
 | `dog_toy_finder_odometry` | `/joint_states` -> `/wheel/odom` | [README](software/ros2_ws/src/dog_toy_finder_odometry/README.md) |
-| `dog_toy_finder_motion` | Closed-loop moves + `mover_test` | [README](software/ros2_ws/src/dog_toy_finder_motion/README.md) |
+| `dog_toy_finder_motion` | Closed-loop moves, manual keyboard drive + `mover_test` | [README](software/ros2_ws/src/dog_toy_finder_motion/README.md) |
 | `dog_toy_finder_vision` | Stereo camera, VLM vision | [README](software/ros2_ws/src/dog_toy_finder_vision/README.md) |
 | `dog_toy_finder_mapping` | Occupancy map + 3D web viewer | [README](software/ros2_ws/src/dog_toy_finder_mapping/README.md) |
 | `dog_toy_finder_planning` | Autonomous search planner + path utilities | [README](software/ros2_ws/src/dog_toy_finder_planning/README.md) |

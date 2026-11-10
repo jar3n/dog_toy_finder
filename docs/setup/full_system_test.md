@@ -138,6 +138,42 @@ logs an ERROR on `/rosout`. Watch for failures with:
 ros2 topic echo /rosout | grep FAILED
 ```
 
+### 4.1 Manual drive mode (keyboard)
+
+With the bringup stack running (micro-ROS agent + `robot.launch.py`), drive the
+robot by hand with:
+
+```bash
+# on the host, opens the ros2 container with a TTY:
+./scripts/manual_drive.sh
+
+# or inside the ROS 2 container:
+ros2 run dog_toy_finder_motion manual_drive
+```
+
+| Key | Action |
+|---|---|
+| `W` / Up | drive forward |
+| `S` / Down | drive backward |
+| `A` / Left | turn left |
+| `D` / Right | turn right |
+| Space | stop now |
+| `Q` | stop and quit |
+
+Manual mode never drives and turns at the same time: each command sets one
+axis and clears the other, so a `Twist` cannot contain both. Hold a key to keep
+moving (keyboard auto-repeat); releasing it stops the robot after
+`key_timeout` (default 0.6 s). If a longer keyboard repeat delay causes
+stutter, raise it:
+
+```bash
+ros2 run dog_toy_finder_motion manual_drive --ros-args -p key_timeout:=0.8
+# also available: -p linear_speed:=0.10 -p angular_speed:=0.4
+```
+
+The Pico's IR reflex still brakes in front of an obstacle and the 500 ms
+`/cmd_vel` watchdog still stops the motors if key publishing stops.
+
 ## 5. Run the full test evaluation
 
 All evaluation parameters (target, search sizes, run IDs, CSV paths, data
@@ -311,6 +347,7 @@ ros2 launch dog_toy_finder_mapping mapping.launch.py \
 ```bash
 cd /workspace/software/rosa_agent && python3 -m unittest discover -s tests
 cd /workspace/software/ros2_ws/src/dog_toy_finder_planning && python3 -m unittest discover -s tests
+cd /workspace/software/ros2_ws/src/dog_toy_finder_motion && python3 -m unittest discover -s tests
 ```
 
 End-to-end search workflow tests (fake robot + scripted vision, no hardware

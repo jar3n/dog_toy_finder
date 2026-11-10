@@ -22,6 +22,7 @@ setup(
     entry_points={
         "console_scripts": [
             "mover_test = dog_toy_finder_motion.move_test:main",
+            "manual_drive = dog_toy_finder_motion.manual_drive:main",
         ],
     },
 )
