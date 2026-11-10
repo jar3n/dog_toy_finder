@@ -82,6 +82,8 @@ source install/setup.bash
 
 # one command to launch everything in tmux panes:
 /workspace/scripts/launch_all.sh
+# same, plus a keyboard manual-drive window (W/A/S/D):
+/workspace/scripts/launch_all.sh --manual
 # stop everything:
 /workspace/scripts/stop_all.sh
 ```

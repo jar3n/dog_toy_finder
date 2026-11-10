@@ -68,7 +68,15 @@ ros2 run dog_toy_finder_motion mover_test goto 1.0 0.5
 ## Manual keyboard drive
 
 `manual_drive` publishes `/cmd_vel` straight from keyboard input, for moving
-the robot by hand while the bringup stack is running:
+the robot by hand while the bringup stack is running. The easiest launch is
+the full-stack launcher with `--manual`, which starts every component and
+selects a `manual` tmux window:
+
+```bash
+./scripts/launch_all.sh --manual
+```
+
+The node can also be started on its own:
 
 ```bash
 ros2 run dog_toy_finder_motion manual_drive
@@ -78,7 +86,8 @@ ros2 run dog_toy_finder_motion manual_drive --ros-args \
 ```
 
 On the host, `./scripts/manual_drive.sh` opens the ROS 2 container with a TTY
-and runs the same node.
+and runs the same node. When started through `launch_all.sh`, the speeds and
+timeout come from the `MANUAL_*` values in `scripts/full_system_eval.conf`.
 
 | Key | Action |
 |---|---|

@@ -77,14 +77,20 @@ A tmux-based launcher opens one pane per component:
 ./scripts/launch_all.sh
 # or, already inside the ros2 container:
 ./scripts/launch_all.sh
+
+# start the stack and open keyboard manual drive in the same tmux session:
+./scripts/launch_all.sh --manual
 ```
 
 All software parameters for the evaluation run (bringup geometry, health
 timeouts, camera URLs/intrinsics, VLM models, map/toy settings, web-map port,
-and the ROSA environment) live in `scripts/full_system_eval.conf`.
-`launch_all.sh` sources that file and passes each value to its launch file.
-Edit the file for a run, pass a different file as the first argument, or
-override one value from the environment (`WEBMAP_PORT=9000 ./scripts/launch_all.sh`).
+manual drive speeds, and the ROSA environment) live in
+`scripts/full_system_eval.conf`. `launch_all.sh` sources that file and passes
+each value to its launch file. Edit the file for a run, pass a different file
+as the first argument, or override one value from the environment
+(`WEBMAP_PORT=9000 ./scripts/launch_all.sh`). `--manual` adds and selects a
+`manual` tmux window without editing the config; setting `MANUAL_DRIVE=true`
+in the config does the same for every launch.
 `./scripts/launch_all.sh --dry-run` prints the exact commands without starting tmux.
 
 Stop everything with:
@@ -140,8 +146,19 @@ ros2 topic echo /rosout | grep FAILED
 
 ### 4.1 Manual drive mode (keyboard)
 
-With the bringup stack running (micro-ROS agent + `robot.launch.py`), drive the
-robot by hand with:
+The easiest way is to start (or restart) the whole stack with manual mode
+already open:
+
+```bash
+./scripts/launch_all.sh --manual
+```
+
+That starts every component and selects a `manual` tmux window. Press `Ctrl-b`
+then a window number/name to move between it and the other components, and
+`Q` in the manual window to stop driving.
+
+With only the bringup stack running (micro-ROS agent + `robot.launch.py`), the
+manual node can also be started on its own:
 
 ```bash
 # on the host, opens the ros2 container with a TTY:
@@ -170,6 +187,10 @@ stutter, raise it:
 ros2 run dog_toy_finder_motion manual_drive --ros-args -p key_timeout:=0.8
 # also available: -p linear_speed:=0.10 -p angular_speed:=0.4
 ```
+
+When manual drive is started by `launch_all.sh`, set the same values through
+`MANUAL_LINEAR_SPEED`, `MANUAL_ANGULAR_SPEED`, `MANUAL_KEY_TIMEOUT`, and
+`MANUAL_PUBLISH_RATE` in `scripts/full_system_eval.conf` instead.
 
 The Pico's IR reflex still brakes in front of an obstacle and the 500 ms
 `/cmd_vel` watchdog still stops the motors if key publishing stops.

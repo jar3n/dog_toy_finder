@@ -2,12 +2,17 @@
 # Launch the whole Dog Toy Finder stack in separate tmux panes.
 #
 # Usage:
-#   ./scripts/launch_all.sh [config-file] [--dry-run]
+#   ./scripts/launch_all.sh [config-file] [--manual] [--dry-run]
 #
 # On the host this starts the micro-ROS agent container and one ros2 container
 # per long-running component. Inside the container it runs everything in tmux
 # panes sharing the same ROS 2 context. With --dry-run it prints the commands
 # instead of starting tmux (useful to check the configuration).
+#
+# --manual adds an extra tmux window with the keyboard manual drive node and
+# selects it, so the same command both starts the stack and lets you drive:
+#   ./scripts/launch_all.sh --manual
+# It can also be enabled permanently with MANUAL_DRIVE=true in the config.
 #
 # All software parameters come from a config file, by default
 # scripts/full_system_eval.conf (override with the first argument or by setting
@@ -21,10 +26,12 @@ SESSION="dog_toy_finder"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 DRY_RUN=0
+MANUAL_REQUESTED=0
 CONFIG=""
 for arg in "$@"; do
     case "$arg" in
         --dry-run) DRY_RUN=1 ;;
+        --manual) MANUAL_REQUESTED=1 ;;
         *) CONFIG="$arg" ;;
     esac
 done
@@ -37,6 +44,19 @@ if [ ! -f "$CONFIG" ]; then
 fi
 # shellcheck disable=SC1090
 . "$CONFIG"
+
+# --manual wins over the config so a one-off drive does not need an edit.
+if [ "$MANUAL_REQUESTED" -eq 1 ]; then
+    MANUAL_DRIVE=true
+fi
+
+# Accept the usual spellings for a boolean config value.
+is_true() {
+    case "$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')" in
+        true|1|yes|on) return 0 ;;
+        *) return 1 ;;
+    esac
+}
 
 # One ros2-level command per component, built from the config values above.
 BRINGUP_CMD="ros2 launch dog_toy_finder_bringup robot.launch.py"
@@ -81,6 +101,12 @@ MAP_CMD="$MAP_CMD toy_occupancy_radius:=$TOY_OCCUPANCY_RADIUS"
 
 WEB_CMD="ros2 run dog_toy_finder_mapping map_webserver --ros-args -p port:=$WEBMAP_PORT"
 
+MANUAL_CMD="ros2 run dog_toy_finder_motion manual_drive --ros-args"
+MANUAL_CMD="$MANUAL_CMD -p linear_speed:=${MANUAL_LINEAR_SPEED:-0.12}"
+MANUAL_CMD="$MANUAL_CMD -p angular_speed:=${MANUAL_ANGULAR_SPEED:-0.5}"
+MANUAL_CMD="$MANUAL_CMD -p key_timeout:=${MANUAL_KEY_TIMEOUT:-0.6}"
+MANUAL_CMD="$MANUAL_CMD -p publish_rate:=${MANUAL_PUBLISH_RATE:-20.0}"
+
 ROSA_CMD="OLLAMA_MODEL=$ROSA_MODEL OLLAMA_URL=$ROSA_OLLAMA_URL"
 ROSA_CMD="$ROSA_CMD ROSA_REQUIRE_APPROVAL=$ROSA_REQUIRE_APPROVAL python3 -m rosa_agent"
 
@@ -91,7 +117,13 @@ if [ "$DRY_RUN" -eq 1 ]; then
     echo "vision:  $VISION_CMD"
     echo "mapping: $MAP_CMD"
     echo "webmap:  $WEB_CMD"
+    echo "manual:  $MANUAL_CMD"
     echo "rosa:    cd <repo>/software/rosa_agent && $ROSA_CMD"
+    if is_true "${MANUAL_DRIVE:-false}"; then
+        echo "manual drive: enabled; tmux will select the 'manual' window"
+    else
+        echo "manual drive: disabled (add --manual to start it and select its window)"
+    fi
     exit 0
 fi
 
@@ -116,7 +148,13 @@ if [ -f /opt/ros/humble/setup.bash ]; then
         "source /opt/ros/humble/setup.bash; source $WS/install/setup.bash; $WEB_CMD"
     tmux new-window -t "$SESSION" -n "rosa" \
         "source /opt/ros/humble/setup.bash; source $WS/install/setup.bash; cd $REPO/software/rosa_agent && $ROSA_CMD"
-    tmux select-window -t "$SESSION:bringup"
+    if is_true "${MANUAL_DRIVE:-false}"; then
+        tmux new-window -t "$SESSION" -n "manual" \
+            "source /opt/ros/humble/setup.bash; source $WS/install/setup.bash; $MANUAL_CMD"
+        tmux select-window -t "$SESSION:manual"
+    else
+        tmux select-window -t "$SESSION:bringup"
+    fi
     tmux attach -t "$SESSION"
 else
     # ---------- running on the host ----------
@@ -140,8 +178,18 @@ else
     run_in_ros2 "mapping" "$MAP_CMD"
     run_in_ros2 "webmap"  "$WEB_CMD"
     run_in_ros2 "rosa"    "cd /workspace/software/rosa_agent && $ROSA_CMD"
+    if is_true "${MANUAL_DRIVE:-false}"; then
+        # The manual window needs the TTY that tmux gives it, so keyboard
+        # input reaches the node (docker compose run auto-detects the TTY).
+        run_in_ros2 "manual" "$MANUAL_CMD"
+        tmux select-window -t "$SESSION:manual"
+    else
+        tmux select-window -t "$SESSION:bringup"
+    fi
 
-    tmux select-window -t "$SESSION:bringup"
     echo "Attaching to tmux session '$SESSION'. Detach with Ctrl-b d."
+    if is_true "${MANUAL_DRIVE:-false}"; then
+        echo "The 'manual' window is selected: hold W/A/S/D to drive, Q to quit."
+    fi
     tmux attach -t "$SESSION"
 fi

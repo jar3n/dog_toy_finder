@@ -9,6 +9,9 @@
 # this opens the ROS 2 container with an interactive TTY; inside the ROS 2
 # container it runs the node directly.
 #
+# To start the whole stack and this node together, use:
+#   ./scripts/launch_all.sh --manual
+#
 # Keys: W/S or Up/Down drive, A/D or Left/Right turn, Space stops, Q quits.
 # The robot never drives and turns at the same time.
 
