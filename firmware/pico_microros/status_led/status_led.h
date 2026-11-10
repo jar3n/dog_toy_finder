@@ -2,7 +2,8 @@
 //
 // The LED is not a Pico GPIO: it belongs to the CYW43 wireless chip and is
 // driven through the cyw43_arch API. The module blinks while the firmware is
-// starting up and holds the LED on once status_led_set_ready(true) is called.
+// starting up, holds the LED on when startup succeeded, and turns it off when
+// startup failed.
 #pragma once
 
 #include <stdbool.h>
@@ -11,12 +12,22 @@
 extern "C" {
 #endif
 
+/** Boot state shown by the built-in LED. */
+typedef enum {
+  /** Firmware is still starting up; the LED blinks. */
+  STATUS_LED_STARTING = 0,
+  /** Startup finished and every required device is up; the LED is solid. */
+  STATUS_LED_READY,
+  /** Startup finished but at least one step failed; the LED is off. */
+  STATUS_LED_FAILED,
+} status_led_state_t;
+
 /**
  * Initialize the built-in LED and start blinking.
  *
  * Brings up the CYW43 chip when Wi-Fi has not done so yet (the LED lives on
- * that chip), drives the LED off, and marks the module available. Safe to
- * call once during boot, before wifi_init().
+ * that chip), drives the LED off, and puts the module in
+ * STATUS_LED_STARTING. Safe to call once during boot, before wifi_init().
  *
  * @return true when the LED can be driven, false when it is disabled or the
  *         wireless chip could not be initialized.
@@ -24,22 +35,22 @@ extern "C" {
 bool status_led_init(void);
 
 /**
- * Switch between the startup blink and the ready indication.
+ * Set the boot state shown by the LED.
  *
- * @param ready true = solid on (startup finished), false = blink again
- *              (for example after a later subsystem restart).
+ * STATUS_LED_STARTING blinks, STATUS_LED_READY lights it solid, and
+ * STATUS_LED_FAILED leaves it off.
  */
-void status_led_set_ready(bool ready);
+void status_led_set_state(status_led_state_t state);
 
-/** @return true when the startup sequence has finished and the LED is solid. */
-bool status_led_ready(void);
+/** @return the current boot state. */
+status_led_state_t status_led_state(void);
 
 /**
  * Advance the startup blink pattern.
  *
  * Call regularly (at least every STATUS_LED_BLINK_PERIOD_MS / 2) while the
- * firmware is starting. Does nothing once the LED is ready, so it is cheap
- * to keep calling from the main loop.
+ * firmware is starting. Does nothing in the ready and failed states, so it is
+ * cheap to keep calling from the main loop.
  */
 void status_led_task(void);
 

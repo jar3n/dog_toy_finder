@@ -105,5 +105,6 @@ ESP32-CAM GND --> GND
 
 No wiring and no Pico GPIO: on the Pico 2 W the LED belongs to the CYW43
 wireless chip (wireless GPIO 0). The firmware drives it through the cyw43 API;
-it blinks while starting up and stays solid once the control loop is running.
-See `firmware/pico_microros/status_led/README.md`.
+it blinks while starting up, stays solid once every device is up, and is off
+when the boot sequence failed. See
+`firmware/pico_microros/status_led/README.md`.

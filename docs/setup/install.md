@@ -67,10 +67,11 @@ The UF2 is staged at
 3. The Pico reboots and connects to Wi-Fi + the micro-ROS agent.
 
 The built-in Pico LED shows the boot state: it **blinks** while the firmware
-brings up Wi-Fi, micro-ROS, and the sensors, then stays **solid on** once the
-control loop starts. Solid does not mean every device initialized — check the
-`/pico/log` output for sensor failures. Blink timing (and disabling the LED)
-lives in `firmware/pico_microros/config/status_led_config.h`.
+brings up Wi-Fi, micro-ROS, and the sensors, then stays **solid on** when every
+required device came up. If any initialization step failed it turns **off**;
+the firmware keeps running, so check `/pico/log` for the failing device.
+Blink timing (and disabling the LED) lives in
+`firmware/pico_microros/config/status_led_config.h`.
 
 ## 6. Build and flash the ESP32-CAM (stereo eyes)
 

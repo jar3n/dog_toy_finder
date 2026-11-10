@@ -15,8 +15,8 @@
 // True once the CYW43 chip is available and the LED can be driven.
 static bool available = false;
 
-// True after status_led_set_ready(true); the LED then stays solid.
-static bool ready = false;
+// Current boot state; controls the blink, solid-on, and off indications.
+static status_led_state_t state = STATUS_LED_STARTING;
 
 // Logical LED state (true = lit) used by the blink pattern.
 static bool lit = false;
@@ -52,7 +52,7 @@ bool status_led_init(void) {
   }
 
   available = true;
-  ready = false;
+  state = STATUS_LED_STARTING;
   lit = false;
   status_led_write(false);
   last_toggle_ms = to_ms_since_boot(get_absolute_time());
@@ -60,34 +60,38 @@ bool status_led_init(void) {
 }
 
 /**
- * Switch between the startup blink and the solid ready indication.
+ * Set the boot state shown by the LED.
+ *
+ * READY drives the LED solid on, FAILED drives it solid off, and STARTING
+ * clears it and resumes blinking from the next half period.
  */
-void status_led_set_ready(bool is_ready) {
+void status_led_set_state(status_led_state_t new_state) {
   if (!available) {
     return;
   }
 
-  ready = is_ready;
-  lit = is_ready;
-  status_led_write(is_ready);
+  state = new_state;
+  lit = (new_state == STATUS_LED_READY);
+  status_led_write(lit);
   last_toggle_ms = to_ms_since_boot(get_absolute_time());
 }
 
 /**
- * Return whether startup has finished and the LED is solid.
+ * Return the current boot state.
  */
-bool status_led_ready(void) {
-  return ready;
+status_led_state_t status_led_state(void) {
+  return state;
 }
 
 /**
  * Advance the startup blink pattern.
  *
- * Toggles once per half period. Does nothing once ready, so the main loop can
- * call it unconditionally without affecting the solid indication.
+ * Toggles once per half period while starting. Does nothing once startup has
+ * finished, so the main loop can call it unconditionally without changing the
+ * solid ready or off failure indication.
  */
 void status_led_task(void) {
-  if (!available || ready) {
+  if (!available || state != STATUS_LED_STARTING) {
     return;
   }
 
@@ -113,12 +117,12 @@ bool status_led_init(void) {
   return false;
 }
 
-void status_led_set_ready(bool is_ready) {
-  (void) is_ready;
+void status_led_set_state(status_led_state_t new_state) {
+  (void) new_state;
 }
 
-bool status_led_ready(void) {
-  return false;
+status_led_state_t status_led_state(void) {
+  return STATUS_LED_STARTING;
 }
 
 void status_led_task(void) {

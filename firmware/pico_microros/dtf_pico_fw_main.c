@@ -38,9 +38,9 @@ Dog Toy Finder Pico 2 W firmware Main file
  * publishes Imu and JointState messages at 50 Hz, services /cmd_vel at 50 Hz,
  * and logs IMU and encoder status at 2 Hz and 1 Hz respectively.
  *
- * The built-in LED blinks while this boot sequence runs and is left solid on
- * once the control loop starts, so an outside observer can tell whether the
- * Pico finished starting up.
+ * The built-in LED blinks while this boot sequence runs, then stays solid on
+ * when every required device came up or turns off when any step failed, so an
+ * outside observer can tell the boot outcome without a terminal.
  */
 int main(void){
     stdio_init_all();
@@ -51,10 +51,10 @@ int main(void){
     // long association wait still shows progress.
     status_led_init();
     wifi_set_poll_hook(status_led_task);
-    wifi_init();
+    bool wifi_ready = wifi_init();
     status_led_task();
 
-    ros_log_init();
+    bool ros_ready = ros_log_init();
     status_led_task();
 
     bool imu_ready = bno055_init();
@@ -104,9 +104,19 @@ int main(void){
     }
     status_led_task();
 
-    // Startup is complete. Hold the LED solid even if an optional device
-    // failed above: the failure is logged and the control loop still runs.
-    status_led_set_ready(true);
+    // Startup is complete. Solid means every required device came up; if any
+    // step failed, turn the LED off so the failure is visible without a
+    // terminal. The control loop still runs in the degraded state.
+    bool boot_ok = wifi_ready && ros_ready &&
+                   imu_ready && imu_publishing &&
+                   encoder_ready && encoder_publishing &&
+                   motor_ready && cmd_vel_subscribed &&
+                   ir_obstacle_ready;
+    ros_log_printf(
+        "boot: %s\n",
+        boot_ok ? "ready (LED solid)" : "failed (LED off); see messages above");
+    status_led_set_state(
+        boot_ok ? STATUS_LED_READY : STATUS_LED_FAILED);
 
     absolute_time_t next_publish = get_absolute_time();
     absolute_time_t next_log = get_absolute_time();

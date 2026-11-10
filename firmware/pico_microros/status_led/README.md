@@ -6,12 +6,13 @@ boot indicator:
 | LED | Meaning |
 |---|---|
 | Blinking | firmware is starting up (Wi-Fi join, micro-ROS, sensors) |
-| Solid on | startup finished; the main control loop is running |
+| Solid on | startup finished and every required device came up |
+| Off | startup finished but at least one initialization step failed |
 
-A sensor or the micro-ROS agent failing to initialize does **not** keep the
-LED blinking. Those failures are logged (USB serial, UDP, and `/pico/log`) and
-the firmware continues in its degraded state, so solid always means "the boot
-sequence is done", not "every optional device is healthy".
+The firmware does not stop on a failure. It logs the failing step (USB serial,
+UDP, and `/pico/log`) and keeps running in its degraded state, so the LED is
+the quick indication and the log says what went wrong. A failure leaves the
+LED off until the Pico is reset.
 
 ## Wiring
 
@@ -39,16 +40,17 @@ Timing lives in `../config/status_led_config.h`.
 2. `status_led_task()` from the main loop, and from `wifi_init()`'s connect
    wait via `wifi_set_poll_hook()` so the blink keeps moving during the
    (potentially tens of seconds) Wi-Fi association.
-3. `status_led_set_ready(true)` once every initialization step has been
-   attempted, just before the control loop starts.
+3. `status_led_set_state(STATUS_LED_READY)` when every initialization step
+   succeeded, or `status_led_set_state(STATUS_LED_FAILED)` when any failed,
+   just before the control loop starts.
 
-`status_led_set_ready(false)` returns to blinking if a later subsystem is
-restarted and the board should look busy again.
+`status_led_set_state(STATUS_LED_STARTING)` resumes blinking if a later
+subsystem restart should look busy again.
 
 ## Notes
 
 - `status_led_task()` is cheap and safe to call every loop; it does nothing
-  once the LED is ready.
+  once startup has finished.
 - Do not toggle the LED from an interrupt. The CYW43 driver uses locks shared
   with the background Wi-Fi processing, so LED writes belong in the main
   thread.
