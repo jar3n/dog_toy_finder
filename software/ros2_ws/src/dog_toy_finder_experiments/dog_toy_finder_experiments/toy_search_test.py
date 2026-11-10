@@ -91,6 +91,7 @@ class ToySearchTest(Mover):
 
         self._vision_lock = threading.Lock()
         self._vision_result = None
+        self._vision_pending = None
         self._vision_event = threading.Event()
 
         self.rows = []
@@ -105,21 +106,29 @@ class ToySearchTest(Mover):
         except json.JSONDecodeError:
             return
         with self._vision_lock:
+            if (self._vision_pending is not None and "id" in data
+                    and data.get("id") != self._vision_pending):
+                return
             self._vision_result = data
             self._vision_event.set()
 
     def ask_one(self, target):
         """Ask the vision node about one target and wait for its result."""
         self._vision_event.clear()
+        req_id = str(int(time.time() * 1000))
         with self._vision_lock:
             self._vision_result = None
-        req_id = str(int(time.time() * 1000))
+            self._vision_pending = req_id
         self.ask_pub.publish(String(data=json.dumps(
             {"id": req_id, "target": target})))
         if not self._vision_event.wait(timeout=self.vision_timeout):
+            with self._vision_lock:
+                self._vision_pending = None
             return None
         with self._vision_lock:
-            return self._vision_result
+            result = self._vision_result
+            self._vision_pending = None
+            return result
 
     def ask_vision(self):
         """Ask about every target in turn; return the most useful result.

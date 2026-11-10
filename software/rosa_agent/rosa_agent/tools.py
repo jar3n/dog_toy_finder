@@ -296,4 +296,4 @@ def stop_robot() -> str:
     """Stop the robot immediately. Use this if a move fails or the user asks to stop."""
     robot = get_robot()
     robot.mover.stop()
-    return "Stop command sent; /cmd_vel is zero."
+    return "Stop command sent; /cmd_vel is zero (via /cmd_vel_auto and cmd_vel_mux)."

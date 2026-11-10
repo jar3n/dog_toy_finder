@@ -74,9 +74,14 @@ class FakeVision(Node):
                                  qos_profile_sensor_data)
 
     def on_ask(self, msg):
+        try:
+            req = json.loads(msg.data)
+        except (json.JSONDecodeError, TypeError):
+            req = {}
         answer = (self.answers.pop(0) if len(self.answers) > 1
                   else dict(self.answers[-1]))
-        result = {"id": "fake", "target_visible": False, "position": "none",
+        result = {"id": req.get("id", "fake"), "target": req.get("target", ""),
+                  "target_visible": False, "position": "none",
                   "size": "none", "distance_m": 0.0, "obstacle_ahead": "none",
                   "path_clear": True, "seconds": 0.01}
         result.update(answer)
