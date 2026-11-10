@@ -65,6 +65,7 @@ add_executable(dtf_pico_fw
     motor/cmd_vel.c
     ir_obstacle/ir_obstacle.c
     ir_obstacle/ir_obstacle_ros.c
+    status_led/status_led.c
 )
 
 # micro ros library

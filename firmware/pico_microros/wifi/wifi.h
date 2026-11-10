@@ -7,6 +7,17 @@ extern "C" {
 #endif
 
 /**
+ * Callback invoked periodically while wifi_init() waits for the link.
+ *
+ * Use it to keep a status indication alive during the potentially long Wi-Fi
+ * association (the built-in LED uses this). Pass NULL to remove the callback.
+ */
+typedef void (*wifi_poll_hook_t)(void);
+
+/** Install the callback invoked during Wi-Fi waits; NULL removes it. */
+void wifi_set_poll_hook(wifi_poll_hook_t hook);
+
+/**
  * Initialize the CYW43 Wi-Fi chip and join the configured network.
  *
  * Blocks while connecting, up to the timeout and retry settings in

@@ -100,3 +100,10 @@ ESP32-CAM GND --> GND
 | 21 | Motor BIN2 |
 | 22 | Motor PWMB |
 | 23-25, 29 | Reserved (wireless chip) |
+
+## Built-in status LED
+
+No wiring and no Pico GPIO: on the Pico 2 W the LED belongs to the CYW43
+wireless chip (wireless GPIO 0). The firmware drives it through the cyw43 API;
+it blinks while starting up and stays solid once the control loop is running.
+See `firmware/pico_microros/status_led/README.md`.

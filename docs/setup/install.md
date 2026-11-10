@@ -52,7 +52,7 @@ cd firmware/pico_microros
 # Set the SSID/password in config/wifi_config.h. Then edit the committed
 # configs in place: ros_config.h (agent IP/port), encoder_config.h,
 # motor_config.h, cmd_vel_config.h, imu_config.h, ir_obstacle_config.h,
-# and pinout.h.
+# status_led_config.h, and pinout.h.
 cd ../..
 firmware/scripts/pico_build/build.sh
 ```
@@ -65,6 +65,12 @@ The UF2 is staged at
 1. Hold BOOTSEL on the Pico 2 W and plug it in (or reset into bootloader).
 2. Copy `dtf_pico_fw.uf2` to the mounted `RPI-RP2` drive.
 3. The Pico reboots and connects to Wi-Fi + the micro-ROS agent.
+
+The built-in Pico LED shows the boot state: it **blinks** while the firmware
+brings up Wi-Fi, micro-ROS, and the sensors, then stays **solid on** once the
+control loop starts. Solid does not mean every device initialized — check the
+`/pico/log` output for sensor failures. Blink timing (and disabling the LED)
+lives in `firmware/pico_microros/config/status_led_config.h`.
 
 ## 6. Build and flash the ESP32-CAM (stereo eyes)
 

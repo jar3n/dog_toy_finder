@@ -29,7 +29,7 @@ cd firmware/pico_microros
 # Set the SSID/password in config/wifi_config.h. Then edit the committed
 # configs in place: ros_config.h (agent IP/port), encoder_config.h,
 # motor_config.h, cmd_vel_config.h, imu_config.h, ir_obstacle_config.h,
-# and pinout.h.
+# status_led_config.h, and pinout.h.
 ```
 
 Build:
@@ -41,6 +41,8 @@ firmware/scripts/pico_build/build.sh
 
 The UF2 is staged at `firmware/pico_microros/build/artifacts/dtf_pico_fw.uf2`.
 Hold BOOTSEL on the Pico, plug it in, then copy the UF2 to the mounted drive.
+The built-in LED blinks while the firmware starts up and turns solid once the
+control loop is running (see `config/status_led_config.h`).
 
 Geometry defaults (Module 8 course robot): wheel diameter 0.065 m, wheel
 separation 0.133 m, 4320 counts/rev. Refine in `encoder_config.h` and

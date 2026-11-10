@@ -8,6 +8,7 @@
 - `encoder/` - hall quadrature decoders, wheel odometry, and `JointState` publisher
 - `motor/` - TB6612FNG dual motor controller, `/cmd_vel` subscriber, command watchdog, and IR reflex brake
 - `ir_obstacle/` - Keyestudio KS0051 infrared obstacle avoidance sensor, `/ir_obstacle/detected` publisher, and local reflex input
+- `status_led/` - built-in Pico 2 W LED: blinks while starting up, solid when ready
 - `microros_time/` - agent time synchronization helper
 - `config/` - committed pin maps and tunables; only the Wi-Fi credentials file stays local
 - `microros/` - micro-ROS colcon config and library builder

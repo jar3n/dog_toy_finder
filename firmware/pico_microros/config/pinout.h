@@ -116,3 +116,13 @@
 //
 #define IR_OBSTACLE_SIGNAL_PIN 4
 #define IR_OBSTACLE_ENABLE_PIN 5
+
+// ---------------------------------------------------------------------------
+// Built-in status LED
+// ---------------------------------------------------------------------------
+//
+// The Pico 2 W does not connect its LED to a Pico GPIO: it is wired to the
+// CYW43 wireless chip as CYW43_WL_GPIO_LED_PIN. status_led/ drives it through
+// cyw43_arch_gpio_put(), so there is no pin to configure here. Blink timing
+// lives in config/status_led_config.h; the LED is solid once startup is
+// finished and blinks while the firmware is still starting.
