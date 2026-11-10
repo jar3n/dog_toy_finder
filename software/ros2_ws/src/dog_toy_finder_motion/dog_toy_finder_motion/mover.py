@@ -1,8 +1,10 @@
 """Feedback motion primitives shared by test scripts and the ROSA agent.
 
 The Mover subscribes to the fused pose on /odometry/filtered and publishes
-Twist commands on /cmd_vel. Every move is closed-loop on the odometry estimate:
-the robot stops when the estimate says the requested distance or angle is done.
+Twist commands on /cmd_vel_auto. The cmd_vel_mux node forwards one source at a
+time to the Pico on /cmd_vel, so manual drive can take exclusive control.
+Every move is closed-loop on the odometry estimate: the robot stops when the
+estimate says the requested distance or angle is done.
 
 The Mover also subscribes to the Pico IR sensor on /ir_obstacle/detected. The
 Pico runs a local reflex failsafe: it brakes and blocks forward/turn commands
@@ -26,7 +28,10 @@ from std_msgs.msg import Bool
 
 from .transforms import distance_and_bearing, wrap_angle
 
-CMD_TOPIC = "/cmd_vel"
+# Autonomous commands go to the mux input, never straight to the Pico.
+# cmd_vel_mux owns /cmd_vel so a manual driver can override without two
+# publishers fighting over the motors.
+CMD_TOPIC = "/cmd_vel_auto"
 FEEDBACK_TOPIC = "/odometry/filtered"
 IR_TOPIC = "/ir_obstacle/detected"
 

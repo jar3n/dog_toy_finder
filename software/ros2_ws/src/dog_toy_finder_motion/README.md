@@ -12,11 +12,14 @@ request.
 | `/odometry/filtered` | `nav_msgs/msg/Odometry` | subscribe (feedback) |
 | `/wheel/odom` | `nav_msgs/msg/Odometry` | subscribe (comparison) |
 | `/ir_obstacle/detected` | `std_msgs/msg/Bool` | subscribe (Pico failsafe) |
-| `/cmd_vel` | `geometry_msgs/msg/Twist` | publish |
+| `/cmd_vel_auto` | `geometry_msgs/msg/Twist` | publish (mux input) |
 
 Every move stops when the fused estimate says the requested distance or angle
 is complete. The Pico's 500 ms `/cmd_vel` watchdog is a second safety net if the
 computer or Wi-Fi link stops.
+
+`Mover` never publishes straight to the Pico. Its commands go to
+`/cmd_vel_auto`, and `cmd_vel_mux` forwards one source at a time to `/cmd_vel`.
 
 ## Pico failsafe (IR reflex)
 
@@ -65,12 +68,49 @@ ros2 run dog_toy_finder_motion mover_test square 0.5 --cw
 ros2 run dog_toy_finder_motion mover_test goto 1.0 0.5
 ```
 
+## Command mux (no /cmd_vel publish conflicts)
+
+Several nodes can produce drive commands: the autonomous search planner,
+ROSA's `Mover`, test moves, and keyboard manual drive. If they all published
+to `/cmd_vel` directly, the last writer would win. `cmd_vel_mux` prevents that
+by being the only publisher on the Pico's topic:
+
+```text
+/cmd_vel_manual  --\
+                    >-- cmd_vel_mux --> /cmd_vel --> Pico
+/cmd_vel_auto    --/
+```
+
+- Manual commands always win while they are fresh.
+- When manual input stops, the mux holds zero for `release_timeout` before
+  autonomous commands can resume, so control does not jump back mid-motion.
+- If neither source is publishing, the mux keeps sending zero at
+  `publish_rate`, keeping the Pico watchdog satisfied.
+- `/cmd_vel_source` reports the current winner: `manual`, `auto`, `released`,
+  or `none`.
+
+`robot.launch.py` starts one `cmd_vel_mux` by default. Its parameters come from
+the bringup launch and `scripts/full_system_eval.conf`:
+
+| Parameter | Default | Meaning |
+|---|---|---|
+| `manual_timeout` | 0.5 | seconds without a manual command before it expires |
+| `auto_timeout` | 0.5 | seconds without an auto command before it expires |
+| `release_timeout` | 0.5 | seconds of zero after manual control ends |
+| `publish_rate` | 20.0 | command publish rate to the Pico (Hz) |
+
+```bash
+ros2 run dog_toy_finder_motion cmd_vel_mux
+ros2 topic echo /cmd_vel_source
+```
+
 ## Manual keyboard drive
 
-`manual_drive` publishes `/cmd_vel` straight from keyboard input, for moving
-the robot by hand while the bringup stack is running. The easiest launch is
-the full-stack launcher with `--manual`, which starts every component and
-selects a `manual` tmux window:
+`manual_drive` publishes `/cmd_vel_manual` from keyboard input, for moving the
+robot by hand while the bringup stack is running. The mux gives these commands
+priority over every autonomous source. The easiest launch is the full-stack
+launcher with `--manual`, which starts every component and selects a `manual`
+tmux window:
 
 ```bash
 ./scripts/launch_all.sh --manual
@@ -114,7 +154,7 @@ the timeout, raise it with `-p key_timeout:=0.8`.
 | `angular_speed` | 0.5 | turn rate (rad/s) |
 | `key_timeout` | 0.6 | stop after this long without a key (s) |
 | `publish_rate` | 20.0 | command publish rate (Hz) |
-| `cmd_topic` | `/cmd_vel` | topic to publish |
+| `cmd_topic` | `/cmd_vel_manual` | mux input topic |
 
 The Pico's IR reflex and 500 ms `/cmd_vel` watchdog still apply: the Pico
 brakes locally in front of an obstacle and stops the motors if the node or the

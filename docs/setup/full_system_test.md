@@ -192,6 +192,19 @@ When manual drive is started by `launch_all.sh`, set the same values through
 `MANUAL_LINEAR_SPEED`, `MANUAL_ANGULAR_SPEED`, `MANUAL_KEY_TIMEOUT`, and
 `MANUAL_PUBLISH_RATE` in `scripts/full_system_eval.conf` instead.
 
+Manual drive publishes `/cmd_vel_manual`, not `/cmd_vel`. The bringup
+`cmd_vel_mux` owns `/cmd_vel` and gives manual commands priority over
+autonomous ones, so no second publisher can fight the keyboard. Check which
+source currently has control with:
+
+```bash
+ros2 topic echo /cmd_vel_source
+```
+
+The mux holds zero for a short release window after manual input stops before
+autonomous commands may resume; tune it with the `CMD_VEL_*` values in
+`scripts/full_system_eval.conf`.
+
 The Pico's IR reflex still brakes in front of an obstacle and the 500 ms
 `/cmd_vel` watchdog still stops the motors if key publishing stops.
 

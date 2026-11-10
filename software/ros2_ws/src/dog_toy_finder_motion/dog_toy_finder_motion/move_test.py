@@ -6,8 +6,9 @@ Run while dog_toy_finder_bringup is running:
     ros2 run dog_toy_finder_motion mover_test square 1.0
     ros2 run dog_toy_finder_motion mover_test goto 1.0 0.5
 
-Commands go to /cmd_vel and feedback comes from /odometry/filtered. Press
-Ctrl+C at any time to stop the robot.
+Commands go to /cmd_vel_auto and feedback comes from /odometry/filtered; the
+bringup cmd_vel_mux forwards them to the Pico unless manual drive has control.
+Press Ctrl+C at any time to stop the robot.
 """
 
 import argparse

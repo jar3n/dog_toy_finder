@@ -5,6 +5,12 @@ turn in place. Press space to stop and Q to quit. The robot never drives and
 turns at the same time: every command sets exactly one axis and clears the
 other, so a Twist never has both a linear and an angular component.
 
+Commands go to ``/cmd_vel_manual``. The bringup stack's ``cmd_vel_mux`` owns
+the Pico's ``/cmd_vel`` topic and gives manual commands priority over every
+autonomous source, so the two can never publish over each other. When manual
+input stops, the mux holds zero briefly before allowing autonomous motion
+back, so releasing the keys is a dead-man stop.
+
 There is no key-release event on a terminal, so holding a key works through
 the keyboard's auto-repeat. If no drive key arrives for ``key_timeout``
 seconds (default 0.6 s), the node publishes a stop; releasing the key therefore
@@ -32,7 +38,9 @@ from geometry_msgs.msg import Twist
 from rclpy.node import Node
 from rclpy.signals import SignalHandlerOptions
 
-CMD_TOPIC = "/cmd_vel"
+# Manual commands go to the mux input; cmd_vel_mux owns /cmd_vel and gives
+# this source priority over autonomous commands.
+CMD_TOPIC = "/cmd_vel_manual"
 DEFAULT_LINEAR_SPEED = 0.12   # m/s
 DEFAULT_ANGULAR_SPEED = 0.5   # rad/s
 DEFAULT_KEY_TIMEOUT = 0.6     # s without a key before stopping
@@ -61,8 +69,9 @@ Manual drive (hold a key; release stops after a moment)
   Space       stop now
   Q           stop and quit
 
-The robot drives or turns, never both at once. The Pico IR reflex and the
-500 ms /cmd_vel watchdog remain active.
+The robot drives or turns, never both at once. Manual commands have priority
+over autonomous motion, and the Pico IR reflex and 500 ms /cmd_vel watchdog
+remain active.
 """
 
 

@@ -9,7 +9,7 @@ software/
   ros2_ws/src/
     dog_toy_finder_bringup/    launch files, EKF config, robot geometry
     dog_toy_finder_odometry/   /joint_states -> /wheel/odom
-    dog_toy_finder_motion/     closed-loop moves, manual keyboard drive, ROSA motion
+    dog_toy_finder_motion/     closed-loop moves, cmd_vel mux, manual keyboard drive
     dog_toy_finder_diagnostics/ sensor heartbeat health monitor (logged failures)
   rosa_agent/                  LLM agent, prompts, and agent-facing tools
   pico_ros2_led/               early LED connection test
@@ -29,7 +29,9 @@ Pico firmware                         Computer
                         robot_localization EKF -> /odometry/filtered
                                     |
                                     v
-                              ROSA tools -> /cmd_vel -> Pico motors
+        ROSA / search -> /cmd_vel_auto --\
+                                        >-- cmd_vel_mux -> /cmd_vel -> Pico
+        keyboard drive -> /cmd_vel_manual --/
 ```
 
 The simulation is expected to expose the same topics later, so the ROS 2 nodes
@@ -79,7 +81,9 @@ Stop the agent with `docker compose -f docker/docker-compose.yml stop micro_ros_
 ## QoS compatibility
 
 The Pico publishes `/joint_states`, `/imu/data`, and subscribes to `/cmd_vel`
-with **best effort** reliability. The computer side matches it:
+with **best effort** reliability. `/cmd_vel` is fed by `cmd_vel_mux`, the only
+publisher on that topic; its reliable publisher is compatible with the Pico's
+best-effort subscription. The computer side matches the rest:
 
 - `dog_toy_finder_odometry` reads `/joint_states` with `qos_profile_sensor_data`
   (best effort).

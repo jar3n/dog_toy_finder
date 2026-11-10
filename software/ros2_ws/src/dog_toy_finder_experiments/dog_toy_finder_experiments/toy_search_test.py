@@ -4,7 +4,7 @@ target toy after every move, and log pose/vision data for evaluation.
 Subscribes  /odometry/filtered   nav_msgs/Odometry
             /vision/result       std_msgs/String (JSON)
 Publishes   /vision/ask         std_msgs/String (JSON)
-            /cmd_vel            (via the Mover base class)
+            /cmd_vel_auto       (via Mover; cmd_vel_mux forwards to the Pico)
 
 Parameters
 ----------

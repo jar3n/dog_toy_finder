@@ -82,6 +82,9 @@ if MODE == "multi":
             {"target_visible": False},
             {"target_visible": True, "position": "center", "size": "medium",
              "distance_m": 0.5},
+            # Repeats after this, so the toy is seen once and the find-all
+            # search does not record the same toy from every later pose.
+            {"target_visible": False},
         ],
     })
 else:
@@ -102,8 +105,11 @@ check("empty target rejected",
       "Invalid search" in tools.run_search("", "one"))
 
 target = "red ball,blue bone" if MODE == "multi" else "red ball"
+# "multi" is a test scenario name, not a run_search mode: both find-all
+# scenarios use the tool's "all" mode.
+search_mode = "all" if MODE == "multi" else MODE
 t0 = time.time()
-out = tools.run_search(target, MODE)
+out = tools.run_search(target, search_mode)
 elapsed = time.time() - t0
 print("run_search %s ->" % MODE, out[:240], flush=True)
 

@@ -4,6 +4,8 @@ Starts:
   * dog_toy_finder_odometry: /joint_states -> /wheel/odom
   * a static base_link -> imu_link transform for the BNO055 mounting
   * robot_localization EKF: /wheel/odom + /imu/data -> /odometry/filtered
+  * dog_toy_finder_motion cmd_vel_mux: /cmd_vel_auto + /cmd_vel_manual ->
+    /cmd_vel, with manual drive taking priority over autonomous motion
   * dog_toy_finder_diagnostics health monitor: logs an ERROR on /rosout when
     a Pico sensor, a camera, or the fused odometry stops publishing
 
@@ -24,6 +26,8 @@ Common overrides:
     ... publish_tf:=true          # only when running without the EKF
     ... health_monitor:=false     # skip the sensor heartbeat monitor
     ... health_imu_timeout:=1.0 health_left_camera_timeout:=5.0
+    ... cmd_vel_mux:=false        # only when an external mux owns /cmd_vel
+    ... cmd_vel_manual_timeout:=0.5 cmd_vel_release_timeout:=0.5
 
 All launch arguments (bringup, stereo, vision, mapping, web map, and the ROSA
 environment) are collected in `scripts/full_system_eval.conf` for full-system
@@ -46,6 +50,7 @@ def generate_launch_description() -> LaunchDescription:
     wheel_separation = LaunchConfiguration("wheel_separation")
     publish_tf = LaunchConfiguration("publish_tf")
     health_monitor = LaunchConfiguration("health_monitor")
+    cmd_vel_mux = LaunchConfiguration("cmd_vel_mux")
 
     config_dir = PathJoinSubstitution(
         [FindPackageShare("dog_toy_finder_bringup"), "config"]
@@ -79,6 +84,31 @@ def generate_launch_description() -> LaunchDescription:
                 "health_monitor",
                 default_value="true",
                 description="Start the sensor heartbeat health monitor",
+            ),
+            DeclareLaunchArgument(
+                "cmd_vel_mux",
+                default_value="true",
+                description="Start cmd_vel_mux (manual priority over autonomous)",
+            ),
+            DeclareLaunchArgument(
+                "cmd_vel_manual_timeout",
+                default_value="0.5",
+                description="Seconds without a manual command before it expires",
+            ),
+            DeclareLaunchArgument(
+                "cmd_vel_auto_timeout",
+                default_value="0.5",
+                description="Seconds without an autonomous command before it expires",
+            ),
+            DeclareLaunchArgument(
+                "cmd_vel_release_timeout",
+                default_value="0.5",
+                description="Seconds of zero after manual control ends",
+            ),
+            DeclareLaunchArgument(
+                "cmd_vel_publish_rate",
+                default_value="20.0",
+                description="Command publish rate to the Pico in Hz",
             ),
             DeclareLaunchArgument(
                 "imu_x", default_value="0.0", description="IMU x offset from base_link"
@@ -197,6 +227,36 @@ def generate_launch_description() -> LaunchDescription:
                 parameters=[
                     ekf_config,
                     {"use_sim_time": ParameterValue(use_sim_time, value_type=bool)},
+                ],
+            ),
+            # The only publisher on the Pico's /cmd_vel topic. Manual commands
+            # win over autonomous ones, so two controllers cannot fight.
+            Node(
+                package="dog_toy_finder_motion",
+                executable="cmd_vel_mux",
+                name="cmd_vel_mux",
+                output="screen",
+                condition=IfCondition(cmd_vel_mux),
+                parameters=[
+                    {"use_sim_time": ParameterValue(use_sim_time, value_type=bool)},
+                    {
+                        "manual_timeout": ParameterValue(
+                            LaunchConfiguration("cmd_vel_manual_timeout"),
+                            value_type=float,
+                        ),
+                        "auto_timeout": ParameterValue(
+                            LaunchConfiguration("cmd_vel_auto_timeout"),
+                            value_type=float,
+                        ),
+                        "release_timeout": ParameterValue(
+                            LaunchConfiguration("cmd_vel_release_timeout"),
+                            value_type=float,
+                        ),
+                        "publish_rate": ParameterValue(
+                            LaunchConfiguration("cmd_vel_publish_rate"),
+                            value_type=float,
+                        ),
+                    },
                 ],
             ),
             Node(

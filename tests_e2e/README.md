@@ -3,8 +3,8 @@
 These run the real search nodes (`autonomous_search`, `toy_search`)
 and the ROSA `run_search` tool against a **fake robot** and **scripted fake
 vision**, so no hardware, cameras, or VLMs are needed. The fake robot
-integrates `/cmd_vel` into `/odometry/filtered`; the fake vision answers
-`/vision/ask` from a script.
+integrates `/cmd_vel_auto` (the Mover input) into `/odometry/filtered`; the
+fake vision answers `/vision/ask` from a script.
 
 ## Run everything
 

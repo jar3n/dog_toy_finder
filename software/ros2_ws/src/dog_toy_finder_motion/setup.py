@@ -23,6 +23,7 @@ setup(
         "console_scripts": [
             "mover_test = dog_toy_finder_motion.move_test:main",
             "manual_drive = dog_toy_finder_motion.manual_drive:main",
+            "cmd_vel_mux = dog_toy_finder_motion.cmd_vel_mux:main",
         ],
     },
 )

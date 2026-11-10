@@ -1,7 +1,9 @@
 """Shared fake robot and vision nodes for the search workflow tests.
 
-FakeRobot integrates /cmd_vel into /odometry/filtered along the commanded
-heading, so Mover straight/turn loops close properly.
+FakeRobot integrates /cmd_vel_auto (the Mover input) into /odometry/filtered
+along the commanded heading, so straight/turn loops close properly. The real
+robot's cmd_vel_mux is not needed here: these tests exercise the autonomous
+nodes, and the mux has its own unit tests.
 
 FakeVision answers /vision/ask from a scripted list (last answer repeats),
 echoing the requested target like the real vision node.
@@ -23,7 +25,7 @@ from std_msgs.msg import Bool, String
 
 
 class FakeRobot(Node):
-    """Integrates /cmd_vel into /odometry/filtered; IR always clear."""
+    """Integrates /cmd_vel_auto into /odometry/filtered; IR always clear."""
 
     def __init__(self, node_name="fake_robot"):
         super().__init__(node_name)
@@ -37,7 +39,7 @@ class FakeRobot(Node):
         self.v = 0.0
         self.w = 0.0
         self.lock = threading.Lock()
-        self.create_subscription(Twist, "/cmd_vel", self.on_cmd, 10)
+        self.create_subscription(Twist, "/cmd_vel_auto", self.on_cmd, 10)
         self.create_timer(0.05, self.tick)
 
     def on_cmd(self, msg):
