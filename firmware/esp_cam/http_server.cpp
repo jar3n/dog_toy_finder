@@ -28,8 +28,8 @@ static esp_err_t index_handler(httpd_req_t *req) {
         "<h2>ESP32-CAM %s eye</h2>"
         "<p><button onclick=\"img.src='/capture?t='+Date.now()\">New photo</button> "
         "<button onclick=\"img.src='/capture?flash=1&t='+Date.now()\">New photo with flash</button></p>"
-        "<img id='img' src='/capture' style='max-width:100%'></body></html>";
-    char body[420];
+        "<img id='img' src='/capture' style='max-width:100%%'></body></html>";
+    char body[1024];
     snprintf(body, sizeof(body), page, CAMERA_SIDE, CAMERA_SIDE);
     httpd_resp_set_type(req, "text/html");
     return httpd_resp_sendstr(req, body);
