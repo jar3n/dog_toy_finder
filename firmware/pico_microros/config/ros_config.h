@@ -4,7 +4,7 @@
 
 // IPv4 address of the computer running the micro-ROS agent. The Pico must be
 // able to reach it over Wi-Fi.
-#define ROS_AGENT_IP "192.168.1.100"
+#define ROS_AGENT_IP "192.168.4.31"
 #define ROS_AGENT_PORT 8888
 
 // micro-ROS node name that shows up in the ROS 2 graph.
