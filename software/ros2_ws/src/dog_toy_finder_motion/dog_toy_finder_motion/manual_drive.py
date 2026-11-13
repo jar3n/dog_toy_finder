@@ -72,6 +72,12 @@ Manual drive (hold a key; release stops after a moment)
 The robot drives or turns, never both at once. Manual commands have priority
 over autonomous motion, and the Pico IR reflex and 500 ms /cmd_vel watchdog
 remain active.
+
+When launched by launch_all.sh --manual this runs in a tmux 'manual' window
+whose terminal is in cbreak mode, so ordinary keys (including 'q') go to the
+driver. tmux commands still work: press Ctrl+b then a window number or 'w'
+for the window list. A separate 'shell' window holds a normal terminal for
+typing tmux/ROS commands (Ctrl+b s). Detach with Ctrl+b d.
 """
 
 

@@ -153,9 +153,12 @@ already open:
 ./scripts/launch_all.sh --manual
 ```
 
-That starts every component and selects a `manual` tmux window. Press `Ctrl-b`
-then a window number/name to move between it and the other components, and
-`Q` in the manual window to stop driving.
+That starts every component and creates a `manual` tmux window (the
+keyboard driver, terminal in cbreak mode) plus a `shell` window with a normal
+terminal. The shell window is selected on attach so tmux/ROS commands can be
+typed freely; switch to `manual` with `Ctrl-b m` (or `Ctrl-b` then the window
+number / `w`) to drive, and `Q` in the manual window to stop driving. The
+`b` and `s` bindings jump to the bringup and shell windows.
 
 With only the bringup stack running (micro-ROS agent + `robot.launch.py`), the
 manual node can also be started on its own:

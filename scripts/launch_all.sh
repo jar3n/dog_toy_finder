@@ -125,7 +125,7 @@ if [ "$DRY_RUN" -eq 1 ]; then
     echo "manual:  $MANUAL_CMD"
     echo "rosa:    cd <repo>/software/rosa_agent && $ROSA_CMD"
     if is_true "${MANUAL_DRIVE:-false}"; then
-        echo "manual drive: enabled; tmux will select the 'manual' window"
+        echo "manual drive: enabled; windows: manual (drive), shell (cooked TTY for tmux cmds), bringup"
     else
         echo "manual drive: disabled (add --manual to start it and select its window)"
     fi
@@ -156,7 +156,16 @@ if [ -f /opt/ros/humble/setup.bash ]; then
     if is_true "${MANUAL_DRIVE:-false}"; then
         tmux new-window -t "$SESSION" -n "manual" \
             "source /opt/ros/humble/setup.bash; source $WS/install/setup.bash; $MANUAL_CMD"
-        tmux select-window -t "$SESSION:manual"
+        # A normal (cooked) shell so tmux/ROS commands can be typed while the
+        # manual driver holds the terminal in the 'manual' window.
+        tmux new-window -t "$SESSION" -n "shell" \
+            "source /opt/ros/humble/setup.bash; source $WS/install/setup.bash; exec bash"
+        tmux bind-key m select-window -t "$SESSION:manual"
+        tmux bind-key s select-window -t "$SESSION:shell"
+        tmux bind-key b select-window -t "$SESSION:bringup"
+        # Start in the shell window so there is a usable terminal immediately;
+        # switch to 'manual' (Ctrl+b m) to drive.
+        tmux select-window -t "$SESSION:shell"
     else
         tmux select-window -t "$SESSION:bringup"
     fi
@@ -187,14 +196,25 @@ else
         # The manual window needs the TTY that tmux gives it, so keyboard
         # input reaches the node (docker compose run auto-detects the TTY).
         run_in_ros2 "manual" "$MANUAL_CMD"
-        tmux select-window -t "$SESSION:manual"
+        # A normal (cooked) shell so tmux/ROS commands can be typed while the
+        # manual driver holds its window's terminal in cbreak mode.
+        run_in_ros2 "shell" "exec bash"
+        tmux bind-key m select-window -t "$SESSION:manual"
+        tmux bind-key s select-window -t "$SESSION:shell"
+        tmux bind-key b select-window -t "$SESSION:bringup"
+        # Start in the shell window so there is a usable terminal immediately;
+        # switch to 'manual' (Ctrl+b m) to drive.
+        tmux select-window -t "$SESSION:shell"
     else
         tmux select-window -t "$SESSION:bringup"
     fi
 
     echo "Attaching to tmux session '$SESSION'. Detach with Ctrl-b d."
     if is_true "${MANUAL_DRIVE:-false}"; then
-        echo "The 'manual' window is selected: hold W/A/S/D to drive, Q to quit."
+        echo "Manual mode: 'manual' window drives the robot; 'shell' window is a"
+        echo "  normal terminal for tmux/ROS commands. Switch with Ctrl+b then"
+        echo "  m (manual), s (shell), b (bringup), or w (window list)."
+        echo "  Hold W/A/S/D to drive, Space to stop, Q to quit."
     fi
     tmux attach -t "$SESSION"
 fi
