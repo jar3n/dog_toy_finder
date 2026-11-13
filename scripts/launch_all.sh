@@ -27,11 +27,14 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 DRY_RUN=0
 MANUAL_REQUESTED=0
+KONSOLE_REQUESTED=""
 CONFIG=""
 for arg in "$@"; do
     case "$arg" in
         --dry-run) DRY_RUN=1 ;;
         --manual) MANUAL_REQUESTED=1 ;;
+        --konsole) KONSOLE_REQUESTED="true" ;;
+        --tmux) KONSOLE_REQUESTED="false" ;;
         *) CONFIG="$arg" ;;
     esac
 done
@@ -49,6 +52,24 @@ fi
 if [ "$MANUAL_REQUESTED" -eq 1 ]; then
     MANUAL_DRIVE=true
 fi
+
+# Resolve konsole vs tmux.
+if [ -n "$KONSOLE_REQUESTED" ]; then
+    USE_KONSOLE="$KONSOLE_REQUESTED"
+elif [ -n "${KONSOLE:-}" ]; then
+    USE_KONSOLE="$KONSOLE"
+else
+    USE_KONSOLE="auto"
+fi
+case "$(printf '%s' "$USE_KONSOLE" | tr '[:upper:]' '[:lower:]')" in
+    auto)
+        if command -v konsole >/dev/null 2>&1 && [ -n "${DISPLAY:-}" ]; then
+            USE_KONSOLE=true
+        else
+            USE_KONSOLE=false
+        fi
+        ;;
+esac
 
 # Accept the usual spellings for a boolean config value.
 is_true() {
@@ -117,6 +138,7 @@ ROSA_CMD="$ROSA_CMD ROSA_REQUIRE_APPROVAL=$ROSA_REQUIRE_APPROVAL python3 -m rosa
 
 if [ "$DRY_RUN" -eq 1 ]; then
     echo "launch_all.sh --dry-run (config: $CONFIG)"
+    echo "launcher: $([ "$USE_KONSOLE" = true ] && echo konsole || echo tmux)"
     echo "bringup: $BRINGUP_CMD"
     echo "stereo:  $STEREO_CMD"
     echo "vision:  $VISION_CMD"
@@ -128,6 +150,51 @@ if [ "$DRY_RUN" -eq 1 ]; then
         echo "manual drive: enabled; windows: manual (drive), shell (cooked TTY for tmux cmds), bringup"
     else
         echo "manual drive: disabled (add --manual to start it and select its window)"
+    fi
+    exit 0
+fi
+
+# ---------- Konsole (split panes) path ----------
+if is_true "$USE_KONSOLE"; then
+    if [ -f /opt/ros/humble/setup.bash ]; then
+        REPO=/workspace
+        WS="$REPO/software/ros2_ws"
+        ROS_SETUP="source /opt/ros/humble/setup.bash; source $WS/install/setup.bash"
+        CMD_FILE="$(mktemp /tmp/dog_toy_finder_cmds.XXXXXX)"
+        trap 'rm -f "$CMD_FILE"' EXIT
+        {
+            printf 'bringup\t%s; %s\n' "$ROS_SETUP" "$BRINGUP_CMD"
+            printf 'stereo\t%s; %s\n' "$ROS_SETUP" "$STEREO_CMD"
+            printf 'vision\t%s; %s\n' "$ROS_SETUP" "$VISION_CMD"
+            printf 'mapping\t%s; %s\n' "$ROS_SETUP" "$MAP_CMD"
+            printf 'webmap\t%s; %s\n' "$ROS_SETUP" "$WEB_CMD"
+            printf 'rosa\t%s; cd %s/software/rosa_agent && %s\n' "$ROS_SETUP" "$REPO" "$ROSA_CMD"
+            if is_true "${MANUAL_DRIVE:-false}"; then
+                printf 'manual\t%s; %s\n' "$ROS_SETUP" "$MANUAL_CMD"
+                printf 'shell\t%s; exec bash\n' "$ROS_SETUP"
+            fi
+        } > "$CMD_FILE"
+        REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+        exec python3 "$REPO_ROOT/scripts/launch_konsole.py" "$CMD_FILE" "$REPO"
+    else
+        REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+        COMPOSE="$REPO_ROOT/docker/docker-compose.yml"
+        CMD_FILE="$(mktemp /tmp/dog_toy_finder_cmds.XXXXXX)"
+        trap 'rm -f "$CMD_FILE"' EXIT
+        {
+            printf 'agent\tcd %s && docker compose -f %s up micro_ros_agent\n' "$REPO_ROOT" "$COMPOSE"
+            printf 'bringup\tcd %s && docker compose -f %s run --rm ros2 bash -lc '"'"'source /opt/ros/humble/setup.bash; source /workspace/software/ros2_ws/install/setup.bash; %s'"'"'\n' "$REPO_ROOT" "$COMPOSE" "$BRINGUP_CMD"
+            printf 'stereo\tcd %s && docker compose -f %s run --rm ros2 bash -lc '"'"'source /opt/ros/humble/setup.bash; source /workspace/software/ros2_ws/install/setup.bash; %s'"'"'\n' "$REPO_ROOT" "$COMPOSE" "$STEREO_CMD"
+            printf 'vision\tcd %s && docker compose -f %s run --rm ros2 bash -lc '"'"'source /opt/ros/humble/setup.bash; source /workspace/software/ros2_ws/install/setup.bash; %s'"'"'\n' "$REPO_ROOT" "$COMPOSE" "$VISION_CMD"
+            printf 'mapping\tcd %s && docker compose -f %s run --rm ros2 bash -lc '"'"'source /opt/ros/humble/setup.bash; source /workspace/software/ros2_ws/install/setup.bash; %s'"'"'\n' "$REPO_ROOT" "$COMPOSE" "$MAP_CMD"
+            printf 'webmap\tcd %s && docker compose -f %s run --rm ros2 bash -lc '"'"'source /opt/ros/humble/setup.bash; source /workspace/software/ros2_ws/install/setup.bash; %s'"'"'\n' "$REPO_ROOT" "$COMPOSE" "$WEB_CMD"
+            printf 'rosa\tcd %s && docker compose -f %s run --rm ros2 bash -lc '"'"'source /opt/ros/humble/setup.bash; source /workspace/software/ros2_ws/install/setup.bash; cd /workspace/software/rosa_agent && %s'"'"'\n' "$REPO_ROOT" "$COMPOSE" "$ROSA_CMD"
+            if is_true "${MANUAL_DRIVE:-false}"; then
+                printf 'manual\tcd %s && docker compose -f %s run --rm ros2 bash -lc '"'"'source /opt/ros/humble/setup.bash; source /workspace/software/ros2_ws/install/setup.bash; %s'"'"'\n' "$REPO_ROOT" "$COMPOSE" "$MANUAL_CMD"
+                printf 'shell\tcd %s && docker compose -f %s run --rm ros2 bash -lc '"'"'source /opt/ros/humble/setup.bash; source /workspace/software/ros2_ws/install/setup.bash; exec bash'"'"'\n' "$REPO_ROOT" "$COMPOSE"
+            fi
+        } > "$CMD_FILE"
+        python3 "$REPO_ROOT/scripts/launch_konsole.py" "$CMD_FILE" "$REPO_ROOT"
     fi
     exit 0
 fi

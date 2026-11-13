@@ -70,7 +70,9 @@ Note the printed IPs / mDNS names (`esp32cam-left.local`, `esp32cam-right.local`
 
 ## 4. Start the ROS 2 stack
 
-A tmux-based launcher opens one pane per component:
+A launcher opens one pane per component. On a desktop with Konsole
+available it uses a single Konsole window with split panes; otherwise it falls
+back to tmux:
 
 ```bash
 # on the host:
@@ -91,7 +93,9 @@ as the first argument, or override one value from the environment
 (`WEBMAP_PORT=9000 ./scripts/launch_all.sh`). `--manual` adds and selects a
 `manual` tmux window without editing the config; setting `MANUAL_DRIVE=true`
 in the config does the same for every launch.
-`./scripts/launch_all.sh --dry-run` prints the exact commands without starting tmux.
+`./scripts/launch_all.sh --dry-run` prints the exact commands without starting
+anything. `--konsole` / `--tmux` force the launcher; `KONSOLE=true` in the
+config makes Konsole the default.
 
 Stop everything with:
 
