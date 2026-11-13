@@ -97,6 +97,17 @@ in the config does the same for every launch.
 anything. `--konsole` / `--tmux` force the launcher; `KONSOLE=true` in the
 config makes Konsole the default.
 
+Konsole mode needs the security-sensitive D-Bus API enabled so panes can run
+their commands:
+
+```bash
+mkdir -p ~/.config
+cat > ~/.config/konsolerc <<'EOF'
+[KonsoleWindow]
+EnableSecuritySensitiveDBusAPI=true
+EOF
+```
+
 Stop everything with:
 
 ```bash
