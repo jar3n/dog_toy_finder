@@ -23,6 +23,7 @@
 set -euo pipefail
 
 SESSION="dog_toy_finder"
+HAS_DOCKER=false
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 DRY_RUN=0
@@ -78,6 +79,20 @@ is_true() {
         *) return 1 ;;
     esac
 }
+
+# Clean up all child processes (tmux session or konsole) on Ctrl-C / termination.
+cleanup() {
+    if is_true "${USE_KONSOLE:-false}"; then
+        pkill -f "launch_konsole.py" 2>/dev/null || true
+    else
+        tmux kill-session -t "$SESSION" 2>/dev/null || true
+    fi
+    # Stop any docker containers started by this launch.
+    if [ "$HAS_DOCKER" = true ] && [ -n "${REPO_ROOT:-}" ] && [ -f "$REPO_ROOT/docker/docker-compose.yml" ]; then
+        (cd "$REPO_ROOT" && docker compose -f docker/docker-compose.yml down 2>/dev/null) || true
+    fi
+}
+trap cleanup INT TERM
 
 # One ros2-level command per component, built from the config values above.
 BRINGUP_CMD="ros2 launch dog_toy_finder_bringup robot.launch.py"
@@ -161,6 +176,7 @@ fi
 if is_true "$USE_KONSOLE"; then
     if [ -f /opt/ros/humble/setup.bash ]; then
         REPO=/workspace
+        REPO_ROOT="$REPO"
         WS="$REPO/software/ros2_ws"
         ROS_SETUP="source /opt/ros/humble/setup.bash; source $WS/install/setup.bash"
         CMD_FILE="$(mktemp /tmp/dog_toy_finder_cmds.XXXXXX)"
@@ -182,6 +198,7 @@ if is_true "$USE_KONSOLE"; then
     else
         REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
         COMPOSE="$REPO_ROOT/docker/docker-compose.yml"
+        HAS_DOCKER=true
         CMD_FILE="$(mktemp /tmp/dog_toy_finder_cmds.XXXXXX)"
         trap 'rm -f "$CMD_FILE"' EXIT
         {
@@ -239,11 +256,13 @@ if [ -f /opt/ros/humble/setup.bash ]; then
     else
         tmux select-window -t "$SESSION:bringup"
     fi
-    tmux attach -t "$SESSION"
+    tmux attach -t "$SESSION" || true
+    tmux kill-session -t "$SESSION" 2>/dev/null || true
 else
     # ---------- running on the host ----------
     REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
     COMPOSE="$REPO_ROOT/docker/docker-compose.yml"
+    HAS_DOCKER=true
 
     # micro-ROS agent (host network)
     tmux new-session -d -s "$SESSION" -n "agent" \
@@ -286,5 +305,6 @@ else
         echo "  m (manual), s (shell), b (bringup), or w (window list)."
         echo "  Hold W/A/S/D to drive, Space to stop, Q to quit."
     fi
-    tmux attach -t "$SESSION"
+    tmux attach -t "$SESSION" || true
+    tmux kill-session -t "$SESSION" 2>/dev/null || true
 fi
