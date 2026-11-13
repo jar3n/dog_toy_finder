@@ -87,9 +87,14 @@ cleanup() {
     else
         tmux kill-session -t "$SESSION" 2>/dev/null || true
     fi
-    # Stop any docker containers started by this launch.
-    if [ "$HAS_DOCKER" = true ] && [ -n "${REPO_ROOT:-}" ] && [ -f "$REPO_ROOT/docker/docker-compose.yml" ]; then
-        (cd "$REPO_ROOT" && docker compose -f docker/docker-compose.yml down 2>/dev/null) || true
+    # Stop any docker containers started by this launch (compose services
+    # and the per-component `docker compose run` containers).
+    if [ "$HAS_DOCKER" = true ]; then
+        if [ -n "${REPO_ROOT:-}" ] && [ -f "$REPO_ROOT/docker/docker-compose.yml" ]; then
+            (cd "$REPO_ROOT" && docker compose -f docker/docker-compose.yml down 2>/dev/null) || true
+        fi
+        docker ps -q --filter "name=docker-ros2-run" | xargs -r docker rm -f >/dev/null 2>&1 || true
+        docker ps -q --filter "name=micro-ros-agent" | xargs -r docker rm -f >/dev/null 2>&1 || true
     fi
 }
 trap cleanup INT TERM
@@ -194,7 +199,7 @@ if is_true "$USE_KONSOLE"; then
             fi
         } > "$CMD_FILE"
         REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-        exec python3 "$REPO_ROOT/scripts/launch_konsole.py" "$CMD_FILE" "$REPO"
+        python3 "$REPO_ROOT/scripts/launch_konsole.py" "$CMD_FILE" "$REPO"
     else
         REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
         COMPOSE="$REPO_ROOT/docker/docker-compose.yml"
@@ -250,10 +255,13 @@ if [ -f /opt/ros/humble/setup.bash ]; then
         tmux bind-key m select-window -t "$SESSION:manual"
         tmux bind-key s select-window -t "$SESSION:shell"
         tmux bind-key b select-window -t "$SESSION:bringup"
+        # Ctrl+C tears down the whole stack instead of being forwarded to a pane.
+        tmux bind-key -n C-c kill-session -t "$SESSION"
         # Start in the shell window so there is a usable terminal immediately;
         # switch to 'manual' (Ctrl+b m) to drive.
         tmux select-window -t "$SESSION:shell"
     else
+        tmux bind-key -n C-c kill-session -t "$SESSION"
         tmux select-window -t "$SESSION:bringup"
     fi
     tmux attach -t "$SESSION" || true
@@ -291,10 +299,13 @@ else
         tmux bind-key m select-window -t "$SESSION:manual"
         tmux bind-key s select-window -t "$SESSION:shell"
         tmux bind-key b select-window -t "$SESSION:bringup"
+        # Ctrl+C tears down the whole stack instead of being forwarded to a pane.
+        tmux bind-key -n C-c kill-session -t "$SESSION"
         # Start in the shell window so there is a usable terminal immediately;
         # switch to 'manual' (Ctrl+b m) to drive.
         tmux select-window -t "$SESSION:shell"
     else
+        tmux bind-key -n C-c kill-session -t "$SESSION"
         tmux select-window -t "$SESSION:bringup"
     fi
 
