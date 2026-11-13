@@ -18,9 +18,9 @@
 
 // How many times to probe for the agent before giving up, and how long to wait
 // between probes. Each probe blocks for at most ROS_AGENT_PING_TIMEOUT_MS.
-#define ROS_INIT_ATTEMPTS 3
+#define ROS_INIT_ATTEMPTS 30
 #define ROS_INIT_RETRY_DELAY_MS 1000
-#define ROS_AGENT_PING_TIMEOUT_MS 100
+#define ROS_AGENT_PING_TIMEOUT_MS 500
 
 // Time sync with the agent. When it fails, log stamps fall back to time since
 // boot. Set to 0 to skip the sync attempt.
