@@ -10,14 +10,28 @@ Run inside the ROS 2 container:
 """
 
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, ExecuteProcess
+from launch.actions import DeclareLaunchArgument, ExecuteProcess, OpaqueFunction
 from launch.substitutions import LaunchConfiguration
 
 VISION_NODE = "/workspace/software/ros2_ws/src/dog_toy_finder_vision/dog_toy_finder_vision/vision_node.py"
 
 
+def _launch(context, *args, **kwargs):
+    model = LaunchConfiguration("model").perform(context)
+    models = LaunchConfiguration("models").perform(context).strip()
+    ollama_url = LaunchConfiguration("ollama_url").perform(context)
+
+    cmd = ["python3", VISION_NODE, "--ros-args",
+           "-p", "model:=%s" % model,
+           "-p", "ollama_url:=%s" % ollama_url]
+    # Only pass models:= when non-empty; an empty value is rejected by rcl.
+    if models:
+        cmd += ["-p", "models:=%s" % models]
+
+    return [ExecuteProcess(output="screen", cmd=cmd)]
+
+
 def generate_launch_description():
-    arg = LaunchConfiguration
     return LaunchDescription([
         DeclareLaunchArgument("model", default_value="gemma3",
                               description="single VLM (used when `models` is empty)"),
@@ -26,10 +40,5 @@ def generate_launch_description():
         DeclareLaunchArgument("ollama_url",
                               default_value="http://localhost:11434",
                               description="Ollama endpoint"),
-
-        ExecuteProcess(output="screen", cmd=[
-            "python3", VISION_NODE, "--ros-args",
-            "-p", ["model:=", arg("model")],
-            "-p", ["models:=", arg("models")],
-            "-p", ["ollama_url:=", arg("ollama_url")]]),
+        OpaqueFunction(function=_launch),
     ])

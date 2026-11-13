@@ -80,7 +80,27 @@ class MapWebServer(Node):
         self.create_subscription(PoseArray, "/detected_toys", self.on_toys,
                                  qos_profile_sensor_data)
 
-        self.httpd = ThreadingHTTPServer(("0.0.0.0", self.port), self._handler_factory())
+        # Bind the requested port; if it is already in use (e.g. a stale
+        # server), try the next few ports instead of crashing the node.
+        bound_port = None
+        last_error = None
+        for candidate in range(self.port, self.port + 11):
+            try:
+                self.httpd = ThreadingHTTPServer(
+                    ("0.0.0.0", candidate), self._handler_factory())
+                bound_port = candidate
+                break
+            except OSError as error:
+                last_error = error
+                continue
+        if bound_port is None:
+            raise RuntimeError(
+                "map webserver could not bind any port in %d..%d: %s"
+                % (self.port, self.port + 10, last_error))
+        if bound_port != self.port:
+            self.get_logger().warn(
+                "Port %d was busy; using %d instead." % (self.port, bound_port))
+        self.port = bound_port
         self.http_thread = threading.Thread(target=self.httpd.serve_forever, daemon=True)
         self.http_thread.start()
         self.get_logger().info(

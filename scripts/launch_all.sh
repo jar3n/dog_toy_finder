@@ -109,7 +109,10 @@ STEREO_CMD="$STEREO_CMD fx:=$CAMERA_FX fy:=$CAMERA_FY cx:=$CAMERA_CX cy:=$CAMERA
 STEREO_CMD="$STEREO_CMD baseline:=$STEREO_BASELINE"
 
 VISION_CMD="ros2 launch dog_toy_finder_vision vision.launch.py"
-VISION_CMD="$VISION_CMD model:=$VISION_MODEL models:=$VISION_MODELS"
+VISION_CMD="$VISION_CMD model:=$VISION_MODEL"
+if [ -n "${VISION_MODELS:-}" ]; then
+    VISION_CMD="$VISION_CMD models:=$VISION_MODELS"
+fi
 VISION_CMD="$VISION_CMD ollama_url:=$VISION_OLLAMA_URL"
 
 MAP_CMD="ros2 launch dog_toy_finder_mapping mapping.launch.py"
