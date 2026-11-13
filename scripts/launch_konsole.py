@@ -10,6 +10,7 @@ Usage:
     python3 launch_konsole.py COMMANDS_FILE [WORKDIR]
 """
 import json
+import signal
 import os
 import subprocess
 import sys
@@ -104,10 +105,55 @@ def main():
         print("launched [%s] in session %d" % (name, sid), flush=True)
 
     print("Konsole launched with %d panes. Close the window to stop." % n, flush=True)
+
+    stopping = {"flag": False}
+
+    def _stop(signum, frame):
+        stopping["flag"] = True
+        raise KeyboardInterrupt
+    signal.signal(signal.SIGINT, _stop)
+    signal.signal(signal.SIGTERM, _stop)
+
+    def _cleanup():
+        try:
+            konsole.terminate()
+            konsole.wait(timeout=3)
+        except Exception:
+            try:
+                konsole.kill()
+            except Exception:
+                pass
+        # Stop compose services and remove per-component run containers.
+        for compose in (os.path.join(workdir, "docker", "docker-compose.yml"),
+                        os.path.join(workdir, "..", "docker", "docker-compose.yml")):
+            compose = os.path.normpath(compose)
+            if os.path.isfile(compose):
+                try:
+                    subprocess.run(
+                        ["docker", "compose", "-f", compose, "down"],
+                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                        timeout=30)
+                except Exception:
+                    pass
+                break
+        for filt in ("name=docker-ros2-run", "name=micro-ros-agent"):
+            try:
+                ids = subprocess.check_output(
+                    ["docker", "ps", "-q", "--filter", filt],
+                    text=True, timeout=15).split()
+                if ids:
+                    subprocess.run(["docker", "rm", "-f"] + ids,
+                                   stdout=subprocess.DEVNULL,
+                                   stderr=subprocess.DEVNULL, timeout=30)
+            except Exception:
+                pass
+
     try:
         konsole.wait()
     except KeyboardInterrupt:
-        konsole.terminate()
+        pass
+    finally:
+        _cleanup()
 
 
 if __name__ == "__main__":

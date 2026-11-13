@@ -84,8 +84,7 @@ source install/setup.bash
 /workspace/scripts/launch_all.sh
 # same, plus a keyboard manual-drive window (W/A/S/D):
 /workspace/scripts/launch_all.sh --manual
-# stop everything:
-/workspace/scripts/stop_all.sh
+# stop everything: Ctrl+C in the launch_all.sh terminal
 ```
 
 Or run components individually:

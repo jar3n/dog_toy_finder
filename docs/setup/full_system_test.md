@@ -108,11 +108,8 @@ EnableSecuritySensitiveDBusAPI=true
 EOF
 ```
 
-Stop everything with:
-
-```bash
-./scripts/stop_all.sh
-```
+Stop everything by pressing Ctrl+C in the `launch_all.sh` terminal; that
+tears down the whole stack (tmux/Konsole panes and docker containers).
 
 On the host:
 
