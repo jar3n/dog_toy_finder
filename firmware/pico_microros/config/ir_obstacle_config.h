@@ -1,8 +1,6 @@
 #pragma once
 
-// Copy this file to config/ir_obstacle_config.h and adjust to the robot.
-// ir_obstacle_config.h is ignored by git; the build creates it from this file
-// automatically when it is missing or empty.
+// IR obstacle sensor settings. Edit this file in place.
 
 // Topic carrying the obstacle detection result.
 #define IR_OBSTACLE_TOPIC "/ir_obstacle/detected"

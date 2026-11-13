@@ -20,9 +20,7 @@ skipped and the serial/UDP output still works.
 
 ## Configuration
 
-Settings live in `config/ros_config.h`, which is ignored by git. When that file
-is missing or empty, CMake copies `config/ros_config.example.h` into place
-during configure. Edit the generated file:
+Settings live in `config/ros_config.h`, which is committed. Edit it in place:
 
 ```c
 #define ROS_AGENT_IP "192.168.1.100"
@@ -109,6 +107,6 @@ sync fails, stamps fall back to time since boot.
 - `ros_node_time_ns()` provides the synchronized timestamp used by both the log
   publisher and the IMU publisher (`../imu/imu_ros.c`).
 - The node is shared: `RMW_UXRCE_MAX_NODES=1` and
-  `RMW_UXRCE_MAX_PUBLISHERS=3` allow the log publisher plus the IMU publisher
-  (and one spare).
+  `RMW_UXRCE_MAX_PUBLISHERS=4` cover the log, IMU, joint-state, and IR
+  publishers. `/cmd_vel` uses one of the `RMW_UXRCE_MAX_SUBSCRIPTIONS=2` slots.
 - The Pico radio is 2.4 GHz only.

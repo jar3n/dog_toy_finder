@@ -1,10 +1,6 @@
 #pragma once
 
-// Copy this file to config/imu_config.h and adjust if needed.
-// imu_config.h is ignored by git.
-//
-// The build creates imu_config.h from this file automatically when it is
-// missing or empty.
+// BNO055 IMU settings. Edit this file in place.
 
 // Topic and frame for sensor_msgs/msg/Imu messages.
 #define IMU_ROS_TOPIC "/imu/data"

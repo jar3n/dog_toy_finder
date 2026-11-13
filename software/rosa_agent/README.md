@@ -92,14 +92,24 @@ python3 -m rosa_agent --model mistral
 | `drive_distance` | `direction`, `meters` | forward/backward up to 2 m |
 | `turn` | `direction`, `degrees` | left/right up to 180 deg |
 | `go_to` | `x`, `y` | drive to a point within 3 m |
-| `stop_robot` | none | publishes zero `/cmd_vel` |
+| `run_search` | `target`, `mode` | autonomous search: `one` stops at the first toy, `all` finds every toy |
+| `check_failsafe` | none | whether the Pico IR failsafe sees an obstacle now |
+| `stop_robot` | none | publishes zero `/cmd_vel_auto` (mux forwards it) |
 | `describe_scene` | none | describe what the stereo camera sees |
 | `find_toy` | `target` | whether a toy is visible, where, size, distance |
 | `is_path_clear` | none | whether the path ahead is blocked |
 
 Every move uses `/odometry/filtered` as feedback and reports what the fused
-estimate measured. The robot stops if a tool fails, if the user interrupts, or
-when the Pico's 500 ms `/cmd_vel` watchdog expires.
+estimate measured. If the Pico IR failsafe interrupts a move, the tool result
+says so. The robot stops if a tool fails, if the user interrupts, or
+when the Pico's 500 ms `/cmd_vel` watchdog expires. The Pico mirrors both
+failsafes (IR reflex engage/clear and watchdog stop) to `/pico/log`, and the
+motion layer subscribes to `/ir_obstacle/detected` so ROS acts on them.
+
+ROSA's commands go to `/cmd_vel_auto`; the bringup `cmd_vel_mux` forwards them
+to the Pico unless keyboard manual drive currently has priority. While manual
+control is active, ROSA moves do not reach the motors, and a short release
+window follows before autonomous commands resume.
 
 ## Environment
 

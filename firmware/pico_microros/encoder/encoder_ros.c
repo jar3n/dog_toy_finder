@@ -7,6 +7,7 @@
 #include <rmw/qos_profiles.h>
 #include <sensor_msgs/msg/joint_state.h>
 
+#include "hardware/gpio.h"
 #include "pico/time.h"
 
 #include "config/encoder_config.h"
@@ -106,6 +107,20 @@ static bool init_hardware(void) {
     return true;
   }
 
+  // Presence/short check: the hall outputs are open-drain and pulled up, so
+  // with a healthy (or absent) encoder both channels read high. A pin reading
+  // low at boot means it is shorted to ground (or to a low-driven line), which
+  // is never a valid encoder state.
+  if (ENCODER_LEFT_PIN_A == ENCODER_LEFT_PIN_B ||
+      ENCODER_RIGHT_PIN_A == ENCODER_RIGHT_PIN_B ||
+      ENCODER_LEFT_PIN_A == ENCODER_RIGHT_PIN_A ||
+      ENCODER_LEFT_PIN_A == ENCODER_RIGHT_PIN_B ||
+      ENCODER_LEFT_PIN_B == ENCODER_RIGHT_PIN_A ||
+      ENCODER_LEFT_PIN_B == ENCODER_RIGHT_PIN_B) {
+    wifi_log_printf("encoder: encoder pins are not distinct\n");
+    return false;
+  }
+
   if (!encoder_init(
         &left_encoder,
         ENCODER_LEFT_PIN_A,
@@ -123,6 +138,16 @@ static bool init_hardware(void) {
         ENCODER_RIGHT_INVERT != 0,
         ENCODER_COUNTS_PER_REVOLUTION,
         ENCODER_VELOCITY_FILTER_ALPHA)) {
+    return false;
+  }
+
+  // Verify both channels read high (pull-ups) rather than being shorted to
+  // ground. Open-drain hall outputs at rest are high, so a low reading means
+  // a short or a stuck-low line, not a healthy encoder.
+  if (!gpio_get(ENCODER_LEFT_PIN_A) || !gpio_get(ENCODER_LEFT_PIN_B) ||
+      !gpio_get(ENCODER_RIGHT_PIN_A) || !gpio_get(ENCODER_RIGHT_PIN_B)) {
+    wifi_log_printf(
+      "encoder: a channel pin reads low at boot (short to ground?)\n");
     return false;
   }
 
@@ -145,7 +170,7 @@ static bool init_hardware(void) {
 bool encoder_ros_init(void) {
   if (!init_hardware()) {
     wifi_log_printf(
-      "encoder: GPIO setup failed; check config/pinout.h\n");
+      "encoder: hardware check failed; check wiring in config/pinout.h\n");
     return false;
   }
 

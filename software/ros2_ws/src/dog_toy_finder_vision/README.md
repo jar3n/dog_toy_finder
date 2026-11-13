@@ -34,6 +34,23 @@ timing per model, so the models can be compared directly.
 The ROSA planner supports the same idea via
 `python3 -m rosa_agent --compare llama3.2,mistral,qwen2.5`.
 
+## Result fields
+
+Each entry in `/vision/result`'s `results` array contains:
+
+| Field | Meaning |
+|---|---|
+| `target_visible` | whether the requested target appears in the image |
+| `position` | target in the image: `left`, `center`, `right`, or `none` |
+| `size` | `small`, `medium`, `large`, or `none` |
+| `distance_m` | estimated distance to the target in metres, `0` if unknown/not visible |
+| `obstacle_ahead` | object blocking the centre of the path, or `none` |
+| `path_clear` | `true` when `obstacle_ahead` is `none` |
+| `description` | free-text scene description |
+
+`position` and `distance_m` are combined by the mapping node to place toy
+markers: distance ahead, then a configurable offset to the left or right.
+
 ## Run
 
 ```bash

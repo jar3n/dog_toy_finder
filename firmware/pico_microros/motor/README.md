@@ -6,9 +6,10 @@
 dual H-bridge. Each channel gets a PWM speed input and two direction pins, and
 one shared standby pin enables or disables both bridges.
 
-The driver is low-level only: it accepts a signed duty from -1.0 to +1.0 per
-motor. There is no `/cmd_vel` subscriber yet, so the firmware initializes the
-controller with both channels coasting and never commands motion.
+The driver accepts a signed duty from -1.0 to +1.0 per motor. `cmd_vel.c`
+sits above it: it subscribes to `/cmd_vel`, mixes `Twist` into left/right
+wheel duty, stops the motors when commands time out, and applies a local IR
+reflex brake when the obstacle sensor sees something ahead.
 
 ## Wiring
 
@@ -20,28 +21,27 @@ in `../config/motor_config.h`.
 | VCC | 3V3 | logic supply, 2.7-5.5 V |
 | GND | GND | common ground with the Pico and motor battery |
 | VM | battery + | motor supply, 3-15 V, never the Pico 3V3 |
-| PWMA | GPIO6 | left PWM (slice 3, channel A) |
-| AIN1 | GPIO7 | left direction 1 |
-| AIN2 | GPIO8 | left direction 2 |
-| PWMB | GPIO9 | right PWM (slice 4, channel B) |
-| BIN1 | GPIO10 | right direction 1 |
-| BIN2 | GPIO11 | right direction 2 |
-| STBY | GPIO12 | high enables both bridges |
+| PWMA | GPIO16 | left PWM |
+| AIN1 | GPIO18 | left direction 1 |
+| AIN2 | GPIO17 | left direction 2 |
+| PWMB | GPIO22 | right PWM |
+| BIN1 | GPIO20 | right direction 1 |
+| BIN2 | GPIO21 | right direction 2 |
+| STBY | GPIO19 | high enables both bridges |
 | AO1 / AO2 | left motor | motor winding only |
 | BO1 / BO2 | right motor | motor winding only |
 
 The two PWM pins use different slices so each channel can be configured
-independently. These GPIOs do not overlap the BNO055 (`GPIO14/15`), the encoders
-(`GPIO16-19`), or the wireless chip (`GPIO23/24/25/29`).
+independently.
 
 ```c
-#define MOTOR_LEFT_PWM_PIN 6
-#define MOTOR_LEFT_IN1_PIN 7
-#define MOTOR_LEFT_IN2_PIN 8
-#define MOTOR_RIGHT_PWM_PIN 9
-#define MOTOR_RIGHT_IN1_PIN 10
-#define MOTOR_RIGHT_IN2_PIN 11
-#define MOTOR_STANDBY_PIN 12
+#define MOTOR_LEFT_PWM_PIN 16
+#define MOTOR_LEFT_IN1_PIN 18
+#define MOTOR_LEFT_IN2_PIN 17
+#define MOTOR_RIGHT_PWM_PIN 22
+#define MOTOR_RIGHT_IN1_PIN 20
+#define MOTOR_RIGHT_IN2_PIN 21
+#define MOTOR_STANDBY_PIN 19
 ```
 
 Add a 0.1 uF decoupling capacitor across VCC/GND and a bulk capacitor
@@ -71,8 +71,7 @@ coasts. `tb6612fng_stop()` selects coast or active brake explicitly.
 
 ## Configuration
 
-`config/motor_config.h` is git-ignored and created from
-`config/motor_config.example.h` by the build when missing. Important values:
+`config/motor_config.h` is committed; edit it in place. Important values:
 
 | Setting | Default | Meaning |
 |---|---|---|
@@ -157,17 +156,37 @@ dropping STBY, so re-enabling never resumes the previous speed.
 - STBY is pulled low in `tb6612fng_init()` before either bridge is configured
   and again by `tb6612fng_set_enabled(false)`. Call the latter from any fault
   handler or command watchdog.
-- There is no command timeout yet. When a ROS command path is added, stop or
-  brake the motors if no command arrives within a short timeout.
+- `cmd_vel.c` brakes both motors when no `/cmd_vel` message arrives for
+  `CMD_VEL_TIMEOUT_MS` (default 500 ms), so a stalled computer or Wi-Fi link
+  cannot leave the robot driving.
+- The IR reflex brakes on the Pico itself when an obstacle is within the
+  sensor's range, independent of the network. It blocks forward commands.
+  Reverse is only allowed in small steps: one step drives back at
+  `CMD_VEL_IR_REFLEX_REVERSE_SPEED_M_S` for
+  `CMD_VEL_IR_REFLEX_REVERSE_STEP_MS`, then the reflex brakes and pauses for
+  `CMD_VEL_IR_REFLEX_REVERSE_PAUSE_MS`. A turn-in-place command is allowed
+  during that pause, so the robot can back away a little and pivot around.
+  There is no unrestricted reverse. Configure it with `CMD_VEL_IR_REFLEX`,
+  `CMD_VEL_IR_REFLEX_REVERSE_STEPS`,
+  `CMD_VEL_IR_REFLEX_REVERSE_SPEED_M_S`,
+  `CMD_VEL_IR_REFLEX_REVERSE_STEP_MS`, and
+  `CMD_VEL_IR_REFLEX_REVERSE_PAUSE_MS` in `../config/cmd_vel_config.h`.
+- The failsafe reports to ROS twice: the Pico mirrors the reflex engage/clear
+  messages and the watchdog stop to `/pico/log`
+  (`ros2 topic echo /pico/log`), and it keeps publishing the sensor state on
+  `/ir_obstacle/detected`, which `Mover` subscribes to. Forward moves and
+  turns abort on that signal and set `failsafe_hit()`, so planners and ROSA
+  know the Pico stopped the robot instead of waiting for the move deadline.
 - Verify the actual motor supply voltage, motor lead polarity, and wheel
   geometry before running the robot on the floor.
 
-## Next steps
+## Tuning
 
-A motion command path still needs to be added. The likely shape is a
-`geometry_msgs/msg/Twist` subscriber on `/cmd_vel`, a differential-drive
-conversion to left/right duty using the wheel separation, and a timeout that
-calls `tb6612fng_stop_all()` when commands stop arriving. That subscriber would
-need a micro-ROS subscription slot and, if a new publisher is also added, a
-rebuilt `libmicroros.a` because all three publisher slots are currently used by
-logs, the IMU, and `/joint_states`.
+The geometry and speed defaults live in `../config/cmd_vel_config.h`. Measure
+the wheel separation and top speed on your own chassis, then adjust
+`CMD_VEL_WHEEL_SEPARATION_M` and `CMD_VEL_MAX_WHEEL_SPEED_M_S`. Set
+`CMD_VEL_STOP_BRAKE` to 1 for an active brake on timeout or 0 to coast.
+
+The micro-ROS subscription needs one slot; the current `libmicroros.a` is
+built with enough slots for the log, IMU, joint-state, and IR publishers plus
+this subscription.

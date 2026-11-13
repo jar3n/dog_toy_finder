@@ -20,6 +20,7 @@ Dog Toy Finder Pico 2 W firmware Main file
 #include "motor/cmd_vel.h"
 #include "motor/tb6612fng.h"
 #include "ros/ros_log.h"
+#include "status_led/status_led.h"
 #include "wifi/wifi.h"
 
 #define IMU_PUBLISH_PERIOD_MS 20
@@ -29,18 +30,32 @@ Dog Toy Finder Pico 2 W firmware Main file
 /**
  * Firmware entry point.
  *
- * Starts USB serial, connects Wi-Fi, brings up micro-ROS logging, and
- * initializes the BNO055, both wheel encoders, and the TB6612FNG motor
- * controller. It then subscribes to /cmd_vel and drives the motors from Twist
- * messages, stopping them when commands time out. The main loop publishes Imu
- * and JointState messages at 50 Hz, services /cmd_vel at 50 Hz, and logs IMU
- * and encoder status at 2 Hz and 1 Hz respectively.
+ * Starts USB serial and the built-in status LED, connects Wi-Fi, brings up
+ * micro-ROS logging, and initializes the BNO055, both wheel encoders, and the
+ * TB6612FNG motor controller. It then subscribes to /cmd_vel and drives the
+ * motors from Twist messages, stopping them when commands time out and braking
+ * immediately when the IR obstacle sensor sees something ahead. The main loop
+ * publishes Imu and JointState messages at 50 Hz, services /cmd_vel at 50 Hz,
+ * and logs IMU and encoder status at 2 Hz and 1 Hz respectively.
+ *
+ * The built-in LED blinks while this boot sequence runs, then stays solid on
+ * when every required device came up or turns off when any step failed, so an
+ * outside observer can tell the boot outcome without a terminal.
  */
 int main(void){
     stdio_init_all();
     sleep_ms(1500);
-    wifi_init();
-    ros_log_init();
+
+    // The LED lives on the CYW43 wireless chip, so this also brings that chip
+    // up; wifi_init() below reuses it. Start blinking before Wi-Fi so the
+    // long association wait still shows progress.
+    status_led_init();
+    wifi_set_poll_hook(status_led_task);
+    bool wifi_ready = wifi_init();
+    status_led_task();
+
+    bool ros_ready = ros_log_init();
+    status_led_task();
 
     bool imu_ready = bno055_init();
     if (imu_ready) {
@@ -49,14 +64,17 @@ int main(void){
         ros_log_printf(
             "imu: BNO055 not detected; check the I2C wiring in config/pinout.h\n");
     }
+    status_led_task();
 
     bool imu_publishing = imu_ready && imu_ros_init();
     if (imu_ready && !imu_publishing) {
         ros_log_printf("imu: ROS publishing unavailable\n");
     }
+    status_led_task();
 
     bool encoder_ready = encoder_ros_init();
     bool encoder_publishing = encoder_ready && encoder_ros_ready();
+    status_led_task();
 
     tb6612fng_t motor_driver;
     bool motor_ready = tb6612fng_init(&motor_driver);
@@ -68,12 +86,14 @@ int main(void){
             "motor: TB6612FNG init failed; check the wiring in "
             "config/pinout.h\n");
     }
+    status_led_task();
 
     bool cmd_vel_subscribed = motor_ready && cmd_vel_init(&motor_driver);
     if (motor_ready && !cmd_vel_subscribed) {
         ros_log_printf(
             "cmd_vel: subscriber unavailable; motors stay coasting\n");
     }
+    status_led_task();
 
     bool ir_obstacle_ready = ir_obstacle_ros_init();
     if (ir_obstacle_ready) {
@@ -82,6 +102,21 @@ int main(void){
         ros_log_printf(
             "ir_obstacle: unavailable; check the wiring in config/pinout.h\n");
     }
+    status_led_task();
+
+    // Startup is complete. Solid means every required device came up; if any
+    // step failed, turn the LED off so the failure is visible without a
+    // terminal. The control loop still runs in the degraded state.
+    bool boot_ok = wifi_ready && ros_ready &&
+                   imu_ready && imu_publishing &&
+                   encoder_ready && encoder_publishing &&
+                   motor_ready && cmd_vel_subscribed &&
+                   ir_obstacle_ready;
+    ros_log_printf(
+        "boot: %s\n",
+        boot_ok ? "ready (LED solid)" : "failed (LED off); see messages above");
+    status_led_set_state(
+        boot_ok ? STATUS_LED_READY : STATUS_LED_FAILED);
 
     absolute_time_t next_publish = get_absolute_time();
     absolute_time_t next_log = get_absolute_time();
@@ -91,6 +126,7 @@ int main(void){
     absolute_time_t next_ir_obstacle_publish = get_absolute_time();
 
     while (true) {
+        status_led_task();
         absolute_time_t now = get_absolute_time();
 
         if (cmd_vel_subscribed &&

@@ -13,6 +13,7 @@ from langchain_core.tools import tool
 
 from dog_toy_finder_motion.mover import local_change
 from dog_toy_finder_motion.transforms import distance_and_bearing, wrap_angle
+from dog_toy_finder_planning.autonomous_search_node import AutonomousSearch
 
 from .robot import get_robot
 
@@ -83,11 +84,19 @@ def _report(robot, start, description: str) -> str:
     if end is None:
         return "%s. The fused estimate stopped updating." % description
     forward, left, turned = local_change(start, end)
-    return (
+    text = (
         "%s. Fused estimate measured: forward %.3f m, left %.3f m, "
         "turned %+.1f deg. Fused pose now: %s."
         % (description, forward, left, turned, _fmt(end))
     )
+    if robot.mover.failsafe_hit():
+        text += (
+            " Pico failsafe engaged: the IR sensor saw an obstacle ahead "
+            "(/ir_obstacle/detected), so the Pico braked and blocked the "
+            "command. The move was aborted early; reverse in small steps or "
+            "turn once the path is clear."
+        )
+    return text
 
 
 @tool
@@ -194,8 +203,97 @@ def go_to(x: str, y: str) -> str:
 
 
 @tool
+def run_search(target: str, mode: str) -> str:
+    """Run the autonomous search for a toy. This is the evaluation/demo search.
+
+    mode 'one': search for a single toy and stop when it is found (evaluation).
+    mode 'all': demo - find every toy in the swept area, recording each one
+    and continuing until the planned coverage finishes.
+
+    target: the toy or toys to find, exactly as the user wrote it, for
+    example 'red ball'. Several kinds can be searched with a comma-separated
+    list, for example 'red ball,blue bone'. The vision node must be running
+    (/vision/ask is answered by dog_toy_finder_vision vision.launch.py),
+    otherwise each vision check times out. Approval gates the whole search;
+    Ctrl-C stops it.
+    """
+    word = _word(mode, ("one", "all"))
+    toy = str(target).strip()
+    if word is None or not toy:
+        return (
+            "Invalid search: mode must be 'one' or 'all' and target must be "
+            "a non-empty toy description. The robot did not move."
+        )
+    robot, error = _ready_or_error()
+    if error is not None:
+        return error
+    find_all = word == "all"
+    purpose = "Find every toy called '%s'" % toy if find_all else \
+        "Search for '%s' and stop when found" % toy
+    if not _approved(purpose):
+        return "The human declined. The robot did not move."
+
+    start = robot.pose()
+    search = AutonomousSearch()
+    search.target = toy
+    # AutonomousSearch parses its target list in __init__ from the default,
+    # so rebuild it from the tool's target (a single name or a comma list).
+    search.targets = [t.strip() for t in toy.split(",") if t.strip()] or [toy]
+    search.find_all = find_all
+    search.side = 0.5
+    search.side_increment = 0.5
+    search.loops = 3
+    search.max_time = 120.0
+    search.vision_timeout = 10.0
+    search.found_distance = 0.4
+    stamp = time.strftime("%Y%m%d_%H%M%S")
+    search.run_id = "rosa_%s" % stamp
+    search.output_csv = "/tmp/rosa_search_%s.csv" % stamp
+    robot.executor.add_node(search)
+    try:
+        search.run()
+    finally:
+        robot.executor.remove_node(search)
+        search.destroy_node()
+
+    toys_text = "; ".join(
+        "#%d (%s) at (%.2f, %.2f)" % (i, label, tx, ty)
+        for i, (tx, ty, label) in enumerate(search.toys, 1)
+    ) or "none"
+    text = (
+        "Search for '%s' finished (%s mode). Toys found: %d (%s). "
+        "CSV log: %s."
+        % (toy, word, len(search.toys), toys_text, search.output_csv)
+    )
+    return _report(robot, start, text)
+
+
+@tool
+def check_failsafe() -> str:
+    """Report whether the Pico failsafe currently sees an obstacle ahead.
+
+    Reads the latest /ir_obstacle/detected value. When true the Pico has
+    braked and is blocking forward/turn commands, allowing only stepped
+    reverse until the path clears.
+    """
+    robot = get_robot()
+    if robot.mover.obstacle_ahead():
+        return (
+            "Pico failsafe is ACTIVE: /ir_obstacle/detected is true, so the "
+            "Pico is braking and blocking forward/turn commands. Reverse in "
+            "small steps or wait for the path to clear."
+        )
+    if robot.mover.failsafe_hit():
+        return (
+            "Pico failsafe interrupted the last move, but the path is clear "
+            "now. You may drive again."
+        )
+    return "Pico failsafe is not active: no obstacle ahead on /ir_obstacle/detected."
+
+
+@tool
 def stop_robot() -> str:
     """Stop the robot immediately. Use this if a move fails or the user asks to stop."""
     robot = get_robot()
     robot.mover.stop()
-    return "Stop command sent; /cmd_vel is zero."
+    return "Stop command sent; /cmd_vel is zero (via /cmd_vel_auto and cmd_vel_mux)."

@@ -21,8 +21,7 @@
 //   SCL        GPIO15 (physical pin 20)
 //   ADDR       GND    -> I2C address 0x28
 //
-// I2C1 is used on GPIO14/15, one of its valid pin pairs. GPIO14/15 are free on
-// the Pico 2 W (the wireless chip uses GPIO23/24/25/29).
+// I2C1 is used on GPIO14/15, one of its valid pin pairs.
 //
 // To use different pins, pick another valid I2C1 pair (for example GPIO2/3 or
 // GPIO26/27) or switch BNO055_I2C to i2c0 and use that instance's pins. Both
@@ -49,20 +48,19 @@
 //
 // Wiring on the Pico 2 W:
 //
-//   Left encoder A    GPIO6   (physical pin 9)
-//   Left encoder B    GPIO7   (physical pin 10)
-//   Right encoder A   GPIO8   (physical pin 11)
-//   Right encoder B   GPIO9   (physical pin 12)
+//   Left encoder A    GPIO7   (physical pin 10)
+//   Left encoder B    GPIO6   (physical pin 9)
+//   Right encoder A   GPIO9   (physical pin 12)
+//   Right encoder B   GPIO8   (physical pin 11)
 //
-// These four pins are free on the Pico 2 W, support edge interrupts, and do
-// not overlap the BNO055 (GPIO14/15), the motor controller (GPIO16-22), or the
-// wireless chip (GPIO23/24/25/29). Swap A/B or set the matching *_INVERT flag
-// in config/encoder_config.h to flip the counting direction. Encoder geometry
-// and joint names live there.
-#define ENCODER_LEFT_PIN_A 6
-#define ENCODER_LEFT_PIN_B 7
-#define ENCODER_RIGHT_PIN_A 8
-#define ENCODER_RIGHT_PIN_B 9
+// A/B are swapped relative to the original assignment; this is equivalent to
+// swapping the two hall wires or setting the matching *_INVERT flag. These
+// four pins support edge interrupts. Encoder geometry and joint names live in
+// config/encoder_config.h.
+#define ENCODER_LEFT_PIN_A 7
+#define ENCODER_LEFT_PIN_B 6
+#define ENCODER_RIGHT_PIN_A 9
+#define ENCODER_RIGHT_PIN_B 8
 
 // ---------------------------------------------------------------------------
 // TB6612FNG dual motor controller
@@ -90,9 +88,7 @@
 // diodes, but short motor leads and a common ground still matter.
 //
 // The two PWM pins intentionally use different slices so each channel can be
-// configured independently. These GPIOs are free on the Pico 2 W and do not
-// overlap the BNO055 (GPIO14/15), the encoders (GPIO6-9), or the wireless
-// chip (GPIO23/24/25/29).
+// configured independently.
 #define MOTOR_PWMA_PIN 16
 #define MOTOR_AIN1_PIN 18
 #define MOTOR_AIN2_PIN 17
@@ -115,11 +111,18 @@
 //   ------     --------
 //   VCC        3V3
 //   GND        GND
-//   S          GPIO10  (signal, active high by default)
-//   EN         GPIO11  (high enables the sensor)
+//   S          GPIO4   (signal, active high by default)
+//   EN         GPIO5   (high enables the sensor)
 //
-// GPIO10/11 are free on the Pico 2 W and do not overlap the encoders
-// (GPIO6-9), the motor controller (GPIO16-22), the IMU (GPIO14/15), or the
-// wireless chip (GPIO23/24/25/29).
-#define IR_OBSTACLE_SIGNAL_PIN 10
-#define IR_OBSTACLE_ENABLE_PIN 11
+#define IR_OBSTACLE_SIGNAL_PIN 4
+#define IR_OBSTACLE_ENABLE_PIN 5
+
+// ---------------------------------------------------------------------------
+// Built-in status LED
+// ---------------------------------------------------------------------------
+//
+// The Pico 2 W does not connect its LED to a Pico GPIO: it is wired to the
+// CYW43 wireless chip as CYW43_WL_GPIO_LED_PIN. status_led/ drives it through
+// cyw43_arch_gpio_put(), so there is no pin to configure here. Blink timing
+// lives in config/status_led_config.h; the LED is solid once startup is
+// finished and blinks while the firmware is still starting.

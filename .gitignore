@@ -30,12 +30,6 @@ config/env/*
 !config/env/.gitkeep
 !config/env/README.md
 **/wifi_config.h
-**/ros_config.h
-**/imu_config.h
-**/encoder_config.h
-**/motor_config.h
-**/cmd_vel_config.h
-**/ir_obstacle_config.h
 **/secrets*
 
 # Data

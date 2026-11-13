@@ -1,4 +1,4 @@
-# == DO NOT EDIT THE FOLLOWING LINES for the Raspberry Pi Pico VS Code Extension to work ==
+# == DO NOT EDIT THE FOLLOWING LINES: used by Raspberry Pi VS Code Extension ==
 if(WIN32)
     set(USERHOME $ENV{USERPROFILE})
 else()
@@ -11,7 +11,7 @@ set(picoVscode ${USERHOME}/.pico-sdk/cmake/pico-vscode.cmake)
 if (EXISTS ${picoVscode})
     include(${picoVscode})
 endif()
-# ====================================================================================
+# =============================================================================
 
 cmake_minimum_required(VERSION 3.13)
 
@@ -44,13 +44,9 @@ function(dtf_provide_local_config name)
     endif()
 endfunction()
 
+# Only the Wi-Fi config holds credentials and is kept out of git. All other
+# config headers are committed and edited in place.
 dtf_provide_local_config(wifi_config)
-dtf_provide_local_config(ros_config)
-dtf_provide_local_config(imu_config)
-dtf_provide_local_config(encoder_config)
-dtf_provide_local_config(motor_config)
-dtf_provide_local_config(cmd_vel_config)
-dtf_provide_local_config(ir_obstacle_config)
 
 add_executable(dtf_pico_fw
     dtf_pico_fw_main.c
@@ -69,6 +65,7 @@ add_executable(dtf_pico_fw
     motor/cmd_vel.c
     ir_obstacle/ir_obstacle.c
     ir_obstacle/ir_obstacle_ros.c
+    status_led/status_led.c
 )
 
 # micro ros library

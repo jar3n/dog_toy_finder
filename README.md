@@ -31,7 +31,7 @@ platform.
 |---|---|---|
 | `dog_toy_finder_bringup` | Launch files, EKF config, robot geometry | [README](software/ros2_ws/src/dog_toy_finder_bringup/README.md) |
 | `dog_toy_finder_odometry` | `/joint_states` -> `/wheel/odom` | [README](software/ros2_ws/src/dog_toy_finder_odometry/README.md) |
-| `dog_toy_finder_motion` | Closed-loop moves + `mover_test` | [README](software/ros2_ws/src/dog_toy_finder_motion/README.md) |
+| `dog_toy_finder_motion` | Closed-loop moves, `cmd_vel_mux`, manual keyboard drive + `mover_test` | [README](software/ros2_ws/src/dog_toy_finder_motion/README.md) |
 | `dog_toy_finder_vision` | Stereo camera, VLM vision | [README](software/ros2_ws/src/dog_toy_finder_vision/README.md) |
 | `dog_toy_finder_mapping` | Occupancy map + 3D web viewer | [README](software/ros2_ws/src/dog_toy_finder_mapping/README.md) |
 | `dog_toy_finder_planning` | Autonomous search planner + path utilities | [README](software/ros2_ws/src/dog_toy_finder_planning/README.md) |
@@ -82,8 +82,9 @@ source install/setup.bash
 
 # one command to launch everything in tmux panes:
 /workspace/scripts/launch_all.sh
-# stop everything:
-/workspace/scripts/stop_all.sh
+# same, plus a keyboard manual-drive window (W/A/S/D):
+/workspace/scripts/launch_all.sh --manual
+# stop everything: Ctrl+C in the launch_all.sh terminal
 ```
 
 Or run components individually:
@@ -95,7 +96,7 @@ ros2 launch dog_toy_finder_vision stereo.launch.py \
     right_url:=http://esp32cam-right.local/capture
 ros2 launch dog_toy_finder_vision vision.launch.py models:="gemma3,llava"
 ros2 launch dog_toy_finder_mapping mapping.launch.py
-ros2 run dog_toy_finder_mapping map_webserver   # 3D map at http://<ip>:8765
+ros2 run dog_toy_finder_mapping map_webserver   # live map at http://<ip>:8765 (Save PNG button)
 cd /workspace/software/rosa_agent && python3 -m rosa_agent
 ```
 

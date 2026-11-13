@@ -1,146 +1,66 @@
-"""Simple web server that visualises the robot's map in 3D in a browser.
+"""Live 3D browser view of the robot's map.
 
-Subscribes to /map (nav_msgs/OccupancyGrid) and /tracked_path (nav_msgs/Path)
-and serves an HTTP page on port 8765 with a Three.js 3D view. Occupied cells
-are drawn as raised blocks, free cells as a flat plane, and the robot's
-travelled path as a line.
+Subscribes to /map (nav_msgs/OccupancyGrid), /tracked_path (nav_msgs/Path), and
+/detected_toys (geometry_msgs/PoseArray) and serves a self-refreshing page on
+port 8765. The page itself lives in `web/` (HTML, CSS, and JavaScript);
+vendored Three.js files live in `static/`. Python only publishes the map data
+and serves those files.
+
+The page has a **Save PNG** button that downloads the current view to the
+computer running the browser, and a **Reset view** button for the camera.
+
+The server binds to 0.0.0.0, so any computer on the same network can open it
+at http://<this-computer-ip>:8765. Three.js is served from the package itself,
+so the viewing computer does not need internet access. This is the only
+supported map viewer; it replaces the former terminal (ASCII) and PGM/YAML
+export tools.
 
 Usage:
     ros2 run dog_toy_finder_mapping map_webserver
-    # then open http://<computer-ip>:8765 in a browser
+    # open http://<computer-ip>:8765 in a browser
+    # change the port with: --ros-args -p port:=9000
 """
 
 import json
+import socket
 import threading
-import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path as FilePath
 
 import rclpy
+from geometry_msgs.msg import PoseArray
 from nav_msgs.msg import OccupancyGrid, Path
 from rclpy.node import Node
 from rclpy.qos import qos_profile_sensor_data
 
 
-HTML_PAGE = r"""<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<title>Dog Toy Finder - 3D Map</title>
-<style>
-  body { margin: 0; overflow: hidden; font-family: sans-serif; background: #111; color: #eee; }
-  #info { position: absolute; top: 8px; left: 8px; background: rgba(0,0,0,0.6);
-          padding: 8px 12px; border-radius: 6px; font-size: 13px; }
-  #legend { position: absolute; bottom: 8px; left: 8px; background: rgba(0,0,0,0.6);
-            padding: 6px 10px; border-radius: 6px; font-size: 12px; }
-</style>
-</head>
-<body>
-<div id="info">Waiting for map...</div>
-<div id="legend">white = free floor, red blocks = obstacles, blue line = path travelled</div>
-<script type="importmap">
-{ "imports": { "three": "https://unpkg.com/three@0.160.0/build/three.module.js" } }
-</script>
-<script type="module">
-import * as THREE from 'three';
-import { OrbitControls } from 'https://unpkg.com/three@0.160.0/examples/jsm/controls/OrbitControls.js';
+WEB_DIR = FilePath(__file__).resolve().parent / "web"
+STATIC_DIR = FilePath(__file__).resolve().parent / "static"
 
-const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x111111);
-const camera = new THREE.PerspectiveCamera(60, innerWidth/innerHeight, 0.01, 1000);
-camera.position.set(0, 8, 8);
-const renderer = new THREE.WebGLRenderer({ antialias: true });
-renderer.setSize(innerWidth, innerHeight);
-document.body.appendChild(renderer.domElement);
-const controls = new OrbitControls(camera, renderer.domElement);
-
-scene.add(new THREE.AmbientLight(0xffffff, 0.6));
-const dir = new THREE.DirectionalLight(0xffffff, 0.8);
-dir.position.set(5, 10, 5);
-scene.add(dir);
-
-const group = new THREE.Group();
-scene.add(group);
-
-let lastMapStamp = 0;
-
-async function fetchJSON(url) {
-  const r = await fetch(url);
-  if (!r.ok) return null;
-  return r.json();
+WEB_FILES = {
+    "/": ("index.html", "text/html; charset=utf-8"),
+    "/index.html": ("index.html", "text/html; charset=utf-8"),
+    "/app.js": ("app.js", "text/javascript; charset=utf-8"),
+    "/style.css": ("style.css", "text/css; charset=utf-8"),
 }
 
-function rebuildMap(m) {
-  // clear previous
-  while (group.children.length) group.remove(group.children[0]);
-  const res = m.resolution;
-  const w = m.width, h = m.height;
-  const ox = m.origin.x, oy = m.origin.y;
-  // free floor plane
-  const plane = new THREE.Mesh(
-    new THREE.PlaneGeometry(w*res, h*res),
-    new THREE.MeshStandardMaterial({ color: 0xdddddd, side: THREE.DoubleSide })
-  );
-  plane.rotation.x = -Math.PI/2;
-  plane.position.set(ox + w*res/2, 0, oy + h*res/2);
-  group.add(plane);
-  // occupied blocks
-  const blockGeo = new THREE.BoxGeometry(res*0.9, res*2, res*0.9);
-  const blockMat = new THREE.MeshStandardMaterial({ color: 0xcc3333 });
-  const inst = new THREE.InstancedMesh(blockGeo, blockMat, 1);
-  inst.count = 0;
-  const positions = [];
-  for (let r = 0; r < h; r++) {
-    for (let c = 0; c < w; c++) {
-      const v = m.data[r*w + c];
-      if (v >= 50) {
-        const x = ox + (c + 0.5)*res;
-        const z = oy + (r + 0.5)*res;
-        positions.push(x, res, z);
-      }
-    }
-  }
-  if (positions.length) {
-    const mesh = new THREE.InstancedMesh(blockGeo, blockMat, positions.length/3);
-    const dummy = new THREE.Object3D();
-    for (let i = 0; i < positions.length/3; i++) {
-      dummy.position.set(positions[i*3], positions[i*3+1], positions[i*3+2]);
-      dummy.updateMatrix();
-      mesh.setMatrixAt(i, dummy.matrix);
-    }
-    mesh.instanceMatrix.needsUpdate = true;
-    group.add(mesh);
-  }
-  // path
-  const path = await fetchJSON('/path.json');
-  if (path && path.points && path.points.length) {
-    const pts = path.points.map(p => new THREE.Vector3(p.x, 0.05, p.y));
-    const lineGeo = new THREE.BufferGeometry().setFromPoints(pts);
-    const line = new THREE.Line(lineGeo, new THREE.LineBasicMaterial({ color: 0x3366ff, linewidth: 2 }));
-    group.add(line);
-  }
-  document.getElementById('info').textContent =
-    'Map ' + w + 'x' + h + ' @ ' + res + ' m  |  occupied cells: ' + (positions.length/3);
+STATIC_FILES = {
+    "three.module.js": "text/javascript; charset=utf-8",
+    "OrbitControls.js": "text/javascript; charset=utf-8",
+    "LICENSE.three": "text/plain; charset=utf-8",
 }
 
-async function loop() {
-  const m = await fetchJSON('/map.json');
-  if (m && m.stamp && m.stamp !== lastMapStamp) {
-    lastMapStamp = m.stamp;
-    rebuildMap(m);
-  }
-  requestAnimationFrame(loop);
-}
-loop();
 
-addEventListener('resize', () => {
-  camera.aspect = innerWidth/innerHeight;
-  camera.updateProjectionMatrix();
-  renderer.setSize(innerWidth, innerHeight);
-});
-</script>
-</body>
-</html>
-"""
+def _local_ip() -> str:
+    """Return the LAN IP used for outbound traffic, or 127.0.0.1 offline."""
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        sock.connect(("8.8.8.8", 80))
+        return sock.getsockname()[0]
+    except OSError:
+        return "127.0.0.1"
+    finally:
+        sock.close()
 
 
 class MapWebServer(Node):
@@ -151,58 +71,100 @@ class MapWebServer(Node):
         self._lock = threading.Lock()
         self._map = None
         self._path = None
+        self._toys = None
 
         self.create_subscription(OccupancyGrid, "/map", self.on_map,
                                  qos_profile_sensor_data)
         self.create_subscription(Path, "/tracked_path", self.on_path,
                                  qos_profile_sensor_data)
+        self.create_subscription(PoseArray, "/detected_toys", self.on_toys,
+                                 qos_profile_sensor_data)
 
-        self.httpd = ThreadingHTTPServer(("0.0.0.0", self.port), self._handler_factory())
+        # Bind the requested port; if it is already in use (e.g. a stale
+        # server), try the next few ports instead of crashing the node.
+        bound_port = None
+        last_error = None
+        for candidate in range(self.port, self.port + 11):
+            try:
+                self.httpd = ThreadingHTTPServer(
+                    ("0.0.0.0", candidate), self._handler_factory())
+                bound_port = candidate
+                break
+            except OSError as error:
+                last_error = error
+                continue
+        if bound_port is None:
+            raise RuntimeError(
+                "map webserver could not bind any port in %d..%d: %s"
+                % (self.port, self.port + 10, last_error))
+        if bound_port != self.port:
+            self.get_logger().warn(
+                "Port %d was busy; using %d instead." % (self.port, bound_port))
+        self.port = bound_port
         self.http_thread = threading.Thread(target=self.httpd.serve_forever, daemon=True)
         self.http_thread.start()
-        self.get_logger().info(f"Map web viewer running at http://0.0.0.0:{self.port}")
+        self.get_logger().info(
+            f"Live map ready at http://{_local_ip()}:{self.port} "
+            f"(listening on 0.0.0.0:{self.port})")
 
     def _handler_factory(self):
         node = self
 
         class Handler(BaseHTTPRequestHandler):
+            def _send(self, status, body, content_type="text/plain; charset=utf-8"):
+                self.send_response(status)
+                self.send_header("Content-Type", content_type)
+                self.send_header("Content-Length", str(len(body)))
+                self.send_header("Cache-Control", "no-store")
+                self.send_header("Access-Control-Allow-Origin", "*")
+                self.end_headers()
+                self.wfile.write(body)
+
+            def _send_file(self, directory, name, content_type):
+                try:
+                    body = (directory / name).read_bytes()
+                except OSError:
+                    self._send(404, b"not found")
+                    return
+                self._send(200, body, content_type)
+
             def do_GET(self):
-                if self.path == "/":
-                    body = HTML_PAGE.encode("utf-8")
-                    self.send_response(200)
-                    self.send_header("Content-Type", "text/html; charset=utf-8")
-                    self.send_header("Content-Length", str(len(body)))
-                    self.end_headers()
-                    self.wfile.write(body)
-                elif self.path == "/map.json":
+                path = self.path.split("?", 1)[0]
+
+                if path in WEB_FILES:
+                    name, content_type = WEB_FILES[path]
+                    self._send_file(WEB_DIR, name, content_type)
+                elif path == "/map.json":
                     with node._lock:
                         data = node._map
                     if data is None:
-                        self.send_response(404)
-                        self.end_headers()
+                        self._send(404, b"no map yet")
                         return
-                    body = json.dumps(data).encode("utf-8")
-                    self.send_response(200)
-                    self.send_header("Content-Type", "application/json")
-                    self.send_header("Content-Length", str(len(body)))
-                    self.send_header("Access-Control-Allow-Origin", "*")
-                    self.end_headers()
-                    self.wfile.write(body)
-                elif self.path == "/path.json":
+                    self._send(200, json.dumps(data).encode("utf-8"),
+                               "application/json")
+                elif path == "/path.json":
                     with node._lock:
                         data = node._path
                     if data is None:
                         data = {"points": []}
-                    body = json.dumps(data).encode("utf-8")
-                    self.send_response(200)
-                    self.send_header("Content-Type", "application/json")
-                    self.send_header("Content-Length", str(len(body)))
-                    self.send_header("Access-Control-Allow-Origin", "*")
-                    self.end_headers()
-                    self.wfile.write(body)
+                    self._send(200, json.dumps(data).encode("utf-8"),
+                               "application/json")
+                elif path == "/toys.json":
+                    with node._lock:
+                        data = node._toys
+                    if data is None:
+                        data = {"toys": []}
+                    self._send(200, json.dumps(data).encode("utf-8"),
+                               "application/json")
+                elif path.startswith("/static/"):
+                    name = path[len("/static/"):]
+                    content_type = STATIC_FILES.get(name)
+                    if content_type is None:
+                        self._send(404, b"not found")
+                        return
+                    self._send_file(STATIC_DIR, name, content_type)
                 else:
-                    self.send_response(404)
-                    self.end_headers()
+                    self._send(404, b"not found")
 
             def log_message(self, *args):
                 pass
@@ -229,6 +191,13 @@ class MapWebServer(Node):
         with self._lock:
             self._path = {"points": pts}
 
+    def on_toys(self, msg):
+        toys = []
+        for pose in msg.poses:
+            toys.append({"x": pose.position.x, "y": pose.position.y})
+        with self._lock:
+            self._toys = {"toys": toys}
+
     def destroy_node(self):
         try:
             self.httpd.shutdown()
@@ -238,7 +207,7 @@ class MapWebServer(Node):
 
 
 def main(args=None):
-    rclpy.init()
+    rclpy.init(args=args)
     node = MapWebServer()
     try:
         rclpy.spin(node)

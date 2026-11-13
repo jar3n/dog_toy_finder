@@ -1,8 +1,18 @@
 """Feedback motion primitives shared by test scripts and the ROSA agent.
 
 The Mover subscribes to the fused pose on /odometry/filtered and publishes
-Twist commands on /cmd_vel. Every move is closed-loop on the odometry estimate:
-the robot stops when the estimate says the requested distance or angle is done.
+Twist commands on /cmd_vel_auto. The cmd_vel_mux node forwards one source at a
+time to the Pico on /cmd_vel, so manual drive can take exclusive control.
+Every move is closed-loop on the odometry estimate: the robot stops when the
+estimate says the requested distance or angle is done.
+
+The Mover also subscribes to the Pico IR sensor on /ir_obstacle/detected. The
+Pico runs a local reflex failsafe: it brakes and blocks forward/turn commands
+while an obstacle is within range, allowing only stepped reverse. Because the
+reflex and this topic share the same debounced sensor, ROS knows the failsafe
+engaged when /ir_obstacle/detected is true during a move. Forward moves and
+turns abort promptly in that case (instead of driving against the brake until
+the move deadline), and ``failsafe_hit()`` reports that it happened.
 """
 
 import math
@@ -14,11 +24,16 @@ from geometry_msgs.msg import Twist
 from nav_msgs.msg import Odometry
 from rclpy.node import Node
 from rclpy.qos import qos_profile_sensor_data
+from std_msgs.msg import Bool
 
 from .transforms import distance_and_bearing, wrap_angle
 
-CMD_TOPIC = "/cmd_vel"
+# Autonomous commands go to the mux input, never straight to the Pico.
+# cmd_vel_mux owns /cmd_vel so a manual driver can override without two
+# publishers fighting over the motors.
+CMD_TOPIC = "/cmd_vel_auto"
 FEEDBACK_TOPIC = "/odometry/filtered"
+IR_TOPIC = "/ir_obstacle/detected"
 
 MAX_SPEED = 0.15          # m/s
 MIN_SPEED = 0.05          # m/s, slow enough to stop accurately
@@ -58,13 +73,20 @@ class Mover(Node):
         cmd_topic: str = CMD_TOPIC,
         node_name: str = "mover",
         feedback_topic: str = FEEDBACK_TOPIC,
+        ir_topic: str = IR_TOPIC,
     ):
         super().__init__(node_name)
         self.lock = threading.Lock()
         self.feedback_topic = feedback_topic
+        self.ir_topic = ir_topic
         self.coast_time = COAST_TIME
         self.rates = (0.0, 0.0)
         self.poses = {"odom": None, "wheel": None}
+        # Latest Pico IR state and whether the failsafe interrupted a move.
+        # False until the first /ir_obstacle/detected arrives, so a missing
+        # sensor degrades to the old behaviour instead of blocking every move.
+        self._obstacle_ahead = False
+        self._failsafe_hit = False
 
         self.cmd = self.create_publisher(Twist, cmd_topic, 10)
         self.create_subscription(
@@ -72,6 +94,9 @@ class Mover(Node):
         )
         self.create_subscription(
             Odometry, "/wheel/odom", self._on_wheel_odom, qos_profile_sensor_data
+        )
+        self.create_subscription(
+            Bool, ir_topic, self._on_ir, qos_profile_sensor_data
         )
 
     def _store_pose(self, key: str, pose) -> None:
@@ -92,6 +117,36 @@ class Mover(Node):
     def _on_wheel_odom(self, msg: Odometry) -> None:
         """Store the wheel-only pose for comparison."""
         self._store_pose("wheel", msg.pose.pose)
+
+    def _on_ir(self, msg: Bool) -> None:
+        """Store the Pico IR obstacle state (the failsafe signal)."""
+        with self.lock:
+            self._obstacle_ahead = bool(msg.data)
+
+    def obstacle_ahead(self) -> bool:
+        """Return the latest IR obstacle state from the Pico, or False."""
+        with self.lock:
+            return self._obstacle_ahead
+
+    def failsafe_hit(self) -> bool:
+        """Return true when the Pico failsafe interrupted the last move."""
+        with self.lock:
+            return self._failsafe_hit
+
+    def clear_failsafe(self) -> None:
+        """Forget that the failsafe hit; called at the start of every move."""
+        with self.lock:
+            self._failsafe_hit = False
+
+    def _note_failsafe(self, what: str) -> None:
+        """Latch the failsafe flag and warn, so ROS knows the Pico stopped us."""
+        with self.lock:
+            self._failsafe_hit = True
+        self.get_logger().warn(
+            "Pico failsafe: IR obstacle ahead during %s; move aborted. "
+            "Driver must reverse in small steps or wait for the path to clear."
+            % what
+        )
 
     def pose(self, key: str = "odom"):
         """Return (x, y, theta) for a pose key, or None when not received yet."""
@@ -129,7 +184,13 @@ class Mover(Node):
         return max(0.0, direction * rate) * self.coast_time
 
     def straight(self, distance: float) -> None:
-        """Drive forward (positive) or backward (negative) in metres."""
+        """Drive forward (positive) or backward (negative) in metres.
+
+        Forward moves abort as soon as the Pico IR failsafe reports an
+        obstacle ahead. Backward moves do not abort on the IR signal: the Pico
+        allows stepped reverse, so the move can still make progress.
+        """
+        self.clear_failsafe()
         start = self.pose()
         if start is None:
             return
@@ -137,6 +198,9 @@ class Mover(Node):
         sign = 1.0 if distance >= 0.0 else -1.0
         deadline = time.time() + abs(distance) / MIN_SPEED * 1.5 + 5.0
         while time.time() < deadline:
+            if sign > 0.0 and self.obstacle_ahead():
+                self._note_failsafe("forward straight")
+                break
             x, y, theta = self.pose()
             along = (x - x0) * math.cos(theta0) + (y - y0) * math.sin(theta0)
             remaining = abs(distance) - sign * along
@@ -149,13 +213,23 @@ class Mover(Node):
         self.stop()
 
     def turn(self, angle: float) -> None:
-        """Turn in place by angle radians (positive = left / counter-clockwise)."""
+        """Turn in place by angle radians (positive = left / counter-clockwise).
+
+        Turns abort as soon as the Pico IR failsafe reports an obstacle
+        ahead: the Pico blocks turn-in-place while blocked (except during the
+        pause between reverse steps), so continuing would only drive against
+        the brake until the deadline.
+        """
+        self.clear_failsafe()
         start = self.pose()
         if start is None:
             return
         target = wrap_angle(start[2] + angle)
         deadline = time.time() + abs(angle) / MIN_TURN * 1.5 + 5.0
         while time.time() < deadline:
+            if self.obstacle_ahead():
+                self._note_failsafe("turn")
+                break
             error = wrap_angle(target - self.pose()[2])
             if abs(error) <= ANGLE_TOL + self.lead(1, math.copysign(1.0, error)):
                 break
@@ -168,8 +242,11 @@ class Mover(Node):
 
     def goto(self, goal_x: float, goal_y: float, tolerance: float = 0.05) -> None:
         """Drive to a world-frame point, turning first and correcting on the way."""
+        self.clear_failsafe()
         deadline = time.time() + 30.0
         while time.time() < deadline:
+            if self.failsafe_hit():
+                break
             pose = self.pose()
             if pose is None:
                 return
@@ -177,6 +254,8 @@ class Mover(Node):
             if distance <= tolerance:
                 break
             self.turn(wrap_angle(bearing))
+            if self.failsafe_hit():
+                break
             self.straight(distance)
         self.stop()
 

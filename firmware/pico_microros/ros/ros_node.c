@@ -10,6 +10,7 @@
 #include "pico/time.h"
 
 #include "config/ros_config.h"
+#include "status_led/status_led.h"
 #include "udp_transport/picow_udp_transport.h"
 #include "wifi/wifi.h"
 #include "wifi/wifi_log.h"
@@ -100,6 +101,7 @@ bool ros_node_init(void) {
 
   bool agent_found = false;
   for (unsigned attempt = 1; attempt <= ROS_INIT_ATTEMPTS; ++attempt) {
+    status_led_task();
     wifi_log_printf(
       "ros: pinging agent udp://%s:%u (attempt %u/%u)\n",
       ROS_AGENT_IP,
@@ -112,8 +114,17 @@ bool ros_node_init(void) {
       break;
     }
 
+    status_led_task();
     if (attempt < ROS_INIT_ATTEMPTS) {
-      sleep_ms(ROS_INIT_RETRY_DELAY_MS);
+      // Service the LED blink while waiting for the agent to come up, instead
+      // of a single blocking sleep.
+      uint32_t delay_ms = ROS_INIT_RETRY_DELAY_MS;
+      while (delay_ms > 0) {
+        uint32_t step = delay_ms > 50 ? 50 : delay_ms;
+        status_led_task();
+        sleep_ms(step);
+        delay_ms -= step;
+      }
     }
   }
 

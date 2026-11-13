@@ -1,14 +1,10 @@
 #pragma once
 
-// Copy this file to config/ros_config.h and set your micro-ROS agent address.
-// ros_config.h is ignored by git.
-//
-// The build creates ros_config.h from this file automatically when it is
-// missing or empty.
+// micro-ROS agent address and node settings. Edit this file in place.
 
 // IPv4 address of the computer running the micro-ROS agent. The Pico must be
 // able to reach it over Wi-Fi.
-#define ROS_AGENT_IP "192.168.1.100"
+#define ROS_AGENT_IP "192.168.4.31"
 #define ROS_AGENT_PORT 8888
 
 // micro-ROS node name that shows up in the ROS 2 graph.
@@ -22,9 +18,9 @@
 
 // How many times to probe for the agent before giving up, and how long to wait
 // between probes. Each probe blocks for at most ROS_AGENT_PING_TIMEOUT_MS.
-#define ROS_INIT_ATTEMPTS 3
+#define ROS_INIT_ATTEMPTS 30
 #define ROS_INIT_RETRY_DELAY_MS 1000
-#define ROS_AGENT_PING_TIMEOUT_MS 100
+#define ROS_AGENT_PING_TIMEOUT_MS 500
 
 // Time sync with the agent. When it fails, log stamps fall back to time since
 // boot. Set to 0 to skip the sync attempt.

@@ -40,6 +40,8 @@ def build_agent(model: str = None) -> ROSA:
             tools.drive_distance,
             tools.turn,
             tools.go_to,
+            tools.run_search,
+            tools.check_failsafe,
             tools.stop_robot,
             vision_tools.describe_scene,
             vision_tools.find_toy,

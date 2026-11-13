@@ -205,6 +205,22 @@ bool bno055_set_operation_mode(bno055_operation_mode_t mode) {
  * at the first failed write or read.
  */
 bool bno055_init(void) {
+  // Robust presence check: a real BNO055 must answer its chip ID repeatedly.
+  // A floating/unconnected I2C bus (or a parasitically powered unpowered
+  // device) can occasionally return a spurious 0xA0; require several
+  // consecutive matching reads before trusting the bus.
+  bool present = false;
+  for (unsigned probe = 0; probe < 5; ++probe) {
+    if (bno055_is_connected()) {
+      present = true;
+      break;
+    }
+    sleep_ms(20);
+  }
+  if (!present) {
+    return false;
+  }
+
   if (!bno055_reset()) {
     return false;
   }
@@ -233,8 +249,11 @@ bool bno055_init(void) {
   }
 
   uint8_t mode = 0;
+  uint8_t chip_id = 0;
   return read_registers(BNO055_REG_OPERATION_MODE, &mode, 1) &&
-         mode == (uint8_t) BNO055_MODE_IMU;
+         mode == (uint8_t) BNO055_MODE_IMU &&
+         read_registers(BNO055_REG_CHIP_ID, &chip_id, 1) &&
+         chip_id == BNO055_CHIP_ID;
 }
 
 /**

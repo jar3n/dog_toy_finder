@@ -26,17 +26,15 @@ Encoder pins live in `../config/pinout.h`; geometry and ROS settings live in
 |---|---|---|
 | VCC | 3V3 | encoder is rated 3.3-5 V |
 | GND | GND | common ground with the motor driver |
-| A | GPIO6 (left), GPIO8 (right) | hall channel A |
-| B | GPIO7 (left), GPIO9 (right) | hall channel B |
+| A | GPIO7 (left), GPIO9 (right) | hall channel A |
+| B | GPIO6 (left), GPIO8 (right) | hall channel B |
 | Motor + / - | motor driver | never connect the motor to the Pico |
 
 This is physical pins 9-12 on the Pico 2 W: left A/B on pins 9/10 and right A/B
 on pins 11/12.
 
 The hall outputs are open-drain, so the driver enables the Pico's internal
-pull-ups on all four channels. No external resistors are needed. The four pins
-do not overlap the BNO055 (`GPIO14/15`), the motor controller (`GPIO16-22`), or
-the wireless chip (`GPIO23/24/25/29`).
+pull-ups on all four channels. No external resistors are needed. The four pins support edge interrupts.
 
 ```c
 #define ENCODER_LEFT_PIN_A 6
@@ -65,8 +63,7 @@ drives forward. Match the sign convention used by the URDF/joint names.
 
 ## Configuration
 
-`config/encoder_config.h` is git-ignored and created from
-`config/encoder_config.example.h` by the build when missing. Important values:
+`config/encoder_config.h` is committed; edit it in place. Important values:
 
 | Setting | Default | Meaning |
 |---|---|---|
@@ -117,9 +114,9 @@ ros2 topic hz /joint_states
 ros2 topic echo /joint_states
 ```
 
-The micro-ROS library is built with `RMW_UXRCE_MAX_PUBLISHERS=3`. Logs, the
-IMU, and this encoder publisher use all three slots. Increasing that limit
-requires rebuilding `libmicroros.a` with the Docker builder.
+The micro-ROS library is built with `RMW_UXRCE_MAX_PUBLISHERS=4`. Logs, the
+IMU, this encoder publisher, and the IR sensor use the four slots. Increasing
+that limit requires rebuilding `libmicroros.a` with the Docker builder.
 
 ## Usage
 
