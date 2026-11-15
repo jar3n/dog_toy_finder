@@ -103,7 +103,7 @@ def tidy(answer):
 class VisionNode(Node):
     def __init__(self):
         super().__init__("vision_node")
-        self.declare_parameter("model", os.environ.get("VISION_MODEL", "gemma3"))
+        self.declare_parameter("model", os.environ.get("VISION_MODEL", "gemma4"))
         self.declare_parameter("models", "")
         self.declare_parameter("ollama_url", os.environ.get(
             "OLLAMA_URL", "http://localhost:11434"))

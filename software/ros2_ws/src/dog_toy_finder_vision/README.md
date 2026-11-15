@@ -33,7 +33,8 @@ rectification from `image_proc`, disparity and a coloured point cloud from
 ## Comparing LLMs
 
 The vision node accepts a comma-separated `models` parameter, e.g.
-`models:="gemma3,llava,moondream"`. It runs every model on the same photo and
+`models:="gemma4,minicpm-v4.5"` (use names from `ollama list`). It runs every
+model on the same photo and
 publishes a `/vision/result` whose `results` array contains one answer plus
 timing per model, so the models can be compared directly.
 
@@ -71,7 +72,7 @@ ros2 launch dog_toy_finder_vision stereo_vision.launch.py \
 
 # compare several VLMs on the same stereo pair
 ros2 launch dog_toy_finder_vision stereo_vision.launch.py \
-    models:="gemma3,llava,moondream"
+    models:="gemma4,minicpm-v4.5"
 
 # depth only, no VLM (useful to debug the stereo pipeline)
 ros2 launch dog_toy_finder_vision stereo_vision.launch.py vision:=false

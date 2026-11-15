@@ -22,7 +22,7 @@ runs, and the full dog-toy-finder stack.
 Run inside the ROS 2 container:
     ros2 launch dog_toy_finder_vision stereo_vision.launch.py
     ros2 launch dog_toy_finder_vision stereo_vision.launch.py \\
-        models:="gemma3,llava,moondream"
+        models:="gemma4,minicpm-v4.5"
     ros2 launch dog_toy_finder_vision stereo_vision.launch.py vision:=false
 
 The default capture size is 320x240. At 640x480 each colour frame is ~900 KB
@@ -208,10 +208,10 @@ def generate_launch_description():
                               description="Number of disparities to search (multiple of 16)"),
 
         # --- VLM ---
-        DeclareLaunchArgument("model", default_value="gemma3",
+        DeclareLaunchArgument("model", default_value="gemma4",
                               description="single VLM (used when `models` is empty)"),
         DeclareLaunchArgument("models", default_value="",
-                              description="comma list of VLMs to compare, e.g. gemma3,llava"),
+                              description="comma list of VLMs to compare, e.g. gemma4,minicpm-v4.5"),
         DeclareLaunchArgument("ollama_url", default_value="http://localhost:11434",
                               description="Ollama endpoint"),
 

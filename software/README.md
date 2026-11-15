@@ -7,12 +7,16 @@ convention of one folder per concern with its own README.
 ```text
 software/
   ros2_ws/src/
-    dog_toy_finder_bringup/    launch files, EKF config, robot geometry
-    dog_toy_finder_odometry/   /joint_states -> /wheel/odom
-    dog_toy_finder_motion/     closed-loop moves, cmd_vel mux, manual keyboard drive
-    dog_toy_finder_diagnostics/ sensor heartbeat health monitor (logged failures)
-  rosa_agent/                  LLM agent, prompts, and agent-facing tools
-  pico_ros2_led/               early LED connection test
+    dog_toy_finder_bringup/     launch files, EKF config, robot geometry
+    dog_toy_finder_odometry/    /joint_states -> /wheel/odom
+    dog_toy_finder_motion/      closed-loop moves, cmd_vel mux, manual keyboard drive
+    dog_toy_finder_vision/      stereo capture, disparity/point cloud, VLM
+    dog_toy_finder_mapping/     occupancy map, toy markers, browser map server
+    dog_toy_finder_planning/    autonomous search planner
+    dog_toy_finder_diagnostics/ sensor and camera heartbeat monitor
+    dog_toy_finder_data/        dataset collection and summary
+    dog_toy_finder_experiments/ scripted search harness and evaluation
+  rosa_agent/                   LLM agent, prompts, and agent-facing tools
 ```
 
 ## Data flow
@@ -22,6 +26,7 @@ Pico firmware                         Computer
 -------------                         --------
 /joint_states  --Wi-Fi/UDP-->  micro-ROS agent
 /imu/data      --Wi-Fi/UDP-->       |
+/ir_obstacle/detected --Wi-Fi/UDP-->|
                                     v
                        dog_toy_finder_odometry -> /wheel/odom
                                     |
@@ -32,16 +37,22 @@ Pico firmware                         Computer
         ROSA / search -> /cmd_vel_auto --\
                                         >-- cmd_vel_mux -> /cmd_vel -> Pico
         keyboard drive -> /cmd_vel_manual --/
+
+ESP32-CAM left/right --HTTP--> stereo_camera_node -> image_proc
+                                    -> stereo_image_proc -> /stereo/disparity, /stereo/points2
+                                    -> vision_node -> /vision/result
+                                    -> occupancy_mapper -> /map, /detected_toys
+                                    -> map_webserver -> browser
 ```
 
-The simulation is expected to expose the same topics later, so the ROS 2 nodes
-and ROSA tools work unchanged against Gazebo.
+The vision node is request-driven: planners and ROSA publish a JSON request on
+`/vision/ask` and read the matching answer on `/vision/result`.
 
 ## Quick start
 
-On the host, from the repository root, build the images once and start the
-micro-ROS agent. The agent is its own container because the ROS 2 image does
-not ship the `micro_ros_agent` package.
+On the host, from the repository root, build the image once and start the
+micro-ROS agent. The agent is its own container because the ROS 2 image does not
+ship the `micro_ros_agent` package.
 
 ```bash
 docker compose -f docker/docker-compose.yml build
@@ -56,27 +67,33 @@ cd /workspace/software/ros2_ws
 colcon build --symlink-install
 source install/setup.bash
 
-# odometry + EKF
-ros2 launch dog_toy_finder_bringup robot.launch.py
+# whole stack, one pane per component:
+/workspace/scripts/launch_all.sh
+# plus keyboard manual drive:
+/workspace/scripts/launch_all.sh --manual
 ```
 
-In another shell in the same container:
+Or run components individually:
 
 ```bash
-source /workspace/software/ros2_ws/install/setup.bash
+# odometry + EKF + cmd_vel_mux + health monitor
+ros2 launch dog_toy_finder_bringup robot.launch.py
 
-# test a move
+# cameras + stereo depth + VLM
+ros2 launch dog_toy_finder_vision stereo_vision.launch.py
+
+# occupancy map and browser viewer
+ros2 launch dog_toy_finder_mapping mapping.launch.py
+ros2 run dog_toy_finder_mapping map_webserver
+
+# test a move, drive with the keyboard, or use natural language
 ros2 run dog_toy_finder_motion mover_test straight 0.5
-
-# drive with the keyboard (W/S forward/backward, A/D turn)
 ros2 run dog_toy_finder_motion manual_drive
-
-# natural-language control
-cd /workspace/software/rosa_agent
-python3 -m rosa_agent
+cd /workspace/software/rosa_agent && python3 -m rosa_agent
 ```
 
-Stop the agent with `docker compose -f docker/docker-compose.yml stop micro_ros_agent`.
+Stop the agent with
+`docker compose -f docker/docker-compose.yml stop micro_ros_agent`.
 
 ## QoS compatibility
 
@@ -96,14 +113,11 @@ If you change a firmware publisher to reliable, the existing subscribers still
 work. If you change a subscriber to reliable, the matching firmware publisher
 must become reliable too, or the two will not connect.
 
-## What is not here yet
+## Not implemented
 
-- Vision and the arm: the ESP32-CAM firmware and arm control are not written
-  yet, so ROSA has no seeing or grasping tools.
-- Gazebo simulation: add a `dog_toy_finder_sim` package that publishes the same
-  topics and accepts `/cmd_vel`.
-- Robot description: `robot_state_publisher` and a URDF are needed to complete
-  the TF tree (`base_link -> left_wheel_joint`, `right_wheel_joint`).
+- The robot has no arm/gripper, so ROSA has no grasping tool.
+- There is no URDF, `robot_state_publisher`, or Gazebo simulation package; TF
+  currently covers `odom -> base_link`, not the individual wheel joints.
 
 ## Related firmware
 

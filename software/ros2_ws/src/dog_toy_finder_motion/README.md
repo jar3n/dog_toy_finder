@@ -57,7 +57,7 @@ does not block moves.
 | `stop()` | publish zero Twist commands |
 
 `COAST_TIME` compensates for Wi-Fi and motor spin-down by stopping slightly
-early. Tune it after measuring the real robot; Gazebo would use zero.
+early. Tune it after measuring the real robot.
 
 ## Test moves
 

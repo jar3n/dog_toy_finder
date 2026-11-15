@@ -80,7 +80,7 @@ back to tmux:
 # or, already inside the ros2 container:
 ./scripts/launch_all.sh
 
-# start the stack and open keyboard manual drive in the same tmux session:
+# start the stack and open keyboard manual drive in the same terminal session:
 ./scripts/launch_all.sh --manual
 ```
 
@@ -91,7 +91,7 @@ manual drive speeds, and the ROSA environment) live in
 each value to its launch file. Edit the file for a run, pass a different file
 as the first argument, or override one value from the environment
 (`WEBMAP_PORT=9000 ./scripts/launch_all.sh`). `--manual` adds and selects a
-`manual` tmux window without editing the config; setting `MANUAL_DRIVE=true`
+`manual` pane/window without editing the config; setting `MANUAL_DRIVE=true`
 in the config does the same for every launch.
 `./scripts/launch_all.sh --dry-run` prints the exact commands without starting
 anything. `--konsole` / `--tmux` force the launcher; `KONSOLE=true` in the
@@ -111,7 +111,7 @@ EOF
 Stop everything by pressing Ctrl+C in the `launch_all.sh` terminal; that
 tears down the whole stack (tmux/Konsole panes and docker containers).
 
-On the host:
+Alternatively, start the pieces by hand. On the host:
 
 ```bash
 cd docker
@@ -133,7 +133,7 @@ ros2 launch dog_toy_finder_bringup robot.launch.py
 ros2 launch dog_toy_finder_vision stereo_vision.launch.py \
     left_url:=http://esp32cam-left.local/capture \
     right_url:=http://esp32cam-right.local/capture \
-    models:="gemma3,llava"   # or a single model
+    models:="gemma4"   # or a comma-separated list to compare
 ```
 
 Check data flow:
@@ -162,12 +162,15 @@ already open:
 ./scripts/launch_all.sh --manual
 ```
 
-That starts every component and creates a `manual` tmux window (the
-keyboard driver, terminal in cbreak mode) plus a `shell` window with a normal
-terminal. The shell window is selected on attach so tmux/ROS commands can be
-typed freely; switch to `manual` with `Ctrl-b m` (or `Ctrl-b` then the window
-number / `w`) to drive, and `Q` in the manual window to stop driving. The
-`b` and `s` bindings jump to the bringup and shell windows.
+That starts every component and creates a `manual` pane/window (the keyboard
+driver, terminal in cbreak mode) plus a `shell` pane/window with a normal
+terminal. The shell is selected on attach so ROS commands can be typed freely.
+Switch to `manual` to drive, then press `Q` there to stop driving.
+
+- **tmux:** `Ctrl-b m` selects `manual`; `Ctrl-b s` selects `shell`,
+  `Ctrl-b b` selects `bringup`, and `Ctrl-b w` lists windows.
+- **Konsole:** use the split-view focus shortcut (Shift+Right / Shift+Left by
+  default) to move between the `shell` and `manual` panes.
 
 With only the bringup stack running (micro-ROS agent + `robot.launch.py`), the
 manual node can also be started on its own:
@@ -236,9 +239,9 @@ source scripts/full_system_eval.conf
 ROSA can command both workflows with its `run_search` tool: mode `one` runs
 the single-toy evaluation search (stops when the toy is found) and mode `all`
 runs the find-all demo search. The vision node must be running first
-(sections 4/stereo + vision), otherwise each vision check times out. The
-search writes `/tmp/rosa_search_<timestamp>.csv` and reports every toy found
-with its position.
+(see section 4), otherwise each vision check times out. The search writes
+`/tmp/rosa_search_<timestamp>.csv` and reports every toy found with its
+position.
 
 ```bash
 cd /workspace/software/rosa_agent
@@ -253,9 +256,9 @@ stop when you find it") or a demo find-all ("Find every red ball in the
 area"); the agent calls `run_search` with the matching mode. Approval gates
 the whole search, and Ctrl-C stops it.
 
-Or drive a search with the test harness (uses ROSA tools under the hood is not
-automatic; use the autonomous node for deterministic runs, or drive manually
-and log with the data collector).
+For repeatable runs use the autonomous node (5.2). The toy-search harness
+(5.3) runs the same search loop through the experiments launch file, and the
+data collector (5.4) records poses and images for offline analysis.
 
 ### 5.2 Autonomous (deterministic) planner
 
@@ -271,7 +274,7 @@ ros2 launch dog_toy_finder_planning autonomous_search.launch.py \
     escape_distance:=$AUTO_ESCAPE_DISTANCE
 ```
 
-### 5.3 LLM-driven search via toy_search harness (baseline)
+### 5.3 Toy-search harness (baseline)
 
 ```bash
 ros2 launch dog_toy_finder_experiments toy_search.launch.py \
@@ -328,7 +331,7 @@ To run the test again from the same starting spot:
    `bringup`, `mapping`, and `webmap` panes). This zeroes the EKF/odometry
    frame at the new pose and clears the occupancy map and toy markers.
    Without this, poses and the map keep accumulating from the previous run.
-   The stereo and vision panes can stay up.
+   The vision pane can stay up.
 3. Give each run its own `run_id` and `output_csv` in
    `scripts/full_system_eval.conf` — the search nodes overwrite the CSV file
    on every run, so reusing a path destroys the previous run's log.
@@ -345,7 +348,7 @@ ros2 run dog_toy_finder_data dataset_summary "$COLLECT_OUTPUT_DIR/$COLLECT_RUN_I
 Metrics reported: success, time/steps to find, path length, vision call count
 and average latency, target-visible rate, final pose.
 
-## 6.5 Viewing the map
+## 8. Viewing the map
 
 The occupancy mapper publishes `/map` (`nav_msgs/OccupancyGrid`),
 `/tracked_path` (`nav_msgs/Path`), and `/detected_toys`
@@ -388,7 +391,7 @@ ros2 launch dog_toy_finder_mapping mapping.launch.py \
     toy_occupancy_radius:=2 vision_timeout:=3.0
 ```
 
-## 7. Unit tests
+## 9. Unit tests
 
 ```bash
 cd /workspace/software/rosa_agent && python3 -m unittest discover -s tests

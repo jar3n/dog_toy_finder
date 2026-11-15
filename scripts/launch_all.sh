@@ -1,15 +1,16 @@
 #!/usr/bin/env bash
-# Launch the whole Dog Toy Finder stack in separate tmux panes.
+# Launch the whole Dog Toy Finder stack in split panes (Konsole) or tmux.
 #
 # Usage:
 #   ./scripts/launch_all.sh [config-file] [--manual] [--dry-run]
 #
 # On the host this starts the micro-ROS agent container and one ros2 container
-# per long-running component. Inside the container it runs everything in tmux
-# panes sharing the same ROS 2 context. With --dry-run it prints the commands
-# instead of starting tmux (useful to check the configuration).
+# per long-running component. Inside the container it runs everything in
+# Konsole split panes when available (otherwise tmux), sharing the same ROS 2
+# context. With --dry-run it prints the commands instead of starting a
+# terminal (useful to check the configuration).
 #
-# --manual adds an extra tmux window with the keyboard manual drive node and
+# --manual adds an extra pane/window with the keyboard manual drive node and
 # selects it, so the same command both starts the stack and lets you drive:
 #   ./scripts/launch_all.sh --manual
 # It can also be enabled permanently with MANUAL_DRIVE=true in the config.
