@@ -168,3 +168,8 @@ cd /workspace/software/ros2_ws/src/dog_toy_finder_motion && python3 -m unittest 
 
 See [docs/setup/full_system_test.md](docs/setup/full_system_test.md) for flashing
 the Pico (UF2) and both ESP32-CAM eyes, plus Wi-Fi configuration.
+
+
+## AI Disclosure
+
+This code was written using freely available models in OpenCode and the Zed Editor. Models used include Big Pickle, Beam Free, Flint 40B Free, and Crouton Alpha Free.
