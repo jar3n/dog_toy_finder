@@ -77,6 +77,19 @@ ros2 launch dog_toy_finder_vision stereo_vision.launch.py \
 ros2 launch dog_toy_finder_vision stereo_vision.launch.py vision:=false
 ```
 
+## Test without ROSA
+
+With the launch above running, ask the VLM directly from another shell in the
+same container (same `ROS_DOMAIN_ID`):
+
+```bash
+python3 /workspace/scripts/vision_test.py "red ball"
+python3 /workspace/scripts/vision_test.py ""   # describe the scene
+```
+
+It waits for `/vision/ask` to be discovered, publishes one request, and prints
+the `/vision/result` JSON.
+
 The default capture size is 320x240 (`fx=fy=250`, `cx=160`, `cy=120`). The
 intrinsics and `baseline` are placeholders until the cameras are calibrated; run
 a stereo calibration (e.g. with `camera_calibration` or OpenCV) and pass the

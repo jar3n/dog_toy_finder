@@ -14,7 +14,6 @@ import time
 
 import rclpy
 from rclpy.node import Node
-from rclpy.qos import qos_profile_sensor_data
 from std_msgs.msg import String
 
 
@@ -23,10 +22,8 @@ class VisionTester(Node):
         super().__init__("vision_test")
         self.target = target
         self.result = None
-        self.event = __import__("threading").Event()
         self.pub = self.create_publisher(String, "/vision/ask", 10)
-        self.create_subscription(String, "/vision/result", self._on_result,
-                                 qos_profile_sensor_data)
+        self.create_subscription(String, "/vision/result", self._on_result, 10)
 
     def _on_result(self, msg):
         try:
@@ -35,29 +32,38 @@ class VisionTester(Node):
             return
         if data.get("target", "") == self.target:
             self.result = data
-            self.event.set()
 
-    def ask(self, timeout=60.0):
+    def ask(self, timeout=120.0):
         req_id = str(int(time.time() * 1000))
-        self.pub.publish(String(data=json.dumps({"id": req_id, "target": self.target})))
-        if not self.event.wait(timeout=timeout):
-            return None
-        return self.result
+        payload = json.dumps({"id": req_id, "target": self.target})
+        deadline = time.time() + timeout
+        last_send = 0.0
+        while time.time() < deadline and rclpy.ok():
+            if self.result is not None:
+                return self.result
+            # Wait for discovery before the first publish: a request sent
+            # before the vision node has matched the publisher is dropped.
+            # Resend sparingly in case the first one was lost.
+            if (self.pub.get_subscription_count() > 0
+                    and time.time() - last_send >= 20.0):
+                self.pub.publish(String(data=payload))
+                if last_send == 0.0:
+                    print("vision_node found; waiting for /vision/result ...",
+                          file=sys.stderr, flush=True)
+                last_send = time.time()
+            rclpy.spin_once(self, timeout_sec=0.2)
+        return None
 
 
 def main():
     target = sys.argv[1] if len(sys.argv) > 1 else "red ball"
     rclpy.init()
     node = VisionTester(target)
-    import threading
-    ex = rclpy.executors.SingleThreadedExecutor()
-    ex.add_node(node)
-    t = threading.Thread(target=ex.spin, daemon=True)
-    t.start()
-    result = node.ask()
-    ex.shutdown()
-    node.destroy_node()
-    rclpy.shutdown()
+    try:
+        result = node.ask()
+    finally:
+        node.destroy_node()
+        rclpy.shutdown()
     if result is None:
         print("TIMEOUT: no /vision/result received", file=sys.stderr)
         sys.exit(1)
