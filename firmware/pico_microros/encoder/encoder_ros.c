@@ -117,7 +117,10 @@ static bool init_hardware(void) {
       ENCODER_LEFT_PIN_A == ENCODER_RIGHT_PIN_B ||
       ENCODER_LEFT_PIN_B == ENCODER_RIGHT_PIN_A ||
       ENCODER_LEFT_PIN_B == ENCODER_RIGHT_PIN_B) {
-    wifi_log_printf("encoder: encoder pins are not distinct\n");
+    wifi_log_printf(
+      "encoder: pins are not distinct (left A=%d B=%d, right A=%d B=%d)\n",
+      ENCODER_LEFT_PIN_A, ENCODER_LEFT_PIN_B,
+      ENCODER_RIGHT_PIN_A, ENCODER_RIGHT_PIN_B);
     return false;
   }
 
