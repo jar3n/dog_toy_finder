@@ -1,10 +1,16 @@
-"""Stereo camera node: two ESP32-CAM eyes -> /stereo/{left,right}/image_raw.
+"""Stereo camera node: two ESP32-CAM eyes -> /stereo/{left,right}/image_*.
 
 Each eye is an ESP32-CAM photo server (firmware/esp_cam). This node downloads
 a JPEG from each eye on a timer, decodes it with Pillow (no OpenCV needed on
-the Python side), and publishes a raw sensor_msgs/Image plus a CameraInfo
-carrying the intrinsics and the stereo baseline. The C++ stereo_image_proc
-nodes then turn those into disparity and a point cloud.
+the Python side), and publishes for every eye:
+
+  * image_raw  sensor_msgs/Image  rgb8   -- colour frames for the VLM
+  * image_mono sensor_msgs/Image  mono8  -- greyscale frames for rectification
+  * camera_info sensor_msgs/CameraInfo   -- intrinsics + stereo baseline
+
+Both image topics carry the same stamp, so image_proc rectification pairs the
+mono frame with its camera_info immediately. The C++ stereo_image_proc nodes
+then turn the rectified pair into disparity and a point cloud.
 
 Parameters
 ----------
@@ -24,7 +30,6 @@ import urllib.request
 import rclpy
 from PIL import Image as PilImage
 from rclpy.node import Node
-from rclpy.qos import qos_profile_sensor_data
 from sensor_msgs.msg import CameraInfo, Image
 
 
@@ -38,12 +43,12 @@ class StereoCameraNode(Node):
         self.declare_parameter("left_url", "http://esp32cam-left.local/capture")
         self.declare_parameter("right_url", "http://esp32cam-right.local/capture")
         self.declare_parameter("rate", 2.0)
-        self.declare_parameter("width", 640)
-        self.declare_parameter("height", 480)
-        self.declare_parameter("fx", 500.0)
-        self.declare_parameter("fy", 500.0)
-        self.declare_parameter("cx", 320.0)
-        self.declare_parameter("cy", 240.0)
+        self.declare_parameter("width", 320)
+        self.declare_parameter("height", 240)
+        self.declare_parameter("fx", 250.0)
+        self.declare_parameter("fy", 250.0)
+        self.declare_parameter("cx", 160.0)
+        self.declare_parameter("cy", 120.0)
         self.declare_parameter("baseline", 0.08)
         self.declare_parameter("left_frame", "left_camera_optical_frame")
         self.declare_parameter("right_frame", "right_camera_optical_frame")
@@ -61,16 +66,17 @@ class StereoCameraNode(Node):
         self.left_frame = str(param("left_frame"))
         self.right_frame = str(param("right_frame"))
 
-        self.left_pub = self.create_publisher(Image, "/stereo/left/image_raw",
-                                              qos_profile_sensor_data)
-        self.right_pub = self.create_publisher(Image, "/stereo/right/image_raw",
-                                              qos_profile_sensor_data)
+        # Reliable QoS so image_proc (which subscribes with default/reliable
+        # QoS) actually receives the frames; best-effort subscribers can still
+        # receive from a reliable publisher.
+        self.left_pub = self.create_publisher(Image, "/stereo/left/image_raw", 10)
+        self.right_pub = self.create_publisher(Image, "/stereo/right/image_raw", 10)
+        self.left_mono_pub = self.create_publisher(Image, "/stereo/left/image_mono", 10)
+        self.right_mono_pub = self.create_publisher(Image, "/stereo/right/image_mono", 10)
         self.left_info_pub = self.create_publisher(CameraInfo,
-                                                  "/stereo/left/camera_info",
-                                                  qos_profile_sensor_data)
+                                                  "/stereo/left/camera_info", 10)
         self.right_info_pub = self.create_publisher(CameraInfo,
-                                                   "/stereo/right/camera_info",
-                                                   qos_profile_sensor_data)
+                                                   "/stereo/right/camera_info", 10)
 
         self.left_info = self._camera_info(self.left_frame, self.cx, self.cy, 0.0)
         self.right_info = self._camera_info(self.right_frame, self.cx, self.cy,
@@ -119,11 +125,12 @@ class StereoCameraNode(Node):
                 if image.size != (self.width, self.height):
                     image = image.resize((self.width, self.height))
                 raw = image.tobytes()
+                mono = image.convert("L").tobytes()
                 with self._lock:
                     if is_left:
-                        self._left_latest = (raw, self.get_clock().now().to_msg())
+                        self._left_latest = (raw, mono, self.get_clock().now().to_msg())
                     else:
-                        self._right_latest = (raw, self.get_clock().now().to_msg())
+                        self._right_latest = (raw, mono, self.get_clock().now().to_msg())
                 if self.failures:
                     self.get_logger().info("Camera reachable again")
                 self.failures = 0
@@ -141,31 +148,15 @@ class StereoCameraNode(Node):
             self._right_latest = None
         if left is None or right is None:
             return
-        left_raw, left_stamp = left
-        right_raw, right_stamp = right
+        left_raw, left_mono, left_stamp = left
+        right_raw, right_mono, _ = right
+        # One stamp for the pair keeps the rectifier and stereo sync happy even
+        # though the two HTTP fetches happened at slightly different times.
         stamp = left_stamp
-
-        left_msg = Image()
-        left_msg.header.stamp = stamp
-        left_msg.header.frame_id = self.left_frame
-        left_msg.height = self.height
-        left_msg.width = self.width
-        left_msg.encoding = "rgb8"
-        left_msg.is_bigendian = 0
-        left_msg.step = self.width * 3
-        left_msg.data = left_raw
-        self.left_pub.publish(left_msg)
-
-        right_msg = Image()
-        right_msg.header.stamp = stamp
-        right_msg.header.frame_id = self.right_frame
-        right_msg.height = self.height
-        right_msg.width = self.width
-        right_msg.encoding = "rgb8"
-        right_msg.is_bigendian = 0
-        right_msg.step = self.width * 3
-        right_msg.data = right_raw
-        self.right_pub.publish(right_msg)
+        self._publish_image(self.left_pub, self.left_frame, stamp, "rgb8", 3, left_raw)
+        self._publish_image(self.right_pub, self.right_frame, stamp, "rgb8", 3, right_raw)
+        self._publish_image(self.left_mono_pub, self.left_frame, stamp, "mono8", 1, left_mono)
+        self._publish_image(self.right_mono_pub, self.right_frame, stamp, "mono8", 1, right_mono)
 
         self.left_info.header.stamp = stamp
         self.right_info.header.stamp = stamp
@@ -175,6 +166,18 @@ class StereoCameraNode(Node):
         self.photos += 1
         if self.photos == 1:
             self.get_logger().info(f"First stereo pair published ({len(left_raw) // 1024} KB/eye)")
+
+    def _publish_image(self, publisher, frame_id, stamp, encoding, channels, data):
+        msg = Image()
+        msg.header.stamp = stamp
+        msg.header.frame_id = frame_id
+        msg.height = self.height
+        msg.width = self.width
+        msg.encoding = encoding
+        msg.is_bigendian = 0
+        msg.step = self.width * channels
+        msg.data = data
+        publisher.publish(msg)
 
 
 def main():

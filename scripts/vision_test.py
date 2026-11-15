@@ -2,8 +2,8 @@
 """Simple stereo-vision test (no ROSA, no motion).
 
 Publishes one /vision/ask request for a target and prints the /vision/result
-JSON. Run inside the ROS 2 container while stereo.launch.py + vision.launch.py
-are running:
+JSON. Run inside the ROS 2 container while stereo_vision.launch.py is
+running:
 
     python3 /workspace/scripts/vision_test.py "red ball"
     python3 /workspace/scripts/vision_test.py ""   # describe the scene

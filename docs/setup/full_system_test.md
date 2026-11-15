@@ -129,13 +129,10 @@ source install/setup.bash
 # Terminal A: robot stack (odometry + EKF)
 ros2 launch dog_toy_finder_bringup robot.launch.py
 
-# Terminal B: stereo vision (images + disparity + point cloud)
-ros2 launch dog_toy_finder_vision stereo.launch.py \
+# Terminal B: stereo vision + VLM (images, disparity, point cloud, /vision/ask)
+ros2 launch dog_toy_finder_vision stereo_vision.launch.py \
     left_url:=http://esp32cam-left.local/capture \
-    right_url:=http://esp32cam-right.local/capture
-
-# Terminal C: VLM vision (optional, for find_toy)
-ros2 launch dog_toy_finder_vision vision.launch.py \
+    right_url:=http://esp32cam-right.local/capture \
     models:="gemma3,llava"   # or a single model
 ```
 

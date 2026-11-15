@@ -91,10 +91,10 @@ Or run components individually:
 
 ```bash
 ros2 launch dog_toy_finder_bringup robot.launch.py
-ros2 launch dog_toy_finder_vision stereo.launch.py \
+ros2 launch dog_toy_finder_vision stereo_vision.launch.py \
     left_url:=http://esp32cam-left.local/capture \
-    right_url:=http://esp32cam-right.local/capture
-ros2 launch dog_toy_finder_vision vision.launch.py models:="gemma3,llava"
+    right_url:=http://esp32cam-right.local/capture \
+    models:="gemma3,llava"
 ros2 launch dog_toy_finder_mapping mapping.launch.py
 ros2 run dog_toy_finder_mapping map_webserver   # live map at http://<ip>:8765 (Save PNG button)
 cd /workspace/software/rosa_agent && python3 -m rosa_agent

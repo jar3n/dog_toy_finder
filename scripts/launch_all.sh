@@ -122,13 +122,11 @@ BRINGUP_CMD="$BRINGUP_CMD health_left_camera_timeout:=$HEALTH_LEFT_CAMERA_TIMEOU
 BRINGUP_CMD="$BRINGUP_CMD health_right_camera_timeout:=$HEALTH_RIGHT_CAMERA_TIMEOUT"
 BRINGUP_CMD="$BRINGUP_CMD health_odometry_timeout:=$HEALTH_ODOMETRY_TIMEOUT"
 
-STEREO_CMD="ros2 launch dog_toy_finder_vision stereo.launch.py"
-STEREO_CMD="$STEREO_CMD left_url:=$LEFT_URL right_url:=$RIGHT_URL"
-STEREO_CMD="$STEREO_CMD rate:=$CAMERA_RATE width:=$IMAGE_WIDTH height:=$IMAGE_HEIGHT"
-STEREO_CMD="$STEREO_CMD fx:=$CAMERA_FX fy:=$CAMERA_FY cx:=$CAMERA_CX cy:=$CAMERA_CY"
-STEREO_CMD="$STEREO_CMD baseline:=$STEREO_BASELINE"
-
-VISION_CMD="ros2 launch dog_toy_finder_vision vision.launch.py"
+VISION_CMD="ros2 launch dog_toy_finder_vision stereo_vision.launch.py"
+VISION_CMD="$VISION_CMD left_url:=$LEFT_URL right_url:=$RIGHT_URL"
+VISION_CMD="$VISION_CMD rate:=$CAMERA_RATE width:=$IMAGE_WIDTH height:=$IMAGE_HEIGHT"
+VISION_CMD="$VISION_CMD fx:=$CAMERA_FX fy:=$CAMERA_FY cx:=$CAMERA_CX cy:=$CAMERA_CY"
+VISION_CMD="$VISION_CMD baseline:=$STEREO_BASELINE"
 VISION_CMD="$VISION_CMD model:=$VISION_MODEL"
 if [ -n "${VISION_MODELS:-}" ]; then
     VISION_CMD="$VISION_CMD models:=$VISION_MODELS"
@@ -163,7 +161,6 @@ if [ "$DRY_RUN" -eq 1 ]; then
     echo "launch_all.sh --dry-run (config: $CONFIG)"
     echo "launcher: $([ "$USE_KONSOLE" = true ] && echo konsole || echo tmux)"
     echo "bringup: $BRINGUP_CMD"
-    echo "stereo:  $STEREO_CMD"
     echo "vision:  $VISION_CMD"
     echo "mapping: $MAP_CMD"
     echo "webmap:  $WEB_CMD"
@@ -188,7 +185,6 @@ if is_true "$USE_KONSOLE"; then
         trap 'rm -f "$CMD_FILE"' EXIT
         {
             printf 'bringup\t%s; %s\n' "$ROS_SETUP" "$BRINGUP_CMD"
-            printf 'stereo\t%s; %s\n' "$ROS_SETUP" "$STEREO_CMD"
             printf 'vision\t%s; %s\n' "$ROS_SETUP" "$VISION_CMD"
             printf 'mapping\t%s; %s\n' "$ROS_SETUP" "$MAP_CMD"
             printf 'webmap\t%s; %s\n' "$ROS_SETUP" "$WEB_CMD"
@@ -209,7 +205,6 @@ if is_true "$USE_KONSOLE"; then
         {
             printf 'agent\tcd %s && docker compose -f %s up micro_ros_agent\n' "$REPO_ROOT" "$COMPOSE"
             printf 'bringup\tcd %s && docker compose -f %s run --rm ros2 bash -lc '"'"'source /opt/ros/humble/setup.bash; source /workspace/software/ros2_ws/install/setup.bash; %s'"'"'\n' "$REPO_ROOT" "$COMPOSE" "$BRINGUP_CMD"
-            printf 'stereo\tcd %s && docker compose -f %s run --rm ros2 bash -lc '"'"'source /opt/ros/humble/setup.bash; source /workspace/software/ros2_ws/install/setup.bash; %s'"'"'\n' "$REPO_ROOT" "$COMPOSE" "$STEREO_CMD"
             printf 'vision\tcd %s && docker compose -f %s run --rm ros2 bash -lc '"'"'source /opt/ros/humble/setup.bash; source /workspace/software/ros2_ws/install/setup.bash; %s'"'"'\n' "$REPO_ROOT" "$COMPOSE" "$VISION_CMD"
             printf 'mapping\tcd %s && docker compose -f %s run --rm ros2 bash -lc '"'"'source /opt/ros/humble/setup.bash; source /workspace/software/ros2_ws/install/setup.bash; %s'"'"'\n' "$REPO_ROOT" "$COMPOSE" "$MAP_CMD"
             printf 'webmap\tcd %s && docker compose -f %s run --rm ros2 bash -lc '"'"'source /opt/ros/humble/setup.bash; source /workspace/software/ros2_ws/install/setup.bash; %s'"'"'\n' "$REPO_ROOT" "$COMPOSE" "$WEB_CMD"
@@ -235,8 +230,6 @@ if [ -f /opt/ros/humble/setup.bash ]; then
 
     tmux new-session -d -s "$SESSION" -n "bringup" \
         "source /opt/ros/humble/setup.bash; source $WS/install/setup.bash; $BRINGUP_CMD"
-    tmux new-window -t "$SESSION" -n "stereo" \
-        "source /opt/ros/humble/setup.bash; source $WS/install/setup.bash; $STEREO_CMD"
     tmux new-window -t "$SESSION" -n "vision" \
         "source /opt/ros/humble/setup.bash; source $WS/install/setup.bash; $VISION_CMD"
     tmux new-window -t "$SESSION" -n "mapping" \
@@ -284,7 +277,6 @@ else
     }
 
     run_in_ros2 "bringup" "$BRINGUP_CMD"
-    run_in_ros2 "stereo"  "$STEREO_CMD"
     run_in_ros2 "vision"  "$VISION_CMD"
     run_in_ros2 "mapping" "$MAP_CMD"
     run_in_ros2 "webmap"  "$WEB_CMD"

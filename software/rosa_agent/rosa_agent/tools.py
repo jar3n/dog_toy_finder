@@ -213,7 +213,7 @@ def run_search(target: str, mode: str) -> str:
     target: the toy or toys to find, exactly as the user wrote it, for
     example 'red ball'. Several kinds can be searched with a comma-separated
     list, for example 'red ball,blue bone'. The vision node must be running
-    (/vision/ask is answered by dog_toy_finder_vision vision.launch.py),
+    (/vision/ask is answered by dog_toy_finder_vision stereo_vision.launch.py),
     otherwise each vision check times out. Approval gates the whole search;
     Ctrl-C stops it.
     """
