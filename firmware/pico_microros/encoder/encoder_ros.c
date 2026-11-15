@@ -146,29 +146,34 @@ static bool init_hardware(void) {
 
   // Verify both channels read high (pull-ups) rather than being shorted to
   // ground. Open-drain hall outputs at rest are high, so a low reading means
-  // a short or a stuck-low line, not a healthy encoder.
+  // a short or a stuck-low line, not a healthy encoder. Check each pin
+  // independently so every failed pin is reported, not just the first one.
+  bool pin_failed = false;
   if (!gpio_get(ENCODER_LEFT_PIN_A)) {
     wifi_log_printf(
       "encoder: left A (GPIO %d) reads low at boot (short to ground?)\n",
       ENCODER_LEFT_PIN_A);
-    return false;
+    pin_failed = true;
   }
   if (!gpio_get(ENCODER_LEFT_PIN_B)) {
     wifi_log_printf(
       "encoder: left B (GPIO %d) reads low at boot (short to ground?)\n",
       ENCODER_LEFT_PIN_B);
-    return false;
+    pin_failed = true;
   }
   if (!gpio_get(ENCODER_RIGHT_PIN_A)) {
     wifi_log_printf(
       "encoder: right A (GPIO %d) reads low at boot (short to ground?)\n",
       ENCODER_RIGHT_PIN_A);
-    return false;
+    pin_failed = true;
   }
   if (!gpio_get(ENCODER_RIGHT_PIN_B)) {
     wifi_log_printf(
       "encoder: right B (GPIO %d) reads low at boot (short to ground?)\n",
       ENCODER_RIGHT_PIN_B);
+    pin_failed = true;
+  }
+  if (pin_failed) {
     return false;
   }
 
