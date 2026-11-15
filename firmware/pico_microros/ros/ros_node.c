@@ -103,13 +103,13 @@ bool ros_node_init(void) {
   // computer only after the Pico is powered on. There is no attempt limit and
   // no automatic reset; the LED keeps blinking until the agent answers.
   bool agent_found = false;
+  wifi_log_printf(
+      "ros: attempting to connect to the micro-ROS bridge at udp://%s:%u\n",
+      ROS_AGENT_IP,
+      (unsigned) ROS_AGENT_PORT);
+
   for (unsigned attempt = 1; ; ++attempt) {
     status_led_task();
-    wifi_log_printf(
-      "ros: pinging agent udp://%s:%u (attempt %u)\n",
-      ROS_AGENT_IP,
-      (unsigned) ROS_AGENT_PORT,
-      attempt);
 
     if (rmw_uros_ping_agent(ROS_AGENT_PING_TIMEOUT_MS, 1) == RMW_RET_OK) {
       agent_found = true;

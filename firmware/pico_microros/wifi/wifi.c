@@ -121,24 +121,6 @@ static int wifi_connect_wait(void) {
 }
 
 /**
- * Convert a Pico Wi-Fi error code into a short human-readable string.
- */
-static const char *connect_error_name(int error) {
-  switch (error) {
-    case PICO_OK:
-      return "ok";
-    case PICO_ERROR_TIMEOUT:
-      return "timeout";
-    case PICO_ERROR_BADAUTH:
-      return "bad credentials";
-    case PICO_ERROR_CONNECT_FAILED:
-      return "connection failed";
-    default:
-      return "unknown error";
-  }
-}
-
-/**
  * Check whether the station interface currently has an active link.
  *
  * Takes the lwIP lock while querying the CYW43 driver. Returns false before
@@ -218,13 +200,11 @@ bool wifi_init(void) {
 
   // Try to join the configured access point indefinitely: the network may
   // only become available after the Pico is powered on. There is no attempt
-  // limit and no automatic reset; the LED keeps blinking while retrying.
-  for (unsigned attempt = 1; ; ++attempt) {
-    wifi_log_printf(
-      "wifi: connecting to \"%s\" (attempt %u)\n",
-      WIFI_SSID,
-      attempt);
+  // limit and no automatic reset; the LED keeps blinking while retrying. Log a
+  // single "attempting to connect" message instead of repeating it per retry.
+  wifi_log_printf("wifi: attempting to connect to \"%s\"\n", WIFI_SSID);
 
+  for (unsigned attempt = 1; ; ++attempt) {
     int status = wifi_connect_wait();
 
     if (status == PICO_OK) {
@@ -234,9 +214,6 @@ bool wifi_init(void) {
       return true;
     }
 
-    wifi_log_printf(
-      "wifi: connection failed (%s)\n",
-      connect_error_name(status));
     wifi_wait_ms(WIFI_CONNECT_RETRY_DELAY_MS);
   }
 }
