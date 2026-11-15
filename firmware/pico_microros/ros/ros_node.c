@@ -99,15 +99,17 @@ bool ros_node_init(void) {
     return false;
   }
 
+  // Wait for the micro-ROS agent indefinitely: it may be started on the
+  // computer only after the Pico is powered on. There is no attempt limit and
+  // no automatic reset; the LED keeps blinking until the agent answers.
   bool agent_found = false;
-  for (unsigned attempt = 1; attempt <= ROS_INIT_ATTEMPTS; ++attempt) {
+  for (unsigned attempt = 1; ; ++attempt) {
     status_led_task();
     wifi_log_printf(
-      "ros: pinging agent udp://%s:%u (attempt %u/%u)\n",
+      "ros: pinging agent udp://%s:%u (attempt %u)\n",
       ROS_AGENT_IP,
       (unsigned) ROS_AGENT_PORT,
-      attempt,
-      (unsigned) ROS_INIT_ATTEMPTS);
+      attempt);
 
     if (rmw_uros_ping_agent(ROS_AGENT_PING_TIMEOUT_MS, 1) == RMW_RET_OK) {
       agent_found = true;
@@ -115,20 +117,19 @@ bool ros_node_init(void) {
     }
 
     status_led_task();
-    if (attempt < ROS_INIT_ATTEMPTS) {
-      // Service the LED blink while waiting for the agent to come up, instead
-      // of a single blocking sleep.
-      uint32_t delay_ms = ROS_INIT_RETRY_DELAY_MS;
-      while (delay_ms > 0) {
-        uint32_t step = delay_ms > 50 ? 50 : delay_ms;
-        status_led_task();
-        sleep_ms(step);
-        delay_ms -= step;
-      }
+    // Service the LED blink while waiting for the agent to come up, instead
+    // of a single blocking sleep.
+    uint32_t delay_ms = ROS_INIT_RETRY_DELAY_MS;
+    while (delay_ms > 0) {
+      uint32_t step = delay_ms > 50 ? 50 : delay_ms;
+      status_led_task();
+      sleep_ms(step);
+      delay_ms -= step;
     }
   }
 
   if (!agent_found) {
+    // Unreachable: the loop above only exits on success. Kept as a guard.
     wifi_log_printf(
       "ros: no agent at udp://%s:%u; micro-ROS disabled\n",
       ROS_AGENT_IP,

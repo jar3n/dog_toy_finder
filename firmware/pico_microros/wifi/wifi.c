@@ -216,12 +216,14 @@ bool wifi_init(void) {
     return false;
   }
 
-  for (unsigned attempt = 1; attempt <= WIFI_CONNECT_RETRIES; ++attempt) {
+  // Try to join the configured access point indefinitely: the network may
+  // only become available after the Pico is powered on. There is no attempt
+  // limit and no automatic reset; the LED keeps blinking while retrying.
+  for (unsigned attempt = 1; ; ++attempt) {
     wifi_log_printf(
-      "wifi: connecting to \"%s\" (attempt %u/%u)\n",
+      "wifi: connecting to \"%s\" (attempt %u)\n",
       WIFI_SSID,
-      attempt,
-      (unsigned) WIFI_CONNECT_RETRIES);
+      attempt);
 
     int status = wifi_connect_wait();
 
@@ -235,11 +237,6 @@ bool wifi_init(void) {
     wifi_log_printf(
       "wifi: connection failed (%s)\n",
       connect_error_name(status));
-    if (attempt < WIFI_CONNECT_RETRIES) {
-      wifi_wait_ms(WIFI_CONNECT_RETRY_DELAY_MS);
-    }
+    wifi_wait_ms(WIFI_CONNECT_RETRY_DELAY_MS);
   }
-
-  wifi_log_printf("wifi: could not connect to \"%s\"\n", WIFI_SSID);
-  return false;
 }

@@ -30,9 +30,9 @@ Dog Toy Finder Pico 2 W firmware Main file
 /**
  * Firmware entry point.
  *
- * Starts USB serial and the built-in status LED, connects Wi-Fi, brings up
- * micro-ROS logging, and initializes the BNO055, both wheel encoders, and the
- * TB6612FNG motor controller. It then subscribes to /cmd_vel and drives the
+ * Starts USB serial and the built-in status LED, checks the BNO055, wheel
+ * encoders, motor controller, and IR sensor first, then brings up Wi-Fi and
+ * micro-ROS, and finally subscribes to /cmd_vel and drives the
  * motors from Twist messages, stopping them when commands time out and braking
  * immediately when the IR obstacle sensor sees something ahead. The main loop
  * publishes Imu and JointState messages at 50 Hz, services /cmd_vel at 50 Hz,
@@ -50,13 +50,12 @@ int main(void){
     // up; wifi_init() below reuses it. Start blinking before Wi-Fi so the
     // long association wait still shows progress.
     status_led_init();
+    status_led_task();
     wifi_set_poll_hook(status_led_task);
-    bool wifi_ready = wifi_init();
-    status_led_task();
 
-    bool ros_ready = ros_log_init();
-    status_led_task();
-
+    // Sensor checks come first; the Wi-Fi and micro-ROS connections are only
+    // attempted after the IMU, encoders, motor controller, and IR sensor have
+    // been checked.
     bool imu_ready = bno055_init();
     if (imu_ready) {
         ros_log_printf("imu: BNO055 ready in IMU mode\n");
@@ -66,14 +65,8 @@ int main(void){
     }
     status_led_task();
 
-    bool imu_publishing = imu_ready && imu_ros_init();
-    if (imu_ready && !imu_publishing) {
-        ros_log_printf("imu: ROS publishing unavailable\n");
-    }
-    status_led_task();
-
     bool encoder_ready = encoder_ros_init();
-    bool encoder_publishing = encoder_ready && encoder_ros_ready();
+    bool encoder_publishing = false;
     status_led_task();
 
     tb6612fng_t motor_driver;
@@ -88,13 +81,6 @@ int main(void){
     }
     status_led_task();
 
-    bool cmd_vel_subscribed = motor_ready && cmd_vel_init(&motor_driver);
-    if (motor_ready && !cmd_vel_subscribed) {
-        ros_log_printf(
-            "cmd_vel: subscriber unavailable; motors stay coasting\n");
-    }
-    status_led_task();
-
     bool ir_obstacle_ready = ir_obstacle_ros_init();
     if (ir_obstacle_ready) {
         ros_log_printf("ir_obstacle: sensor ready\n");
@@ -102,6 +88,34 @@ int main(void){
         ros_log_printf(
             "ir_obstacle: unavailable; check the wiring in config/pinout.h\n");
     }
+    status_led_task();
+
+    bool wifi_ready = wifi_init();
+    status_led_task();
+
+    bool ros_ready = ros_log_init();
+    status_led_task();
+
+    bool imu_publishing = false;
+    if (imu_ready) {
+        imu_publishing = imu_ros_init();
+    }
+    if (imu_ready && !imu_publishing) {
+        ros_log_printf("imu: ROS publishing unavailable\n");
+    }
+    status_led_task();
+
+    encoder_publishing = encoder_ready && encoder_ros_ready();
+    status_led_task();
+
+    bool cmd_vel_subscribed = motor_ready && cmd_vel_init(&motor_driver);
+    if (motor_ready && !cmd_vel_subscribed) {
+        ros_log_printf(
+            "cmd_vel: subscriber unavailable; motors stay coasting\n");
+    }
+    status_led_task();
+
+    ir_obstacle_ready = ir_obstacle_ros_ready();
     status_led_task();
 
     // Startup is complete. Solid means every required device came up; if any

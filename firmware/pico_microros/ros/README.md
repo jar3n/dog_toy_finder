@@ -97,8 +97,9 @@ sync fails, stamps fall back to time since boot.
 - The firmware raises `PICO_STACK_SIZE` to 4 KiB (`CMakeLists.txt`) because
   micro-ROS and the log fan-out need more than the 2 KiB SDK default. That is
   the largest value that fits in the SCRATCH_Y region used for core 0.
-- `wifi_init()` must run first; `ros_node_init()` refuses to start without a
-  Wi-Fi link.
+- The firmware brings Wi-Fi up before starting the micro-ROS node;
+  `ros_node_init()` refuses to start without a Wi-Fi link. Boot order checks the
+  sensors before the Wi-Fi and micro-ROS connections are attempted.
 - Log lines emitted before `ros_log_init()` succeeds (for example the Wi-Fi
   connection messages) are serial/UDP only.
 - The micro-ROS library is built with `RCL_LOGGING_ENABLED=OFF`, so ROS 2's
