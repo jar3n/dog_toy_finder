@@ -167,6 +167,10 @@ static bool init_hardware(void) {
 /**
  * Initialize both encoders and, when possible, their ROS publisher.
  */
+bool encoder_ros_check(void) {
+  return init_hardware();
+}
+
 bool encoder_ros_init(void) {
   if (!init_hardware()) {
     wifi_log_printf(
@@ -176,7 +180,7 @@ bool encoder_ros_init(void) {
 
   if (!init_publisher()) {
     wifi_log_printf(
-      "encoder: ROS publishing unavailable; data still logged\n");
+      "encoder: ROS publishing unavailable after agent check; encoder data still logged\n");
   }
   return true;
 }

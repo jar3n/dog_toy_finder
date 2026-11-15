@@ -3,6 +3,9 @@
 
 #include <stdbool.h>
 
+// Check the IR sensor without creating a ROS publisher.
+bool ir_obstacle_ros_check(void);
+
 // Initialize the publisher. Returns true when it was created.
 bool ir_obstacle_ros_init(void);
 

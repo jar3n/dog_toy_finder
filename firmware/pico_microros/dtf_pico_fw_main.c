@@ -12,6 +12,7 @@ Dog Toy Finder Pico 2 W firmware Main file
 #include "config/cmd_vel_config.h"
 #include "config/encoder_config.h"
 #include "config/ir_obstacle_config.h"
+#include "config/pinout.h"
 #include "encoder/encoder_ros.h"
 #include "imu/bno055.h"
 #include "imu/imu_ros.h"
@@ -55,7 +56,7 @@ int main(void){
 
     // Sensor checks come first; the Wi-Fi and micro-ROS connections are only
     // attempted after the IMU, encoders, motor controller, and IR sensor have
-    // been checked.
+    // been checked. ROS publisher checks happen only after the agent connects.
     bool imu_ready = bno055_init();
     if (imu_ready) {
         ros_log_printf("imu: BNO055 ready in IMU mode\n");
@@ -65,7 +66,7 @@ int main(void){
     }
     status_led_task();
 
-    bool encoder_ready = encoder_ros_init();
+    bool encoder_ready = encoder_ros_check();
     bool encoder_publishing = false;
     status_led_task();
 
@@ -81,12 +82,13 @@ int main(void){
     }
     status_led_task();
 
-    bool ir_obstacle_ready = ir_obstacle_ros_init();
+    bool ir_obstacle_ready = ir_obstacle_ros_check();
     if (ir_obstacle_ready) {
-        ros_log_printf("ir_obstacle: sensor ready\n");
+        ros_log_printf(
+            "ir_obstacle: sensor ready on GPIO%d\n", IR_OBSTACLE_SIGNAL_PIN);
     } else {
         ros_log_printf(
-            "ir_obstacle: unavailable; check the wiring in config/pinout.h\n");
+            "ir_obstacle: sensor init failed; check the wiring in config/pinout.h\n");
     }
     status_led_task();
 
@@ -101,10 +103,11 @@ int main(void){
         imu_publishing = imu_ros_init();
     }
     if (imu_ready && !imu_publishing) {
-        ros_log_printf("imu: ROS publishing unavailable\n");
+        ros_log_printf("imu: ROS publishing unavailable after agent check\n");
     }
     status_led_task();
 
+    encoder_ros_init();
     encoder_publishing = encoder_ready && encoder_ros_ready();
     status_led_task();
 
@@ -116,6 +119,13 @@ int main(void){
     status_led_task();
 
     ir_obstacle_ready = ir_obstacle_ros_ready();
+    if (ir_obstacle_ready) {
+        ros_log_printf(
+            "ir_obstacle: ROS publisher ready on %s\n", IR_OBSTACLE_TOPIC);
+    } else {
+        ros_log_printf(
+            "ir_obstacle: ROS publishing unavailable after agent check\n");
+    }
     status_led_task();
 
     // Startup is complete. Solid means every required device came up; if any
