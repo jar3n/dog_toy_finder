@@ -88,7 +88,7 @@ bool ros_node_init(void) {
   }
 
   rmw_ret_t transport_status = rmw_uros_set_custom_transport(
-    true,
+    false,
     &transport_context,
     picow_udp_transport_open,
     picow_udp_transport_close,
@@ -108,7 +108,7 @@ bool ros_node_init(void) {
       ROS_AGENT_IP,
       (unsigned) ROS_AGENT_PORT);
 
-  for (unsigned attempt = 1; ; ++attempt) {
+  while (!agent_found) {
     status_led_task();
 
     if (rmw_uros_ping_agent(ROS_AGENT_PING_TIMEOUT_MS, 1) == RMW_RET_OK) {
@@ -126,15 +126,6 @@ bool ros_node_init(void) {
       sleep_ms(step);
       delay_ms -= step;
     }
-  }
-
-  if (!agent_found) {
-    // Unreachable: the loop above only exits on success. Kept as a guard.
-    wifi_log_printf(
-      "ros: no agent at udp://%s:%u; micro-ROS disabled\n",
-      ROS_AGENT_IP,
-      (unsigned) ROS_AGENT_PORT);
-    return false;
   }
 
   rcl_allocator_t allocator = rcl_get_default_allocator();
