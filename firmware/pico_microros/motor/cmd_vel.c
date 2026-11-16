@@ -439,19 +439,23 @@ void cmd_vel_process(void) {
     return;
   }
 
-  wifi_log_printf("cmd_vel: spin start\n");
-  // A short timeout keeps the call non-blocking but avoids the zero-timeout
-  // path that has been crashing the Pico.
-  rcl_ret_t status = rclc_executor_spin_some(&executor, 1000);
-  wifi_log_printf("cmd_vel: spin done (%d)\n", (int) status);
-  if (status != RCL_RET_OK && status != RCL_RET_TIMEOUT) {
+  // Poll the subscription directly instead of rclc_executor_spin_some(), which
+  // has been crashing the Pico.
+  rcl_ret_t status = RCL_RET_OK;
+  bool took_message = false;
+  rmw_message_info_t message_info;
+  while ((status = rcl_take(&subscription, &incoming_command, &message_info, NULL)) == RCL_RET_OK) {
+    took_message = true;
+    twist_callback(&incoming_command);
+  }
+  if (status != RCL_RET_SUBSCRIPTION_TAKE_FAILED && status != RCL_RET_OK) {
     if (!spin_error_reported) {
       spin_error_reported = true;
-      wifi_log_printf(
-        "cmd_vel: executor spin failed (%d)\n",
-        (int) status);
+      wifi_log_printf("cmd_vel: rcl_take failed (%d)\n", (int) status);
     }
   }
+  wifi_log_printf("cmd_vel: poll done (took=%d, status=%d)\n",
+                  (int) took_message, (int) status);
 
   if (!command_received) {
     return;
