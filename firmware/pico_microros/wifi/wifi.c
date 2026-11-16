@@ -10,6 +10,7 @@
 
 #include "lwip/ip4_addr.h"
 #include "lwip/netif.h"
+#include "lwip/apps/mdns.h"
 
 #include "config/wifi_config.h"
 
@@ -188,6 +189,13 @@ bool wifi_init(void) {
 
   if (wifi_is_connected()) {
     wifi_log_init();
+#if LWIP_MDNS_RESPONDER
+    cyw43_arch_lwip_begin();
+    mdns_resp_init();
+    mdns_resp_add_netif(&cyw43_state.netif[CYW43_ITF_STA], "dtf-pico");
+    cyw43_arch_lwip_end();
+    wifi_log_printf("wifi: mDNS responder ready for dtf-pico.local\n");
+#endif
     return true;
   }
 
@@ -209,6 +217,13 @@ bool wifi_init(void) {
 
     if (status == PICO_OK) {
       wifi_log_init();
+#if LWIP_MDNS_RESPONDER
+      cyw43_arch_lwip_begin();
+      mdns_resp_init();
+      mdns_resp_add_netif(&cyw43_state.netif[CYW43_ITF_STA], "dtf-pico");
+      cyw43_arch_lwip_end();
+      wifi_log_printf("wifi: mDNS responder ready for dtf-pico.local\n");
+#endif
       const char *ip = wifi_ip_address();
       wifi_log_printf("wifi: connected, ip=%s\n", ip == NULL ? "unknown" : ip);
       return true;

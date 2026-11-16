@@ -91,6 +91,7 @@ target_include_directories(dtf_pico_fw PRIVATE
 target_link_libraries(dtf_pico_fw
     pico_stdlib
     pico_cyw43_arch_lwip_threadsafe_background
+    pico_lwip_mdns
     hardware_i2c
     hardware_pwm
     hardware_clocks
