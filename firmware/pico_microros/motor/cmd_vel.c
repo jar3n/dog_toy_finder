@@ -454,8 +454,6 @@ void cmd_vel_process(void) {
       wifi_log_printf("cmd_vel: rcl_take failed (%d)\n", (int) status);
     }
   }
-  wifi_log_printf("cmd_vel: poll done (took=%d, status=%d)\n",
-                  (int) took_message, (int) status);
 
   if (!command_received) {
     return;
