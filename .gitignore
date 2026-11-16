@@ -46,3 +46,8 @@ data/vision/*
 data/planning/*
 !data/vision/.gitkeep
 !data/planning/.gitkeep
+
+# Accidental colcon output if built from software/ instead of software/ros2_ws/
+software/build/
+software/install/
+software/log/
