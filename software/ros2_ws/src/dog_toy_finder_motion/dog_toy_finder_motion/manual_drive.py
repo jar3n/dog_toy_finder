@@ -135,9 +135,9 @@ def command_for_key(key: str, linear_speed: float, angular_speed: float):
     if key in ("s", "down"):
         return (-linear_speed, 0.0)
     if key in ("a", "left"):
-        return (0.0, angular_speed)
-    if key in ("d", "right"):
         return (0.0, -angular_speed)
+    if key in ("d", "right"):
+        return (0.0, angular_speed)
     if key == " ":
         return (0.0, 0.0)
     return None
