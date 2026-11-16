@@ -11,7 +11,7 @@
 
 // Active level: 1 = obstacle detected when the signal line is HIGH (KS0051
 // default, see the module documentation), 0 = active low.
-#define IR_OBSTACLE_ACTIVE_LEVEL 1
+#define IR_OBSTACLE_ACTIVE_LEVEL 0
 
 // Publish period in milliseconds.
 #define IR_OBSTACLE_PUBLISH_PERIOD_MS 100
