@@ -168,6 +168,7 @@ int main(void){
     absolute_time_t next_encoder_log = get_absolute_time();
     absolute_time_t next_cmd_vel = get_absolute_time();
     absolute_time_t next_ir_obstacle_publish = get_absolute_time();
+    absolute_time_t next_ir_log = get_absolute_time();
     absolute_time_t next_heartbeat = get_absolute_time();
 
     while (true) {
@@ -191,6 +192,15 @@ int main(void){
             ir_obstacle_ros_publish();
             next_ir_obstacle_publish =
                 delayed_by_ms(now, IR_OBSTACLE_PUBLISH_PERIOD_MS);
+        }
+
+        if (ir_obstacle_ready &&
+            absolute_time_diff_us(now, next_ir_log) <= 0) {
+            ir_obstacle_update();
+            wifi_log_printf(
+                "ir: detected=%s\n",
+                ir_obstacle_detected() ? "true" : "false");
+            next_ir_log = delayed_by_ms(now, 1000);
         }
 
         if (imu_ready && absolute_time_diff_us(now, next_log) <= 0) {
