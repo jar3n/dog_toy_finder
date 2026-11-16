@@ -17,7 +17,8 @@ pair and a vision-language model (VLM).
 - Runs either a deterministic expanding-square search or a ROSA/LLM-driven
   search, for one toy or a comma-separated list of toy kinds.
 - Records poses/vision results to CSV and evaluates success, time, path length,
-  and vision latency.
+  and vision latency. A shared trial schema scores several VLMs and planners
+  side by side against ground truth.
 - Serves a live 3D map in any browser on the network, with **Save PNG** writing
   the image to the browser's computer.
 - Keeps the robot safe locally: the Pico brakes on its IR obstacle sensor and
@@ -49,7 +50,7 @@ pair and a vision-language model (VLM).
 | `dog_toy_finder_mapping` | Occupancy map, toy markers, browser map server | [README](software/ros2_ws/src/dog_toy_finder_mapping/README.md) |
 | `dog_toy_finder_planning` | Autonomous search planner + path utilities | [README](software/ros2_ws/src/dog_toy_finder_planning/README.md) |
 | `dog_toy_finder_diagnostics` | Sensor/camera heartbeat monitor with logged failures | [README](software/ros2_ws/src/dog_toy_finder_diagnostics/README.md) |
-| `dog_toy_finder_data` | Dataset collection (`poses.csv`, `vision.jsonl`, images) | [README](software/ros2_ws/src/dog_toy_finder_data/README.md) |
+| `dog_toy_finder_data` | Dataset collection plus LLM vision/planning comparison trials | [README](software/ros2_ws/src/dog_toy_finder_data/README.md) |
 | `dog_toy_finder_experiments` | Scripted search harness and run evaluation | [README](software/ros2_ws/src/dog_toy_finder_experiments/README.md) |
 
 ### Firmware modules (`firmware/pico_microros/`)

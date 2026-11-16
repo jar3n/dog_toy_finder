@@ -95,7 +95,8 @@ as the first argument, or override one value from the environment
 in the config does the same for every launch.
 `./scripts/launch_all.sh --dry-run` prints the exact commands without starting
 anything. `--konsole` / `--tmux` force the launcher; `KONSOLE=true` in the
-config makes Konsole the default.
+config makes Konsole the default. Set `LLM_TRIALS=true` to add a `trials`
+pane/window that records vision comparison rows (section 5.5).
 
 Konsole mode needs the security-sensitive D-Bus API enabled so panes can run
 their commands:
@@ -245,10 +246,15 @@ position.
 
 ```bash
 cd /workspace/software/rosa_agent
-# compare several models on one prompt:
-python3 -m rosa_agent --compare "$ROSA_COMPARE" --prompt "$ROSA_PROMPT"
+# compare several models on one prompt and save the comparison rows:
+python3 -m rosa_agent --compare "$ROSA_COMPARE" --prompt "$ROSA_PROMPT" \
+    --output-csv "$ROSA_OUTPUT_CSV" --run-id "$ROSA_RUN_ID"
+# add planning ground truth now (optional):
+python3 -m rosa_agent --compare "$ROSA_COMPARE" --prompt "$ROSA_PROMPT" \
+    --output-csv "$ROSA_OUTPUT_CSV" --run-id "$ROSA_RUN_ID" \
+    --gt-json "$ROSA_GT_JSON"
 # or interactive:
-python3 -m rosa_agent
+python3 -m rosa_agent --output-csv "$ROSA_OUTPUT_CSV" --run-id "$ROSA_RUN_ID"
 ```
 
 In the interactive session, ask for a search ("Search for the red ball and
@@ -316,6 +322,55 @@ ros2 launch dog_toy_finder_data collect.launch.py \
     record_disparity:=$COLLECT_RECORD_DISPARITY
 ```
 
+### 5.5 LLM comparison trials
+
+Vision and planning comparisons use the same CSV schema and scoring tool, so
+the automated metrics are recorded in one place and ground truth can be added
+in a spreadsheet later.
+
+For vision, set `VISION_MODELS` to compare several models on the same stereo
+photo and start the collector. `LLM_TRIALS=true ./scripts/launch_all.sh` adds
+the collector pane automatically:
+
+```bash
+# either let launch_all.sh start it, or run it by hand:
+ros2 launch dog_toy_finder_data collect_llm_trials.launch.py \
+    output_dir:=$LLM_TRIAL_OUTPUT_DIR run_id:=$LLM_TRIAL_VISION_RUN_ID \
+    distance_tolerance:=$LLM_TRIAL_DISTANCE_TOLERANCE
+```
+
+Every `/vision/ask` adds one row per model to
+`$LLM_TRIAL_OUTPUT_DIR/$LLM_TRIAL_VISION_RUN_ID/vision_trials.csv`. Attach
+ground truth to a request with the vision test script:
+
+```bash
+python3 /workspace/scripts/vision_test.py "red ball" --gt-json /tmp/gt_vision.json
+```
+
+```json
+{"target_visible": true, "position": "left", "size": "medium",
+ "distance_m": 0.7, "obstacle_ahead": "none"}
+```
+
+Planning rows are written by ROSA (section 5.1) to `$ROSA_OUTPUT_CSV`. The
+`gt_*` columns stay blank unless `ROSA_GT_JSON` points at a JSON file. A flat
+object applies to every model; the per-model/prompt form is documented in
+`software/rosa_agent/README.md`.
+
+Score a trial CSV after the ground truth is entered:
+
+```bash
+ros2 run dog_toy_finder_data llm_trials score \
+    "$LLM_TRIAL_OUTPUT_DIR/$LLM_TRIAL_VISION_RUN_ID/vision_trials.csv"
+ros2 run dog_toy_finder_data llm_trials score "$ROSA_OUTPUT_CSV"
+ros2 run dog_toy_finder_data llm_trials aggregate "$ROSA_OUTPUT_CSV" --json
+```
+
+`score` writes `<name>_scored.csv` and prints per-model latency, error count,
+ground-truthed row count, per-field accuracy, distance error, and mean score.
+Create an empty template for data collected another way with
+`llm_trials template --kind vision|planning --models ... --output ...`.
+
 ## 6. Reset and run again
 
 The autonomous and toy-search nodes are one-shot: each launch runs one search
@@ -343,10 +398,15 @@ To run the test again from the same starting spot:
 ```bash
 ros2 run dog_toy_finder_experiments evaluate_runs "$TOY_OUTPUT_CSV" "$AUTO_OUTPUT_CSV"
 ros2 run dog_toy_finder_data dataset_summary "$COLLECT_OUTPUT_DIR/$COLLECT_RUN_ID"
+ros2 run dog_toy_finder_data llm_trials score "$ROSA_OUTPUT_CSV"
+ros2 run dog_toy_finder_data llm_trials score \
+    "$LLM_TRIAL_OUTPUT_DIR/$LLM_TRIAL_VISION_RUN_ID/vision_trials.csv"
 ```
 
 Metrics reported: success, time/steps to find, path length, vision call count
-and average latency, target-visible rate, final pose.
+and average latency, target-visible rate, final pose. The LLM trial tool reports
+per-model vision accuracy, distance error, planning action/argument matches,
+latency, errors, and a mean score.
 
 ## 8. Viewing the map
 
@@ -397,6 +457,7 @@ ros2 launch dog_toy_finder_mapping mapping.launch.py \
 cd /workspace/software/rosa_agent && python3 -m unittest discover -s tests
 cd /workspace/software/ros2_ws/src/dog_toy_finder_planning && python3 -m unittest discover -s tests
 cd /workspace/software/ros2_ws/src/dog_toy_finder_motion && python3 -m unittest discover -s tests
+cd /workspace/software/ros2_ws/src/dog_toy_finder_data && python3 -m unittest discover -s tests
 ```
 
 End-to-end search workflow tests (fake robot + scripted vision, no hardware

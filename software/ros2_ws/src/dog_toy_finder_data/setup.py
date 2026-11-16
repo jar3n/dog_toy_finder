@@ -9,7 +9,8 @@ setup(
     data_files=[
         ("share/ament_index/resource_index/packages", ["resource/" + package_name]),
         ("share/" + package_name, ["package.xml"]),
-        ("share/" + package_name + "/launch", ["launch/collect.launch.py"]),
+        ("share/" + package_name + "/launch",
+         ["launch/collect.launch.py", "launch/collect_llm_trials.launch.py"]),
     ],
     install_requires=["setuptools"],
     zip_safe=True,
@@ -21,6 +22,8 @@ setup(
         "console_scripts": [
             "data_collector = dog_toy_finder_data.data_collector:main",
             "dataset_summary = dog_toy_finder_data.dataset_tools:main",
+            "vision_trial_collector = dog_toy_finder_data.vision_trial_collector:main",
+            "llm_trials = dog_toy_finder_data.llm_trials:main",
         ],
     },
 )

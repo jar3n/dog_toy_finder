@@ -12,6 +12,7 @@ the model, prompts, and tools can change without touching the control stack.
 | `rosa_agent/prompts.py` | robot persona, capabilities, and safety instructions |
 | `rosa_agent/robot.py` | owns the rclpy node and spins it on a background thread |
 | `rosa_agent/tools.py` | agent-facing tools: pose, drive, turn, go-to, stop |
+| `rosa_agent/trial_log.py` | writes planning comparison rows to the shared trial CSV |
 | `rosa_agent/__main__.py` | interactive command-line loop |
 | `tests/test_transforms.py` | pure-Python transform tests |
 | `.env.example` | model, endpoint, and approval settings |
@@ -78,6 +79,49 @@ python3 -m rosa_agent --compare llama3.2,mistral,qwen2.5
 python3 -m rosa_agent --compare llama3.2,mistral --prompt "Drive forward 1 meter."
 ```
 
+Add `--output-csv` to append one row per prompt and model to the shared
+planning trial schema (reply, latency, tool calls, and blank ground truth):
+
+```bash
+python3 -m rosa_agent --compare llama3.2,mistral \
+    --prompt "Drive forward 1 meter." \
+    --output-csv /tmp/llm_trials/planning1/planning_trials.csv \
+    --run-id plan1
+```
+
+Score it later after filling the `gt_*` columns, or pass `--gt-json` now:
+
+```bash
+ros2 run dog_toy_finder_data llm_trials score \
+    /tmp/llm_trials/planning1/planning_trials.csv
+```
+
+The ground-truth file may be a flat object that applies to every model:
+
+```json
+{"expected_action": "drive_distance", "expected_args": "forward,1",
+ "success": true, "notes": "checked on the bench"}
+```
+
+or structured by model and prompt:
+
+```json
+{
+  "default": {"expected_action": "drive_distance", "expected_args": "forward,1"},
+  "models": {"mistral": {"expected_args": "1"}},
+  "prompts": [
+    {"prompt": "Turn left 90 degrees.",
+     "ground_truth": {"expected_action": "turn", "expected_args": "left,90"}}
+  ]
+}
+```
+
+`expected_action` and `expected_args` are matched against the reply and the
+captured tool calls. `success` overrides those text checks with the operator's
+verdict. In the interactive session the same logging applies to every prompt
+when `--output-csv` is set; there is no ground truth unless `--gt-json` supplies
+it.
+
 Or pick a single model for a session:
 
 ```bash
@@ -131,6 +175,6 @@ python3 -m unittest discover -s tests
 - Approval is on by default because a hallucinated motion could drive the robot
   into something. Keep it on while developing.
 - The prompts forbid claiming motion or sensor readings that no tool reported.
-- Vision, the arm, and autonomous toy search are not implemented yet. Add them
-  as new ROS 2 packages and new tools rather than growing `tools.py` without
-  bound.
+- Vision and autonomous toy search are separate ROS 2 packages and agent tools.
+  Add new capabilities as new packages and tools rather than growing `tools.py`
+  without bound. The arm is not implemented.

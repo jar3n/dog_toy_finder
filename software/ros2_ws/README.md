@@ -13,7 +13,7 @@ Colcon workspace for the computer-side ROS 2 packages.
 | `dog_toy_finder_mapping` | `ament_python` | occupancy map, toy markers, browser map server |
 | `dog_toy_finder_planning` | `ament_python` | autonomous search planner and path utilities |
 | `dog_toy_finder_diagnostics` | `ament_python` | sensor and camera heartbeat monitor |
-| `dog_toy_finder_data` | `ament_python` | dataset collection and summary |
+| `dog_toy_finder_data` | `ament_python` | dataset collection, LLM trials, summary |
 | `dog_toy_finder_experiments` | `ament_python` | scripted search harness and run evaluation |
 
 ## Build
