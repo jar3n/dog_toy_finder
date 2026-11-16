@@ -440,8 +440,9 @@ void cmd_vel_process(void) {
   }
 
   wifi_log_printf("cmd_vel: spin start\n");
-  // A zero timeout still polls the transport once, so this does not block.
-  rcl_ret_t status = rclc_executor_spin_some(&executor, 0);
+  // A short timeout keeps the call non-blocking but avoids the zero-timeout
+  // path that has been crashing the Pico.
+  rcl_ret_t status = rclc_executor_spin_some(&executor, 1000);
   wifi_log_printf("cmd_vel: spin done (%d)\n", (int) status);
   if (status != RCL_RET_OK && status != RCL_RET_TIMEOUT) {
     if (!spin_error_reported) {
