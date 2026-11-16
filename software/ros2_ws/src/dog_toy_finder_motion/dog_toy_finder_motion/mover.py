@@ -35,10 +35,10 @@ CMD_TOPIC = "/cmd_vel_auto"
 FEEDBACK_TOPIC = "/odometry/filtered"
 IR_TOPIC = "/ir_obstacle/detected"
 
-MAX_SPEED = 0.15          # m/s
+MAX_SPEED = 1.0          # m/s
 MIN_SPEED = 0.05          # m/s, slow enough to stop accurately
-MAX_TURN = 0.6            # rad/s
-MIN_TURN = 0.3            # rad/s
+MAX_TURN = 2.0            # rad/s
+MIN_TURN = 0.7            # rad/s
 DIST_TOL = 0.005          # m
 ANGLE_TOL = math.radians(1.0)
 # The real robot keeps moving briefly after a stop command (Wi-Fi delay,
