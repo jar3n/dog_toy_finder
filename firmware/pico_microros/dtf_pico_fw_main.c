@@ -159,6 +159,7 @@ int main(void){
     absolute_time_t next_ir_obstacle_publish = get_absolute_time();
     absolute_time_t next_heartbeat = get_absolute_time();
 
+    bool first_iteration = true;
     while (true) {
         status_led_task();
         absolute_time_t now = get_absolute_time();
@@ -173,11 +174,17 @@ int main(void){
             cmd_vel_process();
             next_cmd_vel = delayed_by_ms(now, CMD_VEL_UPDATE_PERIOD_MS);
         }
+        if (first_iteration) {
+            wifi_log_printf("loop: cmd_vel done\n");
+        }
 
         if (imu_publishing &&
             absolute_time_diff_us(now, next_publish) <= 0) {
             imu_ros_publish();
             next_publish = delayed_by_ms(now, IMU_PUBLISH_PERIOD_MS);
+        }
+        if (first_iteration) {
+            wifi_log_printf("loop: imu publish done\n");
         }
 
         if (ir_obstacle_ready &&
@@ -185,6 +192,9 @@ int main(void){
             ir_obstacle_ros_publish();
             next_ir_obstacle_publish =
                 delayed_by_ms(now, IR_OBSTACLE_PUBLISH_PERIOD_MS);
+        }
+        if (first_iteration) {
+            wifi_log_printf("loop: ir done\n");
         }
 
         if (imu_ready && absolute_time_diff_us(now, next_log) <= 0) {
@@ -205,12 +215,18 @@ int main(void){
 
             next_log = delayed_by_ms(now, IMU_LOG_PERIOD_MS);
         }
+        if (first_iteration) {
+            wifi_log_printf("loop: imu log done\n");
+        }
 
         if (encoder_publishing &&
             absolute_time_diff_us(now, next_encoder_publish) <= 0) {
             encoder_ros_publish();
             next_encoder_publish =
                 delayed_by_ms(now, ENCODER_PUBLISH_PERIOD_MS);
+        }
+        if (first_iteration) {
+            wifi_log_printf("loop: encoder publish done\n");
         }
 
         if (encoder_ready &&
@@ -231,6 +247,11 @@ int main(void){
                 encoder_ros_right_linear_velocity_m_s());
 
             next_encoder_log = delayed_by_ms(now, ENCODER_LOG_PERIOD_MS);
+        }
+
+        if (first_iteration) {
+            wifi_log_printf("loop: encoder log done\n");
+            first_iteration = false;
         }
 
         sleep_ms(1);
