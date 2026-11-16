@@ -220,9 +220,9 @@ int main(void){
             next_encoder_log = delayed_by_ms(now, ENCODER_LOG_PERIOD_MS);
         }
 
-        if (absolute_time_diff_us(now, next_heartbeat) <= 0) {
-            wifi_log_printf("heartbeat: alive\n");
-            next_heartbeat = delayed_by_ms(now, 1000);
+        if (boot_ok && absolute_time_diff_us(now, next_heartbeat) <= 0) {
+            wifi_log_printf("im alive\n");
+            next_heartbeat = delayed_by_ms(now, 10000);
         }
 
         sleep_ms(1);
