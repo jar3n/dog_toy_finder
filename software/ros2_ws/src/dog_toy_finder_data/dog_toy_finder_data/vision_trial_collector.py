@@ -7,6 +7,10 @@ This collector turns that stream into an annotatable CSV:
     <output_dir>/<run_id>/vision_trials.csv
     <output_dir>/<run_id>/manifest.json
 
+The default ``output_dir`` is the repository's vision trial folder
+(``/workspace/data/vision`` in the ROS 2 container), so trials land in
+``data/vision/<run_id>/`` next to ``data/planning/``.
+
 The automated columns (model, latency, answer, image path) are filled here.
 The ``gt_*`` ground-truth columns stay empty for a spreadsheet, or are filled
 immediately when the ask JSON carries a ``ground_truth`` object::
@@ -56,7 +60,9 @@ class VisionTrialCollector(Node):
 
     def __init__(self):
         super().__init__("vision_trial_collector")
-        self.declare_parameter("output_dir", "/tmp/llm_trials")
+        self.declare_parameter(
+            "output_dir",
+            os.environ.get("VISION_TRIAL_DIR", "/workspace/data/vision"))
         self.declare_parameter("run_id", "vision1")
         self.declare_parameter("distance_tolerance", 0.25)
 

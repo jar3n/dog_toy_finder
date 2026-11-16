@@ -37,6 +37,7 @@ pair and a vision-language model (VLM).
 | `docker/` | Containers: `ros2`, `microros_builder`, and the micro-ROS agent | [README](docker/README.md) |
 | `scripts/` | Setup, launcher, manual drive, vision test, E2E runner | |
 | `docs/` | Install and full-system test/evaluation guides | [README](docs/README.md) |
+| `data/` | Generated vision and planning LLM comparison trials | [README](data/README.md) |
 | `hardware/` | Text wiring reference and pin summary | [Wiring](hardware/wiring.md) |
 
 ### ROS 2 packages (`software/ros2_ws/src/`)

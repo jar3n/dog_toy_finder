@@ -333,7 +333,14 @@ ros2 launch dog_toy_finder_data collect.launch.py \
 
 Vision and planning comparisons use the same CSV schema and scoring tool, so
 the automated metrics are recorded in one place and ground truth can be added
-in a spreadsheet later.
+in a spreadsheet later. See
+[`llm_comparison_guide.md`](llm_comparison_guide.md) for the full step-by-step
+workflow.
+
+Trial data is stored in the repository's `data/` folder, next to `hardware/`
+and `software/`: `data/vision/<run_id>/` and `data/planning/<run_id>/`. Inside
+the ROS 2 container those paths are `/workspace/data/vision` and
+`/workspace/data/planning`.
 
 For vision, set `VISION_MODELS` to compare several models on the same stereo
 photo and start the collector. `LLM_TRIALS=true ./scripts/launch_all.sh` adds
@@ -342,13 +349,14 @@ the collector pane automatically:
 ```bash
 # either let launch_all.sh start it, or run it by hand:
 ros2 launch dog_toy_finder_data collect_llm_trials.launch.py \
-    output_dir:=$LLM_TRIAL_OUTPUT_DIR run_id:=$LLM_TRIAL_VISION_RUN_ID \
+    output_dir:=$VISION_TRIAL_DIR run_id:=$VISION_TRIAL_RUN_ID \
     distance_tolerance:=$LLM_TRIAL_DISTANCE_TOLERANCE
 ```
 
 Every `/vision/ask` adds one row per model to
-`$LLM_TRIAL_OUTPUT_DIR/$LLM_TRIAL_VISION_RUN_ID/vision_trials.csv`. Attach
-ground truth to a request with the vision test script:
+`$VISION_TRIAL_DIR/$VISION_TRIAL_RUN_ID/vision_trials.csv`. The vision node
+loads and unloads one model at a time so each model gets all the available
+VRAM. Attach ground truth to a request with the vision test script:
 
 ```bash
 python3 /workspace/scripts/vision_test.py "red ball" --gt-json /tmp/gt_vision.json
@@ -368,7 +376,7 @@ Score a trial CSV after the ground truth is entered:
 
 ```bash
 ros2 run dog_toy_finder_data llm_trials score \
-    "$LLM_TRIAL_OUTPUT_DIR/$LLM_TRIAL_VISION_RUN_ID/vision_trials.csv"
+    "$VISION_TRIAL_DIR/$VISION_TRIAL_RUN_ID/vision_trials.csv"
 ros2 run dog_toy_finder_data llm_trials score "$ROSA_OUTPUT_CSV"
 ros2 run dog_toy_finder_data llm_trials aggregate "$ROSA_OUTPUT_CSV" --json
 ```
@@ -407,7 +415,7 @@ ros2 run dog_toy_finder_experiments evaluate_runs "$TOY_OUTPUT_CSV" "$AUTO_OUTPU
 ros2 run dog_toy_finder_data dataset_summary "$COLLECT_OUTPUT_DIR/$COLLECT_RUN_ID"
 ros2 run dog_toy_finder_data llm_trials score "$ROSA_OUTPUT_CSV"
 ros2 run dog_toy_finder_data llm_trials score \
-    "$LLM_TRIAL_OUTPUT_DIR/$LLM_TRIAL_VISION_RUN_ID/vision_trials.csv"
+    "$VISION_TRIAL_DIR/$VISION_TRIAL_RUN_ID/vision_trials.csv"
 ```
 
 Metrics reported: success, time/steps to find, path length, vision call count

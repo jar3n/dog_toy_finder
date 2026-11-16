@@ -34,9 +34,11 @@ rectification from `image_proc`, disparity and a coloured point cloud from
 
 The vision node accepts a comma-separated `models` parameter, e.g.
 `models:="gemma4,minicpm-v4.5"` (use names from `ollama list`). It runs every
-model on the same photo and
-publishes a `/vision/result` whose `results` array contains one answer plus
-timing per model, so the models can be compared directly.
+model on the same photo, loading one model at a time and unloading it before
+the next, so each model gets all of the Ollama host's VRAM. It publishes a
+`/vision/result` whose `results` array contains one answer plus timing per
+model, so the models can be compared directly. Because each model is unloaded
+after its answer, that timing includes the model's cold-load time.
 
 The ROSA planner supports the same idea via
 `python3 -m rosa_agent --compare llama3.2,mistral,qwen2.5`.

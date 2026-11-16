@@ -17,12 +17,25 @@ them up front.
 """
 
 import argparse
+import sys
 import time
 
 from . import trial_log
-from .agent import build_agent, invoke_with_events, ollama_model_name
+from .agent import (
+    build_agent,
+    invoke_with_events,
+    ollama_model_name,
+    unload_model,
+)
 from .robot import close_robot, get_robot
 from .vision import close_vision
+
+
+def _unload(model):
+    """Evict a model after its comparison turn so the next gets all the VRAM."""
+    if not unload_model(model):
+        print("warning: could not unload %s; it may still hold VRAM" % model,
+              file=sys.stderr)
 
 
 def build_parser():
@@ -108,6 +121,7 @@ def run_compare(models, prompt, output_csv, run_id, ground_truth):
         else:
             print(f"ROSA> {reply}")
         print(f"[{elapsed:.2f} s]")
+        _unload(model)
         _record(output_csv, run_id, model, prompt, reply, elapsed, calls, error,
                 ground_truth)
     close_robot()

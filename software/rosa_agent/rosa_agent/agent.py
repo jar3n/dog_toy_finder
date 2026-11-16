@@ -8,6 +8,7 @@ The agent is intentionally thin: it wires an Ollama model to the tools in
 import asyncio
 import json
 import os
+import urllib.request
 
 from langchain_ollama import ChatOllama
 from rosa import ROSA
@@ -24,6 +25,25 @@ def ollama_model_name() -> str:
 def ollama_url() -> str:
     """Return the Ollama base URL (localhost works with host networking)."""
     return os.environ.get("OLLAMA_URL", "http://localhost:11434")
+
+
+def unload_model(model: str) -> bool:
+    """Ask Ollama to evict a model so the next comparison gets all the VRAM.
+
+    Returns True when the unload request completed. Ollama keeps models
+    resident by default, so a comparison that switches models can otherwise
+    have the next model load beside the previous one and run with less VRAM.
+    """
+    body = json.dumps({"model": model, "keep_alive": 0}).encode()
+    request = urllib.request.Request(
+        ollama_url().rstrip("/") + "/api/generate", data=body,
+        headers={"Content-Type": "application/json"})
+    try:
+        with urllib.request.urlopen(request, timeout=15) as reply:
+            reply.read()
+    except Exception:
+        return False
+    return True
 
 
 def build_agent(model: str = None, streaming: bool = False) -> ROSA:

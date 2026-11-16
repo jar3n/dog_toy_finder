@@ -5,6 +5,9 @@
 - [`setup/full_system_test.md`](setup/full_system_test.md) - full test and
   evaluation flow: flashing, bringup, manual drive, search modes, map viewer,
   reset, metrics, and tests.
+- [`setup/llm_comparison_guide.md`](setup/llm_comparison_guide.md) - step-by-step
+  vision and planning model comparison with the `dog_toy_finder_data` trial
+  tools.
 
 Other reference material lives next to the code:
 

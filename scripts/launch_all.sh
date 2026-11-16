@@ -150,8 +150,8 @@ MAP_CMD="$MAP_CMD toy_occupancy_radius:=$TOY_OCCUPANCY_RADIUS"
 WEB_CMD="ros2 run dog_toy_finder_mapping map_webserver --ros-args -p port:=$WEBMAP_PORT"
 
 TRIALS_CMD="ros2 launch dog_toy_finder_data collect_llm_trials.launch.py"
-TRIALS_CMD="$TRIALS_CMD output_dir:=$LLM_TRIAL_OUTPUT_DIR"
-TRIALS_CMD="$TRIALS_CMD run_id:=$LLM_TRIAL_VISION_RUN_ID"
+TRIALS_CMD="$TRIALS_CMD output_dir:=$VISION_TRIAL_DIR"
+TRIALS_CMD="$TRIALS_CMD run_id:=$VISION_TRIAL_RUN_ID"
 TRIALS_CMD="$TRIALS_CMD distance_tolerance:=$LLM_TRIAL_DISTANCE_TOLERANCE"
 
 MANUAL_CMD="ros2 run dog_toy_finder_motion manual_drive --ros-args"

@@ -1,6 +1,9 @@
 """Vision node: answers questions about the stereo camera image with one or more
 Ollama vision models, so different LLMs can be compared on the same photo.
 
+Models are loaded and unloaded one at a time, even when ``models`` lists
+several, so each model gets all of the VRAM available on the Ollama host.
+
 Subscribes  /stereo/left/image_raw     sensor_msgs/Image
             /stereo/right/image_raw    sensor_msgs/Image
             /vision/ask                std_msgs/String   JSON {"id", "target"}
@@ -107,12 +110,17 @@ class VisionNode(Node):
         self.declare_parameter("models", "")
         self.declare_parameter("ollama_url", os.environ.get(
             "OLLAMA_URL", "http://localhost:11434"))
-        self.chat_url = self.get_parameter("ollama_url").value.rstrip("/") + "/api/chat"
+        self.base_url = self.get_parameter("ollama_url").value.rstrip("/")
+        self.chat_url = self.base_url + "/api/chat"
+        self.generate_url = self.base_url + "/api/generate"
         models_param = self.get_parameter("models").value.strip()
         if models_param:
             self.models = [m.strip() for m in models_param.split(",") if m.strip()]
         else:
             self.models = [self.get_parameter("model").value]
+        # A single model is normal robot operation: keep it warm. Multiple
+        # models are a comparison run: unload each one before loading the next.
+        self.compare_models = len(self.models) > 1
 
         self.lock = threading.Lock()
         self.latest = None          # (left_msg, right_msg)
@@ -187,10 +195,17 @@ class VisionNode(Node):
                     right_jpeg = self._to_jpeg(right_msg)
                     jpegs = [left_jpeg, right_jpeg]
                     result["image"] = self.save(left_msg, request["id"])
-                    result["results"] = [
-                        self.ask_model(m, jpegs, request["target"])
-                        for m in self.models
-                    ]
+                    # Load and unload one model at a time. Ollama would
+                    # otherwise keep several models resident, and the later
+                    # ones could run with less VRAM than the first.
+                    result["results"] = []
+                    for model in self.models:
+                        try:
+                            result["results"].append(
+                                self.ask_model(model, jpegs, request["target"]))
+                        finally:
+                            if self.compare_models:
+                                self.unload_model(model)
                     if len(self.models) == 1:
                         single = result["results"][0]
                         for key in ("description", "target_visible", "position",
@@ -212,6 +227,19 @@ class VisionNode(Node):
             f.write(self._to_jpeg(msg))
         return os.path.join("vision", "results", "images", name)
 
+    def unload_model(self, model):
+        """Ask Ollama to evict a model so the next one gets all the VRAM."""
+        body = {"model": model, "keep_alive": 0}
+        try:
+            req = urllib.request.Request(
+                self.generate_url, data=json.dumps(body).encode(),
+                headers={"Content-Type": "application/json"})
+            with urllib.request.urlopen(req, timeout=15) as reply:
+                reply.read()
+        except Exception as error:
+            self.get_logger().warn(
+                f"Could not unload {model}; it may still hold VRAM: {error}")
+
     def ask_model(self, model, jpegs, target):
         prompt = TARGET_PROMPT.format(target=target) if target else SCENE_PROMPT
         images_b64 = [base64.b64encode(j).decode() for j in jpegs]
@@ -220,7 +248,7 @@ class VisionNode(Node):
             "stream": False,
             "think": False,
             "format": ANSWER_SCHEMA,
-            "keep_alive": "30m",
+            "keep_alive": 0 if self.compare_models else "30m",
             "options": {"temperature": 0, "num_ctx": 8192},
             "messages": [{"role": "user", "content": prompt,
                           "images": images_b64}],

@@ -40,3 +40,9 @@ rosa_agent/memory/*.db
 .vscode/
 .idea/
 .DS_Store
+
+# Generated evaluation data (keep the vision/ and planning/ folders)
+data/vision/*
+data/planning/*
+!data/vision/.gitkeep
+!data/planning/.gitkeep

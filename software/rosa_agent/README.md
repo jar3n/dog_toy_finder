@@ -79,13 +79,18 @@ python3 -m rosa_agent --compare llama3.2,mistral,qwen2.5
 python3 -m rosa_agent --compare llama3.2,mistral --prompt "Drive forward 1 meter."
 ```
 
+Each comparison model is loaded and unloaded in turn, so only one planner model
+uses the Ollama host's VRAM at a time.
+
 Add `--output-csv` to append one row per prompt and model to the shared
-planning trial schema (reply, latency, tool calls, and blank ground truth):
+planning trial schema (reply, latency, tool calls, and blank ground truth).
+Planning trials are written under the repository's `data/planning/<run_id>/`
+directory (`/workspace/data/planning` inside the ROS 2 container):
 
 ```bash
 python3 -m rosa_agent --compare llama3.2,mistral \
     --prompt "Drive forward 1 meter." \
-    --output-csv /tmp/llm_trials/planning1/planning_trials.csv \
+    --output-csv /workspace/data/planning/plan1/planning_trials.csv \
     --run-id plan1
 ```
 
@@ -93,7 +98,7 @@ Score it later after filling the `gt_*` columns, or pass `--gt-json` now:
 
 ```bash
 ros2 run dog_toy_finder_data llm_trials score \
-    /tmp/llm_trials/planning1/planning_trials.csv
+    /workspace/data/planning/plan1/planning_trials.csv
 ```
 
 The ground-truth file may be a flat object that applies to every model:
