@@ -104,6 +104,17 @@ int main(void){
     bool wifi_ready = wifi_init();
     status_led_task();
 
+    // Sensor checks ran before Wi-Fi, so re-report their results now that the
+    // UDP log mirror is available.
+    wifi_log_printf("sensor check: imu=%s\n",
+                    imu_ready ? "ready" : "NOT DETECTED");
+    wifi_log_printf("sensor check: encoders=%s\n",
+                    encoder_ready ? "ready" : "NOT DETECTED");
+    wifi_log_printf("sensor check: motor=%s\n",
+                    motor_ready ? "ready" : "FAILED");
+    wifi_log_printf("sensor check: ir=%s\n",
+                    ir_obstacle_ready ? "ready" : "FAILED");
+
     bool ros_ready = ros_log_init();
     status_led_task();
 
