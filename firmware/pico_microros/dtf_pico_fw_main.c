@@ -222,7 +222,7 @@ int main(void){
 
         if (boot_ok && absolute_time_diff_us(now, next_heartbeat) <= 0) {
             wifi_log_printf("im alive\n");
-            next_heartbeat = delayed_by_ms(now, 10000);
+            next_heartbeat = delayed_by_ms(now, 5000);
         }
 
         sleep_ms(1);
