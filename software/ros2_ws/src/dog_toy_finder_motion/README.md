@@ -162,8 +162,19 @@ Wi-Fi link stops publishing.
 
 The unit tests in `software/rosa_agent/tests/` cover the pure transforms.
 
-## ROSA dependency
+## Hardware bench test
 
-The ROSA tools import `Mover` from this package. Build the workspace and source
-`install/setup.bash` before starting the agent, otherwise Python cannot import
-`dog_toy_finder_motion`.
+`hardware_bench_test` exercises the Pico hardware through ROS 2 and prints a
+pass/fail summary:
+
+```bash
+ros2 run dog_toy_finder_motion hardware_bench_test
+```
+
+It requires the robot stack to be running (micro-ROS agent + `robot.launch.py`)
+and checks that the IMU, wheel encoders, and IR obstacle sensor are publishing,
+then drives the motors forward, turns in place, and drives in reverse, verifying
+that the encoders move. The last step asks you to place an obstacle in front of
+the robot to confirm the Pico's IR reflex blocks a forward move, then to remove
+it. Type `s` at the prompt to skip the IR reflex step. Motor moves are small
+(0.10 m / 30 deg) and the robot is stopped after every step and on Ctrl+C.
