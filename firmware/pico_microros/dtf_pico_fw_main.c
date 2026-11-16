@@ -23,6 +23,7 @@ Dog Toy Finder Pico 2 W firmware Main file
 #include "ros/ros_log.h"
 #include "status_led/status_led.h"
 #include "wifi/wifi.h"
+#include "wifi/wifi_log.h"
 
 #define IMU_PUBLISH_PERIOD_MS 20
 #define IMU_LOG_PERIOD_MS 500
@@ -148,6 +149,7 @@ int main(void){
     absolute_time_t next_encoder_log = get_absolute_time();
     absolute_time_t next_cmd_vel = get_absolute_time();
     absolute_time_t next_ir_obstacle_publish = get_absolute_time();
+    absolute_time_t next_heartbeat = get_absolute_time();
 
     while (true) {
         status_led_task();
@@ -218,7 +220,11 @@ int main(void){
             next_encoder_log = delayed_by_ms(now, ENCODER_LOG_PERIOD_MS);
         }
 
+        if (absolute_time_diff_us(now, next_heartbeat) <= 0) {
+            wifi_log_printf("heartbeat: alive\n");
+            next_heartbeat = delayed_by_ms(now, 1000);
+        }
+
         sleep_ms(1);
     }
-    
 }
