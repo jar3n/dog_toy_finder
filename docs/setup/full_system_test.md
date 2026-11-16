@@ -45,6 +45,13 @@ The built-in LED blinks while the firmware starts up, turns solid once the
 control loop is running with every required device up, and stays off if any
 initialization step failed (see `config/status_led_config.h`).
 
+The Pico waits indefinitely for Wi-Fi and for the micro-ROS agent, logging one
+connect message for each. While it waits the LED keeps blinking; a power cycle
+is the only way to reboot. If `docker compose logs micro_ros_agent` shows
+repeated 23-byte pings from `client_key: 0x00000000` but no `/dtf_pico` node,
+the custom transport is framed and the agent cannot answer it; see
+`firmware/pico_microros/udp_transport/README.md`.
+
 Geometry defaults (Module 8 course robot): wheel diameter 0.065 m, wheel
 separation 0.133 m, 4320 counts/rev. Refine in `encoder_config.h` and
 `cmd_vel_config.h` for your chassis.

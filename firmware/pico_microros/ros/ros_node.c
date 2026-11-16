@@ -15,16 +15,12 @@
 #include "wifi/wifi.h"
 #include "wifi/wifi_log.h"
 
-#ifndef ROS_INIT_ATTEMPTS
-#define ROS_INIT_ATTEMPTS 3
-#endif
-
 #ifndef ROS_INIT_RETRY_DELAY_MS
 #define ROS_INIT_RETRY_DELAY_MS 1000
 #endif
 
 #ifndef ROS_AGENT_PING_TIMEOUT_MS
-#define ROS_AGENT_PING_TIMEOUT_MS 100
+#define ROS_AGENT_PING_TIMEOUT_MS 500
 #endif
 
 #ifndef ROS_TIME_SYNC_TIMEOUT_MS
@@ -70,9 +66,9 @@ int64_t ros_node_time_ns(void) {
 /**
  * Connect the shared micro-ROS session and create the node.
  *
- * Checks Wi-Fi, installs the custom UDP transport, pings the agent up to
- * ROS_INIT_ATTEMPTS times, initializes rcl, and creates a single node with
- * rosout disabled. On success it also synchronizes the session clock.
+ * Checks Wi-Fi, installs the custom UDP transport, waits for the agent to
+ * answer a ping, initializes rcl, and creates a single node with rosout
+ * disabled. On success it also synchronizes the session clock.
  * Repeated calls return true immediately once connected.
  *
  * @return true when the node is ready to create publishers.

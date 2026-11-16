@@ -31,9 +31,8 @@ Settings live in `config/ros_config.h`, which is committed. Edit it in place:
 #define ROS_LOG_QUEUE_DEPTH 10
 #define ROS_LOG_MAX_MESSAGE_LENGTH 512
 
-#define ROS_INIT_ATTEMPTS 3
 #define ROS_INIT_RETRY_DELAY_MS 1000
-#define ROS_AGENT_PING_TIMEOUT_MS 100
+#define ROS_AGENT_PING_TIMEOUT_MS 500
 #define ROS_TIME_SYNC_TIMEOUT_MS 1000
 ```
 
@@ -41,8 +40,14 @@ Settings live in `config/ros_config.h`, which is committed. Edit it in place:
   from the Pico over Wi-Fi.
 - `ROS_LOG_TOPIC` defaults to a dedicated topic. Set it to `/rosout` if you want
   `rqt_console` to show the messages without extra configuration.
-- `ROS_INIT_ATTEMPTS` probes are made at boot. If the agent is not running yet,
-  ROS publishing stays off for that boot; serial and UDP logging still work.
+- `ROS_INIT_RETRY_DELAY_MS` is the pause between agent probes.
+  `ROS_AGENT_PING_TIMEOUT_MS` is the time allowed for one probe's reply.
+- The firmware waits for the agent indefinitely: there is no attempt limit, no
+  auto-reset, and the LED keeps blinking until the agent answers. Start or
+  restart the agent at any time; the Pico joins on the next probe. Only a
+  power cycle reboots the Pico.
+- `ROS_INIT_ATTEMPTS` is retained in the config for compatibility but is no
+  longer used.
 
 ## Running the agent
 
@@ -64,7 +69,39 @@ ros2 run micro_ros_agent micro_ros_agent udp4 --port 8888 -v6
 ```
 
 The agent must bind to an address the Pico can reach; the default (`0.0.0.0`)
-works for most setups.
+works for most setups. The startup log prints one
+`ros: attempting to connect to the micro-ROS bridge ...` line and one
+`ros: node "dtf_pico" connected to the agent` line; it does not repeat either
+message while retrying.
+
+## Connection troubleshooting
+
+**The agent logs 23-byte requests but no node appears.** The client is probably
+sending stream-framed messages. The agent's `udp4` transport does not implement
+framing, so the reply never reaches the client's framing reader. Confirm that
+`ros_node_init()` calls `rmw_uros_set_custom_transport(false, ...)` and that the
+flashed binary contains the zero argument; `../udp_transport/README.md` has the
+exact symptom and the `objdump` check.
+
+**Pings reach the agent but it never creates a session.** Check
+`ROS_AGENT_IP` from the Pico's network, confirm the host firewall allows UDP
+8888, and watch the agent:
+
+```bash
+docker compose logs -f micro_ros_agent
+ros2 node list        # /dtf_pico after the session forms
+```
+
+**No serial console is available.** The firmware mirrors every log line to
+UDP 5005 as well:
+
+```bash
+python3 firmware/scripts/wifi_log_listen.py
+```
+
+**The LED never stops blinking.** The boot sequence is still waiting for the
+agent or Wi-Fi. Solid means every required device and publisher came up; off
+means at least one boot check failed (the log says which).
 
 ## Receiving the logs
 
