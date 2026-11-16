@@ -174,11 +174,6 @@ int main(void){
         status_led_task();
         absolute_time_t now = get_absolute_time();
 
-        if (boot_ok && absolute_time_diff_us(now, next_heartbeat) <= 0) {
-            wifi_log_printf(WIFI_HEARTBEAT_MESSAGE "\n");
-            next_heartbeat = delayed_by_ms(now, WIFI_HEARTBEAT_PERIOD_MS);
-        }
-
         if (cmd_vel_subscribed &&
             absolute_time_diff_us(now, next_cmd_vel) <= 0) {
             cmd_vel_process();
