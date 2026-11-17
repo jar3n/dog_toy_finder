@@ -1,7 +1,8 @@
 """Launch the LLM vision-trial collector.
 
-Records one row per vision model for every /vision/ask, so several VLMs can be
-compared on the same stereo photo. Run it alongside the vision node:
+Records one row per detector/model for every /vision/ask, so the classical
+detector and several VLMs can be compared on the same rectified stereo pair.
+Run it alongside the vision node:
 
     ros2 launch dog_toy_finder_data collect_llm_trials.launch.py \\
         output_dir:=/workspace/data/vision run_id:=vision1
@@ -15,10 +16,9 @@ ground truth in the ask JSON, or fill it in a spreadsheet and score with
 import os
 
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, ExecuteProcess
+from launch.actions import DeclareLaunchArgument
 from launch.substitutions import LaunchConfiguration
-
-COLLECTOR = "/workspace/software/ros2_ws/src/dog_toy_finder_data/dog_toy_finder_data/vision_trial_collector.py"
+from launch_ros.actions import Node
 
 
 def generate_launch_description():
@@ -34,9 +34,14 @@ def generate_launch_description():
         DeclareLaunchArgument("distance_tolerance", default_value="0.25",
                               description="distance tolerance in metres"),
 
-        ExecuteProcess(output="screen", cmd=[
-            "python3", COLLECTOR, "--ros-args",
-            "-p", ["output_dir:=", arg("output_dir")],
-            "-p", ["run_id:=", arg("run_id")],
-            "-p", ["distance_tolerance:=", arg("distance_tolerance")]]),
+        Node(
+            package="dog_toy_finder_data",
+            executable="vision_trial_collector",
+            output="screen",
+            parameters=[{
+                "output_dir": arg("output_dir"),
+                "run_id": arg("run_id"),
+                "distance_tolerance": arg("distance_tolerance"),
+            }],
+        ),
     ])
