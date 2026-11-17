@@ -6,6 +6,12 @@ FROM ros:humble
 # computer-side stack (odometry, EKF, TF, and the URDF publisher).
 RUN apt-get update && apt-get install -y \
     python3-pip \
+    python3-numpy \
+    python3-yaml \
+    libnss-mdns \
+    avahi-utils \
+    dbus \
+    avahi-daemon \
     python3-colcon-common-extensions \
     ros-humble-rclpy \
     ros-humble-robot-localization \
@@ -18,6 +24,12 @@ RUN apt-get update && apt-get install -y \
     ros-humble-stereo-image-proc \
     ros-humble-camera-info-manager \
     && rm -rf /var/lib/apt/lists/*
+
+# Enable mDNS (.local) resolution inside the container. With network_mode: host
+# the multicast queries reach the LAN, and libnss-mdns resolves *.local names
+# such as the ESP32-CAM hostnames without an avahi daemon.
+RUN sed -i 's/^hosts:.*/hosts: files mdns4_minimal [NOTFOUND=return] dns/' /etc/nsswitch.conf \
+    && grep '^hosts:' /etc/nsswitch.conf
 
 # Pre-install Python dependencies (used in the ROSA guide)
 RUN pip3 install --no-cache-dir \
@@ -38,3 +50,10 @@ ENV LD_LIBRARY_PATH="/opt/ros/humble/lib:${LD_LIBRARY_PATH}"
 ENV AMENT_PREFIX_PATH="/opt/ros/humble"
 
 WORKDIR /workspace
+
+# Start D-Bus and an Avahi daemon so .local (mDNS) names such as the
+# ESP32-CAM hostnames resolve inside the container (host networking).
+COPY entrypoint.sh /usr/local/bin/entrypoint.sh
+RUN chmod +x /usr/local/bin/entrypoint.sh
+ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
+CMD ["bash"]

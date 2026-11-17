@@ -12,6 +12,8 @@ Dog Toy Finder Pico 2 W firmware Main file
 #include "config/cmd_vel_config.h"
 #include "config/encoder_config.h"
 #include "config/ir_obstacle_config.h"
+#include "config/pinout.h"
+#include "config/wifi_config.h"
 #include "encoder/encoder_ros.h"
 #include "imu/bno055.h"
 #include "imu/imu_ros.h"
@@ -20,7 +22,16 @@ Dog Toy Finder Pico 2 W firmware Main file
 #include "motor/cmd_vel.h"
 #include "motor/tb6612fng.h"
 #include "ros/ros_log.h"
+#include "status_led/status_led.h"
 #include "wifi/wifi.h"
+#include "wifi/wifi_log.h"
+
+#ifndef WIFI_HEARTBEAT_PERIOD_MS
+#define WIFI_HEARTBEAT_PERIOD_MS 5000
+#endif
+#ifndef WIFI_HEARTBEAT_MESSAGE
+#define WIFI_HEARTBEAT_MESSAGE "im alive"
+#endif
 
 #define IMU_PUBLISH_PERIOD_MS 20
 #define IMU_LOG_PERIOD_MS 500
@@ -29,19 +40,32 @@ Dog Toy Finder Pico 2 W firmware Main file
 /**
  * Firmware entry point.
  *
- * Starts USB serial, connects Wi-Fi, brings up micro-ROS logging, and
- * initializes the BNO055, both wheel encoders, and the TB6612FNG motor
- * controller. It then subscribes to /cmd_vel and drives the motors from Twist
- * messages, stopping them when commands time out. The main loop publishes Imu
- * and JointState messages at 50 Hz, services /cmd_vel at 50 Hz, and logs IMU
- * and encoder status at 2 Hz and 1 Hz respectively.
+ * Starts USB serial and the built-in status LED, checks the BNO055, wheel
+ * encoders, motor controller, and IR sensor first, then brings up Wi-Fi and
+ * micro-ROS, and finally subscribes to /cmd_vel and drives the
+ * motors from Twist messages, stopping them when commands time out and braking
+ * immediately when the IR obstacle sensor sees something ahead. The main loop
+ * publishes Imu and JointState messages at 50 Hz, services /cmd_vel at 50 Hz,
+ * and logs IMU and encoder status at 2 Hz and 1 Hz respectively.
+ *
+ * The built-in LED blinks while this boot sequence runs, then stays solid on
+ * when every required device came up or turns off when any step failed, so an
+ * outside observer can tell the boot outcome without a terminal.
  */
 int main(void){
     stdio_init_all();
     sleep_ms(1500);
-    wifi_init();
-    ros_log_init();
 
+    // The LED lives on the CYW43 wireless chip, so this also brings that chip
+    // up; wifi_init() below reuses it. Start blinking before Wi-Fi so the
+    // long association wait still shows progress.
+    status_led_init();
+    status_led_task();
+    wifi_set_poll_hook(status_led_task);
+
+    // Sensor checks come first; the Wi-Fi and micro-ROS connections are only
+    // attempted after the IMU, encoders, motor controller, and IR sensor have
+    // been checked. ROS publisher checks happen only after the agent connects.
     bool imu_ready = bno055_init();
     if (imu_ready) {
         ros_log_printf("imu: BNO055 ready in IMU mode\n");
@@ -49,14 +73,11 @@ int main(void){
         ros_log_printf(
             "imu: BNO055 not detected; check the I2C wiring in config/pinout.h\n");
     }
+    status_led_task();
 
-    bool imu_publishing = imu_ready && imu_ros_init();
-    if (imu_ready && !imu_publishing) {
-        ros_log_printf("imu: ROS publishing unavailable\n");
-    }
-
-    bool encoder_ready = encoder_ros_init();
-    bool encoder_publishing = encoder_ready && encoder_ros_ready();
+    bool encoder_ready = encoder_ros_check();
+    bool encoder_publishing = false;
+    status_led_task();
 
     tb6612fng_t motor_driver;
     bool motor_ready = tb6612fng_init(&motor_driver);
@@ -68,20 +89,78 @@ int main(void){
             "motor: TB6612FNG init failed; check the wiring in "
             "config/pinout.h\n");
     }
+    status_led_task();
+
+    bool ir_obstacle_ready = ir_obstacle_ros_check();
+    if (ir_obstacle_ready) {
+        ros_log_printf(
+            "ir_obstacle: sensor ready on GPIO%d\n", IR_OBSTACLE_SIGNAL_PIN);
+    } else {
+        ros_log_printf(
+            "ir_obstacle: sensor init failed; check the wiring in config/pinout.h\n");
+    }
+    status_led_task();
+
+    bool wifi_ready = wifi_init();
+    status_led_task();
+
+    // Sensor checks ran before Wi-Fi, so re-report their results now that the
+    // UDP log mirror is available.
+    wifi_log_printf("sensor check: imu=%s\n",
+                    imu_ready ? "ready" : "NOT DETECTED");
+    wifi_log_printf("sensor check: encoders=%s\n",
+                    encoder_ready ? "ready" : "NOT DETECTED");
+    wifi_log_printf("sensor check: motor=%s\n",
+                    motor_ready ? "ready" : "FAILED");
+    wifi_log_printf("sensor check: ir=%s\n",
+                    ir_obstacle_ready ? "ready" : "FAILED");
+
+    bool ros_ready = ros_log_init();
+    status_led_task();
+
+    bool imu_publishing = false;
+    if (imu_ready) {
+        imu_publishing = imu_ros_init();
+    }
+    if (imu_ready && !imu_publishing) {
+        ros_log_printf("imu: ROS publishing unavailable after agent check\n");
+    }
+    status_led_task();
+
+    encoder_ros_init();
+    encoder_publishing = encoder_ready && encoder_ros_ready();
+    status_led_task();
 
     bool cmd_vel_subscribed = motor_ready && cmd_vel_init(&motor_driver);
     if (motor_ready && !cmd_vel_subscribed) {
         ros_log_printf(
             "cmd_vel: subscriber unavailable; motors stay coasting\n");
     }
+    status_led_task();
 
-    bool ir_obstacle_ready = ir_obstacle_ros_init();
+    ir_obstacle_ready = ir_obstacle_ros_ready();
     if (ir_obstacle_ready) {
-        ros_log_printf("ir_obstacle: sensor ready\n");
+        ros_log_printf(
+            "ir_obstacle: ROS publisher ready on %s\n", IR_OBSTACLE_TOPIC);
     } else {
         ros_log_printf(
-            "ir_obstacle: unavailable; check the wiring in config/pinout.h\n");
+            "ir_obstacle: ROS publishing unavailable after agent check\n");
     }
+    status_led_task();
+
+    // Startup is complete. Solid means every required device came up; if any
+    // step failed, turn the LED off so the failure is visible without a
+    // terminal. The control loop still runs in the degraded state.
+    bool boot_ok = wifi_ready && ros_ready &&
+                   imu_ready && imu_publishing &&
+                   encoder_ready && encoder_publishing &&
+                   motor_ready && cmd_vel_subscribed &&
+                   ir_obstacle_ready;
+    ros_log_printf(
+        "boot: %s\n",
+        boot_ok ? "ready (LED solid)" : "failed (LED off); see messages above");
+    status_led_set_state(
+        boot_ok ? STATUS_LED_READY : STATUS_LED_FAILED);
 
     absolute_time_t next_publish = get_absolute_time();
     absolute_time_t next_log = get_absolute_time();
@@ -89,8 +168,11 @@ int main(void){
     absolute_time_t next_encoder_log = get_absolute_time();
     absolute_time_t next_cmd_vel = get_absolute_time();
     absolute_time_t next_ir_obstacle_publish = get_absolute_time();
+    absolute_time_t next_ir_log = get_absolute_time();
+    absolute_time_t next_heartbeat = get_absolute_time();
 
     while (true) {
+        status_led_task();
         absolute_time_t now = get_absolute_time();
 
         if (cmd_vel_subscribed &&
@@ -110,6 +192,15 @@ int main(void){
             ir_obstacle_ros_publish();
             next_ir_obstacle_publish =
                 delayed_by_ms(now, IR_OBSTACLE_PUBLISH_PERIOD_MS);
+        }
+
+        if (ir_obstacle_ready &&
+            absolute_time_diff_us(now, next_ir_log) <= 0) {
+            ir_obstacle_update();
+            wifi_log_printf(
+                "ir: detected=%s\n",
+                ir_obstacle_detected() ? "true" : "false");
+            next_ir_log = delayed_by_ms(now, 1000);
         }
 
         if (imu_ready && absolute_time_diff_us(now, next_log) <= 0) {
@@ -160,5 +251,4 @@ int main(void){
 
         sleep_ms(1);
     }
-    
 }

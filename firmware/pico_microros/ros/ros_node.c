@@ -1,8 +1,10 @@
 #include "ros/ros_node.h"
 
 #include <rcl/rcl.h>
+#include <rcl/init_options.h>
 #include <rclc/rclc.h>
 #include <rmw_microros/custom_transport.h>
+#include <rmw_microros/init_options.h>
 #include <rmw_microros/rmw_microros.h>
 #include <rmw_microros/time_sync.h>
 
@@ -10,20 +12,17 @@
 #include "pico/time.h"
 
 #include "config/ros_config.h"
+#include "status_led/status_led.h"
 #include "udp_transport/picow_udp_transport.h"
 #include "wifi/wifi.h"
 #include "wifi/wifi_log.h"
-
-#ifndef ROS_INIT_ATTEMPTS
-#define ROS_INIT_ATTEMPTS 3
-#endif
 
 #ifndef ROS_INIT_RETRY_DELAY_MS
 #define ROS_INIT_RETRY_DELAY_MS 1000
 #endif
 
 #ifndef ROS_AGENT_PING_TIMEOUT_MS
-#define ROS_AGENT_PING_TIMEOUT_MS 100
+#define ROS_AGENT_PING_TIMEOUT_MS 500
 #endif
 
 #ifndef ROS_TIME_SYNC_TIMEOUT_MS
@@ -67,11 +66,23 @@ int64_t ros_node_time_ns(void) {
 }
 
 /**
+ * Release temporary init options and report an unexpected cleanup failure.
+ */
+static void ros_node_fini_init_options(rcl_init_options_t *init_options) {
+  rcl_ret_t status = rcl_init_options_fini(init_options);
+  if (status != RCL_RET_OK) {
+    wifi_log_printf("ros: init options cleanup failed (%d)\n", (int) status);
+  }
+}
+
+/**
  * Connect the shared micro-ROS session and create the node.
  *
- * Checks Wi-Fi, installs the custom UDP transport, pings the agent up to
- * ROS_INIT_ATTEMPTS times, initializes rcl, and creates a single node with
- * rosout disabled. On success it also synchronizes the session clock.
+ * Checks Wi-Fi, installs the custom UDP transport, waits for the agent to
+ * answer a ping, initializes rcl with the stable client key, and creates a
+ * single node with rosout disabled. On success it also synchronizes the session
+ * clock. The stable key makes the agent reuse one session across Pico reboots
+ * instead of accumulating duplicate /dtf_pico entities.
  * Repeated calls return true immediately once connected.
  *
  * @return true when the node is ready to create publishers.
@@ -87,7 +98,7 @@ bool ros_node_init(void) {
   }
 
   rmw_ret_t transport_status = rmw_uros_set_custom_transport(
-    true,
+    false,
     &transport_context,
     picow_udp_transport_open,
     picow_udp_transport_close,
@@ -98,35 +109,71 @@ bool ros_node_init(void) {
     return false;
   }
 
+  // Wait for the micro-ROS agent indefinitely: it may be started on the
+  // computer only after the Pico is powered on. There is no attempt limit and
+  // no automatic reset; the LED keeps blinking until the agent answers.
   bool agent_found = false;
-  for (unsigned attempt = 1; attempt <= ROS_INIT_ATTEMPTS; ++attempt) {
-    wifi_log_printf(
-      "ros: pinging agent udp://%s:%u (attempt %u/%u)\n",
+  wifi_log_printf(
+      "ros: attempting to connect to the micro-ROS bridge at udp://%s:%u\n",
       ROS_AGENT_IP,
-      (unsigned) ROS_AGENT_PORT,
-      attempt,
-      (unsigned) ROS_INIT_ATTEMPTS);
+      (unsigned) ROS_AGENT_PORT);
+
+  while (!agent_found) {
+    status_led_task();
 
     if (rmw_uros_ping_agent(ROS_AGENT_PING_TIMEOUT_MS, 1) == RMW_RET_OK) {
       agent_found = true;
       break;
     }
 
-    if (attempt < ROS_INIT_ATTEMPTS) {
-      sleep_ms(ROS_INIT_RETRY_DELAY_MS);
+    status_led_task();
+    // Service the LED blink while waiting for the agent to come up, instead
+    // of a single blocking sleep.
+    uint32_t delay_ms = ROS_INIT_RETRY_DELAY_MS;
+    while (delay_ms > 0) {
+      uint32_t step = delay_ms > 50 ? 50 : delay_ms;
+      status_led_task();
+      sleep_ms(step);
+      delay_ms -= step;
     }
   }
 
-  if (!agent_found) {
-    wifi_log_printf(
-      "ros: no agent at udp://%s:%u; micro-ROS disabled\n",
-      ROS_AGENT_IP,
-      (unsigned) ROS_AGENT_PORT);
+  rcl_allocator_t allocator = rcl_get_default_allocator();
+
+  // A stable Micro XRCE-DDS client key is the key to surviving a Pico reboot
+  // without duplicate graph entities. Without it the agent assigns a new key
+  // on every boot and keeps the old proxy client alive, so each reboot adds
+  // another /dtf_pico node, /cmd_vel subscription, and /imu/data publisher.
+  rcl_init_options_t init_options = rcl_get_zero_initialized_init_options();
+  rcl_ret_t status = rcl_init_options_init(&init_options, allocator);
+  if (status != RCL_RET_OK) {
+    wifi_log_printf("ros: init options failed (%d)\n", (int) status);
     return false;
   }
 
-  rcl_allocator_t allocator = rcl_get_default_allocator();
-  rcl_ret_t status = rclc_support_init(&support, 0, NULL, &allocator);
+  rmw_init_options_t *rmw_options =
+    rcl_init_options_get_rmw_init_options(&init_options);
+  if (rmw_options == NULL) {
+    wifi_log_printf("ros: no RMW init options available\n");
+    ros_node_fini_init_options(&init_options);
+    return false;
+  }
+
+  rmw_ret_t rmw_status =
+    rmw_uros_options_set_client_key(ROS_CLIENT_KEY, rmw_options);
+  if (rmw_status != RMW_RET_OK) {
+    wifi_log_printf("ros: stable client key rejected (%d)\n", (int) rmw_status);
+    ros_node_fini_init_options(&init_options);
+    return false;
+  }
+
+  wifi_log_printf(
+    "ros: using stable client key 0x%08lX\n",
+    (unsigned long) ROS_CLIENT_KEY);
+
+  status = rclc_support_init_with_options(
+    &support, 0, NULL, &init_options, &allocator);
+  ros_node_fini_init_options(&init_options);
   if (status != RCL_RET_OK) {
     wifi_log_printf("ros: rcl init failed (%d)\n", (int) status);
     return false;

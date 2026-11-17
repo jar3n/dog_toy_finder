@@ -3,6 +3,9 @@
 **/ros2_ws/install/
 **/ros2_ws/log/
 
+# Vision snapshots written at runtime
+**/dog_toy_finder_vision/results/
+
 # Pico / micro-ROS build output
 firmware/pico_microros/build/*
 firmware/pico_microros/lib/*
@@ -26,21 +29,8 @@ venv/
 # Secrets / local config (API keys, WiFi credentials)
 .env
 *.env
-config/env/*
-!config/env/.gitkeep
-!config/env/README.md
 **/wifi_config.h
-**/ros_config.h
-**/imu_config.h
-**/encoder_config.h
-**/motor_config.h
-**/cmd_vel_config.h
-**/ir_obstacle_config.h
 **/secrets*
-
-# Data
-data/logs/*
-!data/logs/.gitkeep
 rosa_agent/memory/*.db
 **/rosa_agent/memory/*.db
 *.bag
@@ -50,3 +40,14 @@ rosa_agent/memory/*.db
 .vscode/
 .idea/
 .DS_Store
+
+# Generated evaluation data (keep the vision/ and planning/ folders)
+data/vision/*
+data/planning/*
+!data/vision/.gitkeep
+!data/planning/.gitkeep
+
+# Accidental colcon output if built from software/ instead of software/ros2_ws/
+software/build/
+software/install/
+software/log/

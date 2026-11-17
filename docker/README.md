@@ -1,15 +1,21 @@
 # Docker
 
-| Folder | Container | Notes |
+| Folder / service | Container | Notes |
 |---|---|---|
-| `ros2/` | ROS 2 Humble + ROSA + Ollama/LangChain/MCP Python deps | host networking |
-| `gazebo/` | ROS 2 Humble + Gazebo Fortress + noVNC browser desktop + ROSA | open http://localhost:6080/vnc.html |
-| `microros_builder/` | ROS 2 Humble + Pico SDK + arm-none-eabi toolchain + micro_ros_setup | builds `libmicroros` for the Pico |
+| `ros2/` | ROS 2 Humble + vision/mapping packages + ROSA Python deps | host networking; the main development and run container |
+| `microros_builder/` | ROS 2 Humble + Pico SDK + `arm-none-eabi` toolchain + `micro_ros_setup` | builds `libmicroros` for the Pico |
 | `micro_ros_agent` | `microros/micro-ros-agent:humble` | host networking, UDP port 8888; connects the Pico to the ROS 2 graph |
 
-`docker-compose.yml` defines all four (run from this folder). The repo root is mounted at `/workspace`.
+`docker-compose.yml` defines all three (run from this folder). The repository
+root is mounted at `/workspace` in the build containers, so the same tree is
+visible on the host and inside them.
 
-Do not run both the ros2 and the gazebo docker containers. ros2 is for running with the real robot and gazebo is for running a simulation.
+Build the main image once:
+
+```bash
+cd docker
+docker compose build ros2
+```
 
 ## micro-ROS agent
 
@@ -33,3 +39,19 @@ docker run --rm -it \
   microros/micro-ros-agent:humble \
   udp4 --port 8888 -v6
 ```
+
+`scripts/launch_all.sh` starts and stops this container automatically when you
+run it from the host.
+
+## micro-ROS library builder
+
+Only rebuild this image when the micro-ROS transport configuration changes
+(for example `microros_builder/microros/colcon.meta` or `toolchain.cmake`):
+
+```bash
+docker compose build microros_builder
+docker compose run --rm microros_builder
+```
+
+The builder writes the static library used by the Pico firmware. See
+`microros_builder/readme.md` for details.

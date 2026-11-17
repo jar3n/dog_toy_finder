@@ -20,6 +20,12 @@ def generate_launch_description():
         DeclareLaunchArgument("ir_topic", default_value="/ir_obstacle/detected"),
         DeclareLaunchArgument("use_vision", default_value="true"),
         DeclareLaunchArgument("vision_obstacle_range", default_value="0.8"),
+        DeclareLaunchArgument("vision_timeout", default_value="5.0"),
+        DeclareLaunchArgument("toy_forward_distance", default_value="0.6"),
+        DeclareLaunchArgument("toy_side_offset", default_value="0.25"),
+        DeclareLaunchArgument("toy_max_distance", default_value="5.0"),
+        DeclareLaunchArgument("toy_merge_radius", default_value="0.15"),
+        DeclareLaunchArgument("toy_occupancy_radius", default_value="1"),
 
         ExecuteProcess(output="screen", cmd=[
             "python3", NODE, "--ros-args",
@@ -32,5 +38,11 @@ def generate_launch_description():
             "-p", ["publish_period:=", arg("publish_period")],
             "-p", ["ir_topic:=", arg("ir_topic")],
             "-p", ["use_vision:=", arg("use_vision")],
-            "-p", ["vision_obstacle_range:=", arg("vision_obstacle_range")]]),
+            "-p", ["vision_obstacle_range:=", arg("vision_obstacle_range")],
+            "-p", ["vision_timeout:=", arg("vision_timeout")],
+            "-p", ["toy_forward_distance:=", arg("toy_forward_distance")],
+            "-p", ["toy_side_offset:=", arg("toy_side_offset")],
+            "-p", ["toy_max_distance:=", arg("toy_max_distance")],
+            "-p", ["toy_merge_radius:=", arg("toy_merge_radius")],
+            "-p", ["toy_occupancy_radius:=", arg("toy_occupancy_radius")]]),
     ])

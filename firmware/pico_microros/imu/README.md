@@ -80,8 +80,7 @@ The message contains:
 | `linear_acceleration` | linear acceleration, gravity removed, m/s^2 |
 | `*_covariance` | diagonal from `IMU_ROS_*_VARIANCE` |
 
-Settings live in `config/imu_config.h`, which is git-ignored and generated
-from `config/imu_config.example.h` when missing:
+Settings live in `config/imu_config.h`; edit it in place:
 
 ```c
 #define IMU_ROS_TOPIC "/imu/data"

@@ -22,4 +22,7 @@
 // the computer's IP as long as it is on the same network. Set this to the
 // computer's IPv4 address for unicast (more reliable through firewalls).
 #define WIFI_LOG_TARGET_IP "255.255.255.255"
-#define WIFI_LOG_TARGET_PORT 5005
+// Wi-Fi heartbeat sent over UDP after a successful boot. The message and
+// period are configurable here; the period is in milliseconds.
+#define WIFI_HEARTBEAT_MESSAGE "im alive"
+#define WIFI_HEARTBEAT_PERIOD_MS 5000
