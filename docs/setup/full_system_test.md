@@ -52,6 +52,18 @@ repeated 23-byte pings from `client_key: 0x00000000` but no `/dtf_pico` node,
 the custom transport is framed and the agent cannot answer it; see
 `firmware/pico_microros/udp_transport/README.md`.
 
+After flashing/rebooting the Pico, verify that exactly one micro-ROS session is
+in the graph before starting any motion test:
+
+```bash
+docker exec -it rosa-ros2 bash -lc \
+  'source /opt/ros/humble/setup.bash; /workspace/firmware/scripts/check_pico_graph.sh'
+```
+
+The firmware uses a stable client key so reboots reuse one agent session. If
+the check reports duplicates from an older firmware, restart the micro-ROS
+agent once to discard the stale sessions, then rerun the check.
+
 Geometry defaults (Module 8 course robot): wheel diameter 0.065 m, wheel
 separation 0.133 m, 4320 counts/rev. Refine in `encoder_config.h` and
 `cmd_vel_config.h` for your chassis.

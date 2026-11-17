@@ -10,6 +10,14 @@
 // micro-ROS node name that shows up in the ROS 2 graph.
 #define ROS_NODE_NAME "dtf_pico"
 
+// Stable Micro XRCE-DDS client key. The agent keeps a proxy client (and its
+// DDS entities) after the Pico reboots. Reusing the same key makes the agent
+// reset that session and replace its entities instead of creating a second
+// session with a second /dtf_pico node. Do not change this value while old
+// sessions may still be present: restart the micro-ROS agent once when changing
+// it so stale proxy clients are discarded.
+#define ROS_CLIENT_KEY 0x44544650u  // "DTFP"
+
 // Logs are published as rcl_interfaces/msg/Log on this topic.
 // Point it at /rosout if you want rqt_console to pick the messages up.
 #define ROS_LOG_TOPIC "/pico/log"

@@ -27,6 +27,7 @@ Settings live in `config/ros_config.h`, which is committed. Edit it in place:
 #define ROS_AGENT_PORT 8888
 
 #define ROS_NODE_NAME "dtf_pico"
+#define ROS_CLIENT_KEY 0x44544650u
 #define ROS_LOG_TOPIC "/pico/log"
 #define ROS_LOG_QUEUE_DEPTH 10
 #define ROS_LOG_MAX_MESSAGE_LENGTH 512
@@ -38,6 +39,10 @@ Settings live in `config/ros_config.h`, which is committed. Edit it in place:
 
 - `ROS_AGENT_IP` must be the address of the computer running the agent, reachable
   from the Pico over Wi-Fi.
+- `ROS_CLIENT_KEY` identifies the micro-ROS session. Keep it stable across Pico
+  reboots and firmware rebuilds: the agent then resets the existing session and
+  replaces its entities instead of leaving another `/dtf_pico` in the graph.
+  Changing the key requires one agent restart to discard the old session.
 - `ROS_LOG_TOPIC` defaults to a dedicated topic. Set it to `/rosout` if you want
   `rqt_console` to show the messages without extra configuration.
 - `ROS_INIT_RETRY_DELAY_MS` is the pause between agent probes.
@@ -90,6 +95,21 @@ exact symptom and the `objdump` check.
 ```bash
 docker compose logs -f micro_ros_agent
 ros2 node list        # /dtf_pico after the session forms
+```
+
+**A Pico reboot adds another `/dtf_pico`.** The agent keeps proxy clients after
+a client disconnects. With a random client key, every reboot looks like a new
+client and leaves another node, `/cmd_vel` subscription, and `/imu/data`
+publisher in the graph. The firmware now sends `ROS_CLIENT_KEY`; confirm the
+boot log prints `ros: using stable client key 0x44544650` and the agent log
+says `session re-established` after a reboot (not a fresh `create` line).
+Sessions created by older firmware are not removed automatically. After
+flashing this firmware, restart the agent once to clear them:
+
+```bash
+(cd docker && docker compose restart micro_ros_agent)
+# wait for the Pico to reconnect, then verify exactly one of each:
+firmware/scripts/check_pico_graph.sh
 ```
 
 **No serial console is available.** The firmware mirrors every log line to
