@@ -7,6 +7,7 @@ Run from the package directory:
 """
 
 import csv
+import json
 import os
 import sys
 import tempfile
@@ -30,6 +31,19 @@ class GroundTruthTests(unittest.TestCase):
         self.assertEqual(mapped["gt_position"], "left")
         self.assertEqual(mapped["gt_distance_m"], 0.6)
         self.assertEqual(mapped["gt_notes"], "on the rug")
+
+    def test_distance_list_maps_to_json_csv_value(self):
+        mapped = llm_trials.merged_ground_truth({
+            "distance_m": [0.7, 0.72, 0.68],
+        })
+        self.assertEqual(json.loads(mapped["gt_distance_m"]),
+                         [0.7, 0.72, 0.68])
+
+    def test_distances_alias_maps_to_gt_column(self):
+        mapped = llm_trials.merged_ground_truth({
+            "distances_m": [0.8, 0.9],
+        })
+        self.assertEqual(json.loads(mapped["gt_distance_m"]), [0.8, 0.9])
 
     def test_unknown_keys_are_ignored(self):
         self.assertEqual(llm_trials.merged_ground_truth({"bogus": 1}), {})
@@ -60,6 +74,27 @@ class VisionMetricsTests(unittest.TestCase):
         self.assertTrue(metrics["distance_within_tolerance"])
         self.assertTrue(metrics["obstacle_correct"])
         self.assertEqual(metrics["score"], 1.0)
+
+    def test_multiple_distance_measurements_use_mean(self):
+        row = {
+            "target_visible": "True",
+            "distance_m": "0.72",
+            "gt_target_visible": "True",
+            "gt_distance_m": "[0.7, 0.8]",
+        }
+        metrics = llm_trials.vision_metrics(row, distance_tolerance=0.1)
+        self.assertAlmostEqual(metrics["distance_error_m"], 0.03)
+        self.assertTrue(metrics["distance_within_tolerance"])
+
+    def test_comma_separated_distance_ground_truth_is_supported(self):
+        row = {
+            "target_visible": "True",
+            "distance_m": "0.72",
+            "gt_target_visible": "True",
+            "gt_distance_m": "0.7, 0.8",
+        }
+        metrics = llm_trials.vision_metrics(row, distance_tolerance=0.1)
+        self.assertAlmostEqual(metrics["distance_error_m"], 0.03)
 
     def test_distance_outside_tolerance_fails_check(self):
         row = {

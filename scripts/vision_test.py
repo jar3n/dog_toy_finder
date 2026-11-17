@@ -14,7 +14,9 @@ collector fills the gt_* columns instead of leaving them for manual entry:
     python3 /workspace/scripts/vision_test.py "red ball" --gt-json gt.json
 
 The JSON object uses the short keys ``target_visible``, ``position``,
-``size``, ``distance_m``, ``obstacle_ahead``, and ``notes``.
+``size``, ``distance_m``, ``obstacle_ahead``, and ``notes``. ``distance_m``
+may be a number or a list of repeated measurements, e.g. ``[0.7, 0.72]``;
+score uses their mean. ``distances_m`` is accepted as an alias.
 """
 
 import argparse

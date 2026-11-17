@@ -364,8 +364,11 @@ python3 /workspace/scripts/vision_test.py "red ball" --gt-json /tmp/gt_vision.js
 
 ```json
 {"target_visible": true, "position": "left", "size": "medium",
- "distance_m": 0.7, "obstacle_ahead": "none"}
+ "distance_m": [0.7, 0.72], "obstacle_ahead": "none"}
 ```
+
+`distance_m` may be a single number or a list of repeated measurements; the
+mean of the list is used when scoring distance error.
 
 Planning rows are written by ROSA (section 5.1) to `$ROSA_OUTPUT_CSV`. The
 `gt_*` columns stay blank unless `ROSA_GT_JSON` points at a JSON file. A flat

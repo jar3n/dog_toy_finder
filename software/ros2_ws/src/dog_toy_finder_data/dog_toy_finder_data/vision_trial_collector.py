@@ -17,7 +17,7 @@ immediately when the ask JSON carries a ``ground_truth`` object::
 
     {"id": "1", "target": "red ball",
      "ground_truth": {"target_visible": true, "position": "left",
-                      "size": "medium", "distance_m": 0.7,
+                      "size": "medium", "distance_m": [0.7, 0.72],
                       "obstacle_ahead": "none"}}
 
 Run the collector alongside the vision node, for example with

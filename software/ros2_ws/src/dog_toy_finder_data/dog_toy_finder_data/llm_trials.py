@@ -93,6 +93,40 @@ def _as_float(value):
     return number
 
 
+def _as_float_list(value):
+    """Return finite numbers from a scalar, JSON array, or delimited string."""
+    if isinstance(value, (list, tuple)):
+        items = value
+    else:
+        text = str(value or "").strip()
+        if not text:
+            return []
+        if text.startswith("[") and text.endswith("]"):
+            try:
+                parsed = json.loads(text)
+            except ValueError:
+                parsed = None
+            items = parsed if isinstance(parsed, (list, tuple)) else \
+                text.strip("[]").replace(";", ",").split(",")
+        else:
+            items = text.replace(";", ",").split(",")
+
+    numbers = []
+    for item in items:
+        number = _as_float(item)
+        if number is not None:
+            numbers.append(number)
+    return numbers
+
+
+def _serialise_distance_truth(value):
+    """Keep multiple ground-truth distances as JSON so CSV round-trips them."""
+    if not isinstance(value, (list, tuple)):
+        return value
+    distances = [number for number in _as_float_list(value) if number > 0.0]
+    return json.dumps(distances) if distances else ""
+
+
 def _text(value):
     """Normalise free text for matching: lower case, single spaces, no edges."""
     return " ".join(str(value or "").strip().lower().split())
@@ -114,7 +148,9 @@ def merged_ground_truth(ground_truth):
 
     Accepts either the short keys used in the vision ask JSON
     (``target_visible``, ``position``, ...) or the actual column names
-    (``gt_target_visible``, ...). Unknown keys are ignored.
+    (``gt_target_visible``, ...). Unknown keys are ignored. Distance ground
+    truth may be a number or a list of repeated measurements; lists are stored
+    as JSON so they survive the CSV round trip.
     """
     if not isinstance(ground_truth, dict):
         return {}
@@ -125,6 +161,8 @@ def merged_ground_truth(ground_truth):
         "size": "gt_size",
         "distance_m": "gt_distance_m",
         "distance": "gt_distance_m",
+        "distances_m": "gt_distance_m",
+        "distances": "gt_distance_m",
         "obstacle_ahead": "gt_obstacle_ahead",
         "notes": "gt_notes",
         "expected_action": "gt_expected_action",
@@ -137,6 +175,8 @@ def merged_ground_truth(ground_truth):
     for key, value in ground_truth.items():
         field = aliases.get(key, key)
         if field in VISION_GT_FIELDS or field in PLANNING_GT_FIELDS:
+            if field == "gt_distance_m":
+                value = _serialise_distance_truth(value)
             result[field] = value
     return result
 
@@ -152,7 +192,8 @@ def vision_metrics(row, distance_tolerance=0.25):
 
     Returns blank metrics until ``gt_target_visible`` is filled. A blank
     metric means that check does not apply to this row (for example a distance
-    when the target is not visible).
+    when the target is not visible). When ``gt_distance_m`` contains multiple
+    measurements, their mean is used as the ground-truth distance.
     """
     metrics = _blank(VISION_METRIC_FIELDS)
     gt_visible = _as_bool(row.get("gt_target_visible"))
@@ -182,8 +223,10 @@ def vision_metrics(row, distance_tolerance=0.25):
         metrics["size_correct"] = _text(row.get("size")) == gt_size
         checks.append(metrics["size_correct"])
 
-    gt_distance = _as_float(row.get("gt_distance_m"))
-    if gt_distance is not None and gt_distance > 0.0:
+    gt_distances = [number for number in _as_float_list(
+        row.get("gt_distance_m")) if number > 0.0]
+    if gt_distances:
+        gt_distance = sum(gt_distances) / len(gt_distances)
         model_distance = _as_float(row.get("distance_m"))
         if model_distance is not None:
             error = abs(model_distance - gt_distance)

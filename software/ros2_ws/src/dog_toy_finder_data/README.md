@@ -55,8 +55,11 @@ python3 /workspace/scripts/vision_test.py "red ball" --gt-json gt.json
 
 ```json
 {"target_visible": true, "position": "left", "size": "medium",
- "distance_m": 0.7, "obstacle_ahead": "none"}
+ "distance_m": [0.7, 0.72], "obstacle_ahead": "none"}
 ```
+
+`distance_m` also accepts a single number. A list stores repeated measurements
+of the same target in the CSV; scoring uses their mean as the ground truth.
 
 Without ground truth, fill the `gt_*` columns in a spreadsheet after the run.
 

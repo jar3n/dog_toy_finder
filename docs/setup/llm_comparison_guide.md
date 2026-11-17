@@ -110,11 +110,15 @@ file. Create `gt_vision.json`:
   "target_visible": true,
   "position": "left",
   "size": "medium",
-  "distance_m": 0.7,
+  "distance_m": [0.7, 0.72, 0.69],
   "obstacle_ahead": "none",
-  "notes": "toy 0.7 m ahead, left of centre"
+  "notes": "toy about 0.7 m ahead, left of centre"
 }
 ```
+
+`distance_m` accepts a single number or a list of repeated measurements. The
+list is stored as JSON in the `gt_distance_m` CSV column, and scoring uses the
+mean as the ground-truth distance.
 
 Ask the vision node:
 
@@ -148,7 +152,8 @@ gt_obstacle_ahead, gt_notes
 ```
 
 Leave a field blank when it does not apply. Blank ground truth means that row is
-skipped for that metric.
+skipped for that metric. For `gt_distance_m`, enter a single number, a JSON list
+such as `[0.7, 0.72]`, or comma-separated measurements such as `0.7, 0.72`.
 
 ### A5. Score the vision trials
 
@@ -361,7 +366,7 @@ as above.
 | `visible_correct` | Model's visible/not-visible answer matches ground truth. |
 | `position_correct` | left/centre/right matches. |
 | `size_correct` | size matches. |
-| `distance_error_m` | Absolute error in metres. |
+| `distance_error_m` | Absolute error in metres, against the mean when several ground-truth measurements are recorded. |
 | `distance_within_tolerance` | Error is within `--tolerance`. |
 | `obstacle_correct` | Obstacle description matches. |
 | `score` | Mean of the checks that apply to that row. |
