@@ -7,7 +7,6 @@
 #include <rmw/qos_profiles.h>
 #include <sensor_msgs/msg/joint_state.h>
 
-#include "hardware/gpio.h"
 #include "pico/time.h"
 
 #include "config/encoder_config.h"
@@ -144,38 +143,14 @@ static bool init_hardware(void) {
     return false;
   }
 
-  // Verify both channels read high (pull-ups) rather than being shorted to
-  // ground. Open-drain hall outputs at rest are high, so a low reading means
-  // a short or a stuck-low line, not a healthy encoder. Check each pin
-  // independently so every failed pin is reported, not just the first one.
-  bool pin_failed = false;
-  if (!gpio_get(ENCODER_LEFT_PIN_A)) {
-    wifi_log_printf(
-      "encoder: left A (GPIO %d) reads low at boot (short to ground?)\n",
-      ENCODER_LEFT_PIN_A);
-    pin_failed = true;
-  }
-  if (!gpio_get(ENCODER_LEFT_PIN_B)) {
-    wifi_log_printf(
-      "encoder: left B (GPIO %d) reads low at boot (short to ground?)\n",
-      ENCODER_LEFT_PIN_B);
-    pin_failed = true;
-  }
-  if (!gpio_get(ENCODER_RIGHT_PIN_A)) {
-    wifi_log_printf(
-      "encoder: right A (GPIO %d) reads low at boot (short to ground?)\n",
-      ENCODER_RIGHT_PIN_A);
-    pin_failed = true;
-  }
-  if (!gpio_get(ENCODER_RIGHT_PIN_B)) {
-    wifi_log_printf(
-      "encoder: right B (GPIO %d) reads low at boot (short to ground?)\n",
-      ENCODER_RIGHT_PIN_B);
-    pin_failed = true;
-  }
-  if (pin_failed) {
-    return false;
-  }
+  // Do not judge encoder health from a single static pin reading. The hall
+  // outputs are open-drain with pull-ups, and a healthy quadrature encoder
+  // can legitimately hold A or B low depending on where its magnet disk
+  // stopped (only one of the four quadrature states has both channels high).
+  // A low pin at boot is therefore normal, not evidence of a short, and must
+  // not fail the boot sequence. encoder_init() above already confirms the
+  // GPIOs configure cleanly; direction/sign is verified by the hand-spin
+  // check on the assembled robot instead.
 
   set_string_view(
     &joint_names[0],
