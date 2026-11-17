@@ -7,6 +7,12 @@ set -Eeuo pipefail
 
 NODE_NAME="${DTF_PICO_NODE_NAME:-/dtf_pico}"
 EXPECTED_COUNT=1
+# Endpoint discovery can lag a few seconds behind a fresh Pico boot.
+MAX_ATTEMPTS="${DTF_PICO_GRAPH_ATTEMPTS:-15}"
+if [[ ! "$MAX_ATTEMPTS" =~ ^[1-9][0-9]*$ ]]; then
+  printf 'error: DTF_PICO_GRAPH_ATTEMPTS must be a positive integer\n' >&2
+  exit 2
+fi
 
 if ! command -v ros2 >/dev/null 2>&1; then
   cat >&2 <<'EOF'
@@ -46,15 +52,6 @@ count_endpoint() {
   '
 }
 
-node_list="$(ros2 node list --no-daemon 2>/dev/null || true)"
-node_count="$(printf '%s\n' "$node_list" | grep -cx -- "$NODE_NAME" || true)"
-
-cmd_vel_info="$(ros2 topic info /cmd_vel --no-daemon -v 2>/dev/null || true)"
-imu_info="$(ros2 topic info /imu/data --no-daemon -v 2>/dev/null || true)"
-
-cmd_vel_subs="$(count_endpoint "$cmd_vel_info" "${NODE_NAME#/}" SUBSCRIPTION)"
-imu_pubs="$(count_endpoint "$imu_info" "${NODE_NAME#/}" PUBLISHER)"
-
 failures=0
 check_count() {
   local label="$1"
@@ -68,6 +65,33 @@ check_count() {
   fi
 }
 
+for ((attempt = 1; attempt <= MAX_ATTEMPTS; attempt++)); do
+  node_list="$(ros2 node list --no-daemon 2>/dev/null || true)"
+  node_count="$(printf '%s\n' "$node_list" | grep -cx -- "$NODE_NAME" || true)"
+
+  cmd_vel_info="$(ros2 topic info /cmd_vel --no-daemon -v 2>/dev/null || true)"
+  imu_info="$(ros2 topic info /imu/data --no-daemon -v 2>/dev/null || true)"
+
+  cmd_vel_subs="$(count_endpoint "$cmd_vel_info" "${NODE_NAME#/}" SUBSCRIPTION)"
+  imu_pubs="$(count_endpoint "$imu_info" "${NODE_NAME#/}" PUBLISHER)"
+
+  if [[ "$node_count" -eq "$EXPECTED_COUNT" &&
+        "$cmd_vel_subs" -eq "$EXPECTED_COUNT" &&
+        "$imu_pubs" -eq "$EXPECTED_COUNT" ]]; then
+    check_count "nodes named $NODE_NAME" "$node_count"
+    check_count "/cmd_vel subscriptions from ${NODE_NAME#/}" "$cmd_vel_subs"
+    check_count "/imu/data publishers from ${NODE_NAME#/}" "$imu_pubs"
+    printf '\nPico graph check passed: exactly one %s session is advertised.\n' "$NODE_NAME"
+    exit 0
+  fi
+
+  if [[ "$attempt" -lt "$MAX_ATTEMPTS" ]]; then
+    sleep 1
+  fi
+done
+
+# Report the final sample so a persistent duplicate is easy to diagnose.
+failures=0
 check_count "nodes named $NODE_NAME" "$node_count"
 check_count "/cmd_vel subscriptions from ${NODE_NAME#/}" "$cmd_vel_subs"
 check_count "/imu/data publishers from ${NODE_NAME#/}" "$imu_pubs"
@@ -85,5 +109,3 @@ again; older firmware will create a new client key on every boot.
 EOF
   exit 1
 fi
-
-printf '\nPico graph check passed: exactly one %s session is advertised.\n' "$NODE_NAME"
