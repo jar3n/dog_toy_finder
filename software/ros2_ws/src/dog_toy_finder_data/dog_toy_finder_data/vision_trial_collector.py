@@ -1,8 +1,9 @@
-"""Record one row per vision model for every /vision/ask comparison.
+"""Record one row per vision detector/model for every /vision/ask comparison.
 
-The vision node already asks every model in its ``models`` parameter about the
-same stereo photo and publishes all answers in one ``/vision/result`` JSON.
-This collector turns that stream into an annotatable CSV:
+The vision node runs a deterministic classical detector and asks every model in
+its ``models`` parameter about the same rectified stereo pair, publishing all
+answers in one ``/vision/result`` JSON. This collector turns that stream into
+an annotatable CSV with a ``method`` column (``classical`` or ``ml``):
 
     <output_dir>/<run_id>/vision_trials.csv
     <output_dir>/<run_id>/manifest.json
@@ -80,6 +81,7 @@ class VisionTrialCollector(Node):
         self._pending = {}
         self._rows = 0
         self._models = set()
+        self._methods = set()
         self.started = time.time()
 
         self.create_subscription(String, "/vision/ask", self.on_ask, 10)
@@ -98,6 +100,7 @@ class VisionTrialCollector(Node):
             "distance_tolerance": self.distance_tolerance,
             "rows": self._rows,
             "models": sorted(self._models),
+            "methods": sorted(self._methods),
             "started": self.started,
         }
         if finished:
@@ -167,6 +170,8 @@ class VisionTrialCollector(Node):
             append_csv(self.csv_path, row, VISION_FIELDS)
             self._rows += 1
             self._models.add(str(model))
+            if row.get("method"):
+                self._methods.add(str(row["method"]))
         self._write_manifest()
 
     def destroy_node(self):

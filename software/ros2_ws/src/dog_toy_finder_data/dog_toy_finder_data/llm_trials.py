@@ -37,7 +37,8 @@ KIND_PLANNING = "planning"
 # metrics filled in by `score`. Keeping the order fixed makes the CSV easy to
 # annotate in a spreadsheet and stable across runs.
 VISION_FIELDS = [
-    "trial_id", "kind", "run_id", "t", "ask_id", "target", "model", "image",
+    "trial_id", "kind", "run_id", "t", "ask_id", "target", "model", "method",
+    "image",
     "latency_s", "error", "description", "target_visible", "position", "size",
     "distance_m", "obstacle_ahead", "path_clear",
     "gt_target_visible", "gt_position", "gt_size", "gt_distance_m",
@@ -289,6 +290,9 @@ def vision_row(result, entry, model, run_id, distance_tolerance=0.25,
         "ask_id": ask_id,
         "target": result.get("target", ""),
         "model": entry.get("model") or model or "",
+        "method": entry.get("method") or (
+            "classical" if str(entry.get("model") or model).strip().lower()
+            == "classical" else "ml"),
         "image": result.get("image", ""),
     })
     row["trial_id"] = "%s-%s-%s" % (run_id, ask_id, row["model"])

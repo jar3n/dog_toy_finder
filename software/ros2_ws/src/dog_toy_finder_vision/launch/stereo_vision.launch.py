@@ -1,4 +1,4 @@
-"""Combined stereo-vision launch: cameras -> rectification -> depth -> VLM.
+"""Combined stereo-vision launch: cameras -> rectification -> detectors.
 
 This single entry point replaces the old ``stereo.launch.py`` and
 ``vision.launch.py``. It starts, in order:
@@ -13,16 +13,20 @@ This single entry point replaces the old ``stereo.launch.py`` and
      synchronised and frames arrive in bursts.
   3. ``stereo_image_proc`` -- disparity and point cloud from the rectified
      pair, using approximate sync.
-  4. ``vision_node`` -- answers ``/vision/ask`` with one or more Ollama VLMs.
+  4. ``vision_node`` -- answers ``/vision/ask`` with two paths over the same
+     rectified colour pair: a deterministic colour/edge/stereo detector and
+     one or more Ollama vision models.
 
 Every stage can be switched off independently (``stereo``, ``stereo_proc``,
-``vision``) so the same launch file serves depth-only debugging, VLM-only
-runs, and the full dog-toy-finder stack.
+``vision``, ``classical``, ``ml``) so the same launch file serves depth-only
+debugging, detector comparison runs, and the full dog-toy-finder stack.
 
 Run inside the ROS 2 container:
     ros2 launch dog_toy_finder_vision stereo_vision.launch.py
     ros2 launch dog_toy_finder_vision stereo_vision.launch.py \\
         models:="gemma4,minicpm-v4.5"
+    ros2 launch dog_toy_finder_vision stereo_vision.launch.py classical:=false
+    ros2 launch dog_toy_finder_vision stereo_vision.launch.py ml:=false
     ros2 launch dog_toy_finder_vision stereo_vision.launch.py vision:=false
 
 The default capture size is 320x240. At 640x480 each colour frame is ~900 KB
@@ -32,12 +36,20 @@ image_proc log "do not appear to be synchronized" and stalls the point cloud;
 width/height, scale fx, fy, cx and cy with them.
 """
 
+import os
+
+from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, GroupAction
 from launch.conditions import IfCondition
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import ComposableNodeContainer, Node
 from launch_ros.descriptions import ComposableNode
+
+
+DEFAULT_DETECTOR_CONFIG = os.path.join(
+    get_package_share_directory("dog_toy_finder_vision"),
+    "config", "vision_detectors.yaml")
 
 
 def generate_launch_description():
@@ -47,6 +59,8 @@ def generate_launch_description():
     stereo_enabled = LaunchConfiguration("stereo")
     stereo_proc_enabled = LaunchConfiguration("stereo_proc")
     vision_enabled = LaunchConfiguration("vision")
+    classical_enabled = LaunchConfiguration("classical")
+    ml_enabled = LaunchConfiguration("ml")
 
     stereo_camera = Node(
         package="dog_toy_finder_vision",
@@ -160,6 +174,9 @@ def generate_launch_description():
         output="screen",
         condition=IfCondition(vision_enabled),
         parameters=[{
+            "config_path": LaunchConfiguration("config_path"),
+            "classical_enabled": classical_enabled,
+            "ml_enabled": ml_enabled,
             "model": LaunchConfiguration("model"),
             "models": LaunchConfiguration("models"),
             "ollama_url": LaunchConfiguration("ollama_url"),
@@ -193,7 +210,14 @@ def generate_launch_description():
         DeclareLaunchArgument("stereo_proc", default_value="true",
                               description="Start disparity + point cloud (needs stereo:=true)"),
         DeclareLaunchArgument("vision", default_value="true",
-                              description="Start the vision_node VLM server"),
+                              description="Start the vision_node detector server"),
+        DeclareLaunchArgument("classical", default_value="true",
+                              description="Run the deterministic rectified-stereo detector"),
+        DeclareLaunchArgument("ml", default_value="true",
+                              description="Run the Ollama vision model(s)"),
+        DeclareLaunchArgument("config_path",
+                              default_value=DEFAULT_DETECTOR_CONFIG,
+                              description="YAML with physical measurements and detector thresholds"),
 
         # --- stereo_image_proc tuning ---
         DeclareLaunchArgument("approximate_sync", default_value="true",

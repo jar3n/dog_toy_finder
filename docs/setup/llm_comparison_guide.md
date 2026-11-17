@@ -1,14 +1,23 @@
 # LLM comparison guide (vision and planning)
 
-This guide walks through comparing several vision models and several planning
-models with `dog_toy_finder_data`. Both kinds of trial share one CSV schema and
-one scoring tool (`dog_toy_finder_data.llm_trials`), so the automated columns are
-recorded in the same format and ground truth can be filled in as it becomes
-available.
+This guide walks through comparing the deterministic vision detector, several
+vision models, and several planning models with `dog_toy_finder_data`. Both
+trial kinds share one CSV schema and one scoring tool
+(`dog_toy_finder_data.llm_trials`), so the automated columns are recorded in the
+same format and ground truth can be filled in as it becomes available.
+
+The vision node now runs two paths over the same **rectified** stereo pair:
+
+- `method=classical`, `model=classical` — deterministic colour/edge/stereo
+  detector;
+- `method=ml`, `model=<ollama name>` — one or more Ollama vision models.
+
+Every ask produces one CSV row per path/model, so the classical result can be
+scored alongside the ML models.
 
 | Tool | Purpose |
 |---|---|
-| `vision_trial_collector` | Subscribes to `/vision/ask` and `/vision/result`; writes one CSV row per model per request. |
+| `vision_trial_collector` | Subscribes to `/vision/ask` and `/vision/result`; writes one CSV row per detector/model per request, including a `method` column. |
 | ROSA planning logging | `rosa_agent --compare --output-csv` writes one row per prompt and model. |
 | `llm_trials` CLI | `template`, `score`, `aggregate`, and `analyze` for either CSV kind. |
 
@@ -66,21 +75,32 @@ ros2 run dog_toy_finder_data llm_trials --help
 Vision comparison does not require the Pico or the motion stack. It needs the
 stereo vision node, the ESP32-CAM feeds, Ollama, and the trial collector.
 
-### A1. Start the vision node with a model list
+### A1. Set the physical measurements
+
+Edit
+`/workspace/software/ros2_ws/src/dog_toy_finder_vision/config/vision_detectors.yaml`
+(or point `VISION_DETECTOR_CONFIG` in `scripts/full_system_eval.conf` at your
+own copy). At minimum, set the calibrated `fx`, `fy`, `cx`, `cy`, `baseline_m`,
+and the measured `target.known_width_m`. Both detector paths use these values;
+the classical path needs them to turn disparity into metres.
+
+### A2. Start the vision node with a model list
 
 ```bash
 ros2 launch dog_toy_finder_vision stereo_vision.launch.py \
     left_url:=http://esp32cam-left.local/capture \
     right_url:=http://esp32cam-right.local/capture \
-    models:="gemma4,minicpm-v4.5"
+    config_path:=/workspace/software/ros2_ws/src/dog_toy_finder_vision/config/vision_detectors.yaml \
+    models:="gemma4:latest,minicpm-v4.5:latest,qwen3.5:4b"
 ```
 
-Every model in `models` answers the same stereo photo, and the node publishes
-all answers together in one `/vision/result` message. The node loads one model
-at a time and unloads it before starting the next, so each model gets all of the
-Ollama host's VRAM rather than sharing it with the others.
+The classical detector always contributes one answer unless `classical:=false`.
+Every model in `models` answers the same rectified stereo pair, and the node
+publishes all answers together in one `/vision/result` message. The node loads
+one model at a time and unloads it before starting the next, so each model gets
+all of the Ollama host's VRAM rather than sharing it with the others.
 
-### A2. Start the trial collector
+### A3. Start the trial collector
 
 In a second terminal, same container and sourced workspace:
 
@@ -98,9 +118,11 @@ This writes:
 /workspace/data/vision/vision1/manifest.json
 ```
 
-The manifest records the run ID, model list, row count, and tolerance.
+The manifest records the run ID, model list, detector method list, row count,
+and tolerance. The CSV has a `method` column (`classical` or `ml`) next to
+`model` so the two paths can be scored separately.
 
-### A3. Collect trials with ground truth
+### A4. Collect trials with ground truth
 
 Put the toy in a known position, then issue an ask with a ground-truth JSON
 file. Create `gt_vision.json`:
@@ -126,8 +148,8 @@ Ask the vision node:
 python3 /workspace/scripts/vision_test.py "red ball" --gt-json gt_vision.json
 ```
 
-Each invocation appends one row per model to `vision_trials.csv`, with the
-`gt_*` columns already filled.
+Each invocation appends one row per detector/model (classical plus every Ollama
+model) to `vision_trials.csv`, with the `gt_*` columns already filled.
 
 Repeat this for each scene you want to evaluate. Move the toy, update
 `gt_vision.json`, and ask again. A useful comparison has several asks per model,
@@ -141,7 +163,7 @@ ideally covering:
 
 The collector keeps appending to the same CSV for the same `run_id`.
 
-### A4. Fill ground truth manually (optional)
+### A5. Fill ground truth manually (optional)
 
 If you did not pass `--gt-json`, open `vision_trials.csv` in a spreadsheet and
 fill:
@@ -155,7 +177,7 @@ Leave a field blank when it does not apply. Blank ground truth means that row is
 skipped for that metric. For `gt_distance_m`, enter a single number, a JSON list
 such as `[0.7, 0.72]`, or comma-separated measurements such as `0.7, 0.72`.
 
-### A5. Score the vision trials
+### A6. Score the vision trials
 
 ```bash
 ros2 run dog_toy_finder_data llm_trials score \

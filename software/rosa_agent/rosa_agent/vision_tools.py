@@ -25,9 +25,11 @@ def _summary(result):
     first = entries[0]
     lines = []
     if len(entries) > 1:
-        lines.append("Compared %d models:" % len(entries))
+        lines.append("Compared %d detectors/models:" % len(entries))
     for e in entries:
         model = e.get("model", "?")
+        if e.get("method"):
+            model = "%s/%s" % (e["method"], model)
         if e.get("error"):
             lines.append(f"  {model}: ERROR {e['error']}")
             continue

@@ -6,6 +6,8 @@ FROM ros:humble
 # computer-side stack (odometry, EKF, TF, and the URDF publisher).
 RUN apt-get update && apt-get install -y \
     python3-pip \
+    python3-numpy \
+    python3-yaml \
     libnss-mdns \
     avahi-utils \
     dbus \

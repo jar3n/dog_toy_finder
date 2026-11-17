@@ -219,6 +219,19 @@ class RowAndCsvTests(unittest.TestCase):
         self.assertEqual(row["gt_distance_m"], 0.7)
         self.assertEqual(row["visible_correct"], True)
         self.assertEqual(row["score"], 1.0)
+        self.assertEqual(row["method"], "ml")
+
+    def test_vision_row_records_classical_detector_method(self):
+        result = {"id": "43", "target": "red ball", "image": ""}
+        entry = {
+            "model": "classical", "method": "classical",
+            "target_visible": False, "position": "none", "size": "none",
+            "distance_m": 0.0, "obstacle_ahead": "none", "seconds": 0.02,
+        }
+        row = llm_trials.vision_row(result, entry, "classical", "vision1")
+        self.assertEqual(row["model"], "classical")
+        self.assertEqual(row["method"], "classical")
+        self.assertIn("method", llm_trials.VISION_FIELDS)
 
     def test_append_then_read_roundtrip(self):
         with tempfile.TemporaryDirectory() as directory:

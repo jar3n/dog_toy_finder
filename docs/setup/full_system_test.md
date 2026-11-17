@@ -92,8 +92,9 @@ back to tmux:
 ```
 
 All software parameters for the evaluation run (bringup geometry, health
-timeouts, camera URLs/intrinsics, VLM models, map/toy settings, web-map port,
-manual drive speeds, and the ROSA environment) live in
+timeouts, camera URLs/intrinsics, the detector config path, classical/ML path
+switches, VLM models, map/toy settings, web-map port, manual drive speeds, and
+the ROSA environment) live in
 `scripts/full_system_eval.conf`. `launch_all.sh` sources that file and passes
 each value to its launch file. Edit the file for a run, pass a different file
 as the first argument, or override one value from the environment
@@ -137,10 +138,11 @@ source install/setup.bash
 # Terminal A: robot stack (odometry + EKF)
 ros2 launch dog_toy_finder_bringup robot.launch.py
 
-# Terminal B: stereo vision + VLM (images, disparity, point cloud, /vision/ask)
+# Terminal B: stereo vision + both detectors (rectified pair, /vision/ask)
 ros2 launch dog_toy_finder_vision stereo_vision.launch.py \
     left_url:=http://esp32cam-left.local/capture \
     right_url:=http://esp32cam-right.local/capture \
+    config_path:=$VISION_DETECTOR_CONFIG \
     models:="gemma4"   # or a comma-separated list to compare
 ```
 
@@ -342,9 +344,10 @@ and `software/`: `data/vision/<run_id>/` and `data/planning/<run_id>/`. Inside
 the ROS 2 container those paths are `/workspace/data/vision` and
 `/workspace/data/planning`.
 
-For vision, set `VISION_MODELS` to compare several models on the same stereo
-photo and start the collector. `LLM_TRIALS=true ./scripts/launch_all.sh` adds
-the collector pane automatically:
+For vision, set `VISION_DETECTOR_CONFIG` to your measured camera/toy YAML,
+optionally set `CLASSICAL_VISION_ENABLED` / `ML_VISION_ENABLED`, and set
+`VISION_MODELS` to compare several models on the same rectified stereo pair.
+`LLM_TRIALS=true ./scripts/launch_all.sh` adds the collector pane automatically:
 
 ```bash
 # either let launch_all.sh start it, or run it by hand:
@@ -353,10 +356,11 @@ ros2 launch dog_toy_finder_data collect_llm_trials.launch.py \
     distance_tolerance:=$LLM_TRIAL_DISTANCE_TOLERANCE
 ```
 
-Every `/vision/ask` adds one row per model to
-`$VISION_TRIAL_DIR/$VISION_TRIAL_RUN_ID/vision_trials.csv`. The vision node
-loads and unloads one model at a time so each model gets all the available
-VRAM. Attach ground truth to a request with the vision test script:
+Every `/vision/ask` adds one row per detector/model to
+`$VISION_TRIAL_DIR/$VISION_TRIAL_RUN_ID/vision_trials.csv`. The `method` column
+distinguishes `classical` from `ml` results. The vision node loads and unloads
+one ML model at a time so each model gets all the available VRAM. Attach ground
+truth to a request with the vision test script:
 
 ```bash
 python3 /workspace/scripts/vision_test.py "red ball" --gt-json /tmp/gt_vision.json
@@ -458,14 +462,14 @@ The map distinguishes where each obstacle came from:
 | blue | `70` | vision only |
 | orange | `85` | both IR and vision |
 | green cells | `60` | occupied by a detected toy |
-| bright green sphere | `/detected_toys` pose | VLM toy detection (centre) |
+| bright green sphere | `/detected_toys` pose | vision toy detection (classical/ML fusion) |
 | white floor | `0` | driven-through free space |
 
 Vision obstacles expire after `vision_timeout` (default 5 s), so blue/orange
-blocks reflect recent VLM results rather than old ones. Toy cells are a
+blocks reflect recent detector results rather than old ones. Toy cells are a
 separate occupied value (`60`) so they stay visually distinct from obstacles
 and are never mistaken for an IR or vision detection. Toy spheres use the
-VLM's `distance_m` as the distance ahead and `toy_side_offset` metres to the
+fused detector `distance_m` as the distance ahead and `toy_side_offset` metres to the
 left or right (default 0.25 m); if `distance_m` is missing or zero, the
 fallback `toy_forward_distance` (default 0.6 m) is used. Markers are merged
 within `toy_merge_radius` (default 0.15 m), and each toy marks a

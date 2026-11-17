@@ -38,11 +38,13 @@ report an obstacle at the same time, the near and far regions are both marked
 `85` so the fusion is visible. The map is published at 1 Hz; vision can be
 disabled with `use_vision:=false`.
 
-`/detected_toys` is a separate `geometry_msgs/PoseArray` layer. When a VLM
-result has `target_visible: true` and a `position` of `left`, `center`, or
-`right`, the mapper places the toy `distance_m` metres ahead along the robot's
-heading, offset `toy_side_offset` metres to that side (default 0.25 m). If the
-VLM does not provide a usable `distance_m`, the fallback `toy_forward_distance`
+`/detected_toys` is a separate `geometry_msgs/PoseArray` layer. When a classical
+or ML detector result has `target_visible: true` and a `position` of `left`,
+`center`, or `right`, the mapper places the toy `distance_m` metres ahead along
+the robot's heading, offset `toy_side_offset` metres to that side (default
+0.25 m). If several answers arrive in one `/vision/result`, positions are fused
+by majority and distances by median. If no detector provides a usable
+`distance_m`, the fallback `toy_forward_distance`
 (default 0.6 m) is used; estimates are clamped to `toy_max_distance` (default
 5 m). Markers closer than `toy_merge_radius` (default 0.15 m) are merged.
 
@@ -61,14 +63,14 @@ memory.
 | `width`, `height` | `200`, `200` | grid size in cells |
 | `origin_x`, `origin_y` | `-5.0`, `-5.0` | world position of cell (0, 0) |
 | `obstacle_range` | `0.25` | IR obstacle distance ahead (m) |
-| `vision_obstacle_range` | `0.8` | VLM obstacle distance ahead (m) |
+| `vision_obstacle_range` | `0.8` | vision detector obstacle distance ahead (m) |
 | `vision_timeout` | `5.0` | seconds a vision result stays fresh (`0` = never expires) |
 | `use_vision` | `true` | subscribe to `/vision/result` |
 | `ir_topic` | `/ir_obstacle/detected` | IR obstacle Bool topic |
 | `publish_period` | `1.0` | seconds between `/map` publishes |
-| `toy_forward_distance` | `0.6` | fallback toy distance ahead when the VLM gives none (m) |
+| `toy_forward_distance` | `0.6` | fallback toy distance ahead when no detector gives one (m) |
 | `toy_side_offset` | `0.25` | left/right lateral offset from the heading (m) |
-| `toy_max_distance` | `5.0` | clamp for VLM distance estimates (m) |
+| `toy_max_distance` | `5.0` | clamp for vision detector distance estimates (m) |
 | `toy_merge_radius` | `0.15` | toys within this distance are treated as the same toy (m) |
 | `toy_occupancy_radius` | `1` | cells marked around each toy (1 = 3x3) |
 | `toy_max_count` | `500` | maximum stored toy markers |

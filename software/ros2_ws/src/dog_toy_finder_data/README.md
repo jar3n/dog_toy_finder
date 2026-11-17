@@ -22,8 +22,9 @@ ros2 run dog_toy_finder_data dataset_summary /tmp/dog_toy_dataset/run1
 ## LLM comparison trials
 
 Vision and planning comparisons share one CSV schema and one scoring tool, so
-a vision model and a planner can be judged with the same fields. The collector
-stores automated data first, then blank `gt_*` ground-truth fields, then the
+the classical detector, vision models, and a planner can be judged with the
+same fields. The collector stores automated data first (including a `method`
+column: `classical` or `ml`), then blank `gt_*` ground-truth fields, then the
 metrics computed by `score`.
 
 Trial data lives in the repository's `data/` folder, next to `hardware/` and
@@ -33,10 +34,10 @@ ROS 2 container the same paths are `/workspace/data/vision` and
 
 ### Vision trials
 
-Start the collector next to the vision node. Set `VISION_MODELS` to a
-comma-separated list so every model answers the same stereo photo. The vision
-node loads and unloads one model at a time, so each model gets all the available
-VRAM:
+Start the collector next to the vision node. The deterministic path contributes
+one `classical` row per ask. Set `VISION_MODELS` to a comma-separated list so
+every ML model answers the same rectified stereo pair. The vision node loads
+and unloads one model at a time, so each model gets all the available VRAM:
 
 ```bash
 ros2 launch dog_toy_finder_vision stereo_vision.launch.py \
@@ -45,7 +46,7 @@ ros2 launch dog_toy_finder_data collect_llm_trials.launch.py \
     output_dir:=/workspace/data/vision run_id:=vision1
 ```
 
-It writes `vision_trials.csv` (one row per ask and model) and `manifest.json`
+It writes `vision_trials.csv` (one row per ask and detector/model) and `manifest.json`
 under `/workspace/data/vision/vision1/`. Supply ground truth in the ask JSON
 and the `gt_*` columns are filled immediately:
 

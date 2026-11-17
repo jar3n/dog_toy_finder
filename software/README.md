@@ -10,7 +10,7 @@ software/
     dog_toy_finder_bringup/     launch files, EKF config, robot geometry
     dog_toy_finder_odometry/    /joint_states -> /wheel/odom
     dog_toy_finder_motion/      closed-loop moves, cmd_vel mux, manual keyboard drive
-    dog_toy_finder_vision/      stereo capture, disparity/point cloud, VLM
+    dog_toy_finder_vision/      stereo capture, disparity/point cloud, classical + ML detectors
     dog_toy_finder_mapping/     occupancy map, toy markers, browser map server
     dog_toy_finder_planning/    autonomous search planner
     dog_toy_finder_diagnostics/ sensor and camera heartbeat monitor
@@ -40,7 +40,8 @@ Pico firmware                         Computer
 
 ESP32-CAM left/right --HTTP--> stereo_camera_node -> image_proc
                                     -> stereo_image_proc -> /stereo/disparity, /stereo/points2
-                                    -> vision_node -> /vision/result
+                                    -> rectified colour pair -> vision_node
+                                        (classical detector + Ollama models) -> /vision/result
                                     -> occupancy_mapper -> /map, /detected_toys
                                     -> map_webserver -> browser
 ```
@@ -79,7 +80,7 @@ Or run components individually:
 # odometry + EKF + cmd_vel_mux + health monitor
 ros2 launch dog_toy_finder_bringup robot.launch.py
 
-# cameras + stereo depth + VLM
+# cameras + stereo depth + classical/ML detectors
 ros2 launch dog_toy_finder_vision stereo_vision.launch.py
 
 # occupancy map and browser viewer

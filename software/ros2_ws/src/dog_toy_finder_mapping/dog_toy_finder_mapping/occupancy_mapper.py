@@ -17,13 +17,14 @@ colour them separately:
      60  toy (occupied by a detected toy)
 
 When both sensors agree, both the near (IR) and far (vision) obstacle regions
-are marked as "both". The toy location is estimated from the VLM's
+are marked as "both". The toy location is estimated from each detector's
 ``target_visible``/``position`` fields plus its ``distance_m`` estimate: the
 distance gives the forward offset and the position gives the lateral offset to
-the left or right. When the VLM has no usable distance, ``toy_forward_distance``
-is used. Each toy also marks a small occupied patch in the grid (value 60) so
-it is treated as occupied space, in addition to being published on
-/detected_toys.
+the left or right. Classical and ML answers in one /vision/result message are
+fused by majority position and median distance. When no detector has a usable
+distance, ``toy_forward_distance`` is used. Each toy also marks a small occupied
+patch in the grid (value 60) so it is treated as occupied space, in addition to
+being published on /detected_toys.
 """
 
 import json
