@@ -111,6 +111,20 @@ errors, ground-truthed row count, accuracy for each field, distance mean
 absolute error, and a mean score. `aggregate` prints the summary without
 writing a file.
 
+After collection and annotation, run statistical analysis:
+
+```bash
+ros2 run dog_toy_finder_data llm_trials analyze \
+    /workspace/data/vision/vision1/vision_trials.csv \
+    --csv-output /workspace/data/vision/vision1/vision_analysis.csv
+```
+
+This writes `<name>_analysis.json` with per-model mean/median/std/confidence
+intervals and paired model comparisons on matched `ask_id` (vision) or `prompt`
+(planning) values. Comparisons include a paired t-test, Holm-adjusted p-value,
+effect size, and win/tie/loss counts. Use `--confidence 0.99` to change the
+interval level or `--pair-field run_id,scene` to override matching.
+
 Vision metrics: `visible_correct`, `position_correct`, `size_correct`,
 `distance_error_m`, `distance_within_tolerance`, `obstacle_correct`, `score`.
 Planning metrics: `action_mentioned`, `args_mentioned`, and `score` (from

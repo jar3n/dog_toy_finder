@@ -7,11 +7,13 @@ Run from the package directory:
 """
 
 import csv
+import io
 import json
 import os
 import sys
 import tempfile
 import unittest
+from contextlib import redirect_stdout
 
 sys.path.insert(
     0, os.path.join(os.path.dirname(__file__), "..", "dog_toy_finder_data"))
@@ -231,6 +233,30 @@ class RowAndCsvTests(unittest.TestCase):
             self.assertEqual(fields, llm_trials.VISION_FIELDS)
             self.assertEqual(rows[0]["model"], "gemma4")
             self.assertEqual(rows[1]["model"], "minicpm")
+
+    def test_analyze_cli_writes_json_and_csv(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = os.path.join(directory, "vision_trials.csv")
+            rows = []
+            for ask_id in ("1", "2"):
+                for model, latency in (("gemma4", 1.0), ("minicpm", 2.0)):
+                    rows.append({
+                        "kind": "vision", "run_id": "vision1",
+                        "ask_id": ask_id, "model": model,
+                        "latency_s": latency, "target_visible": "True",
+                        "gt_target_visible": "True",
+                    })
+            llm_trials.write_csv(path, rows, llm_trials.VISION_FIELDS)
+            output = os.path.join(directory, "analysis.json")
+            csv_output = os.path.join(directory, "analysis.csv")
+            with redirect_stdout(io.StringIO()):
+                self.assertEqual(llm_trials.main([
+                    "analyze", path, "-o", output,
+                    "--csv-output", csv_output]), 0)
+            with open(output) as handle:
+                analysis = json.load(handle)
+            self.assertEqual(analysis["kind"], "vision")
+            self.assertTrue(os.path.exists(csv_output))
 
     def test_template_writes_one_row_per_model(self):
         with tempfile.TemporaryDirectory() as directory:

@@ -419,12 +419,21 @@ ros2 run dog_toy_finder_data dataset_summary "$COLLECT_OUTPUT_DIR/$COLLECT_RUN_I
 ros2 run dog_toy_finder_data llm_trials score "$ROSA_OUTPUT_CSV"
 ros2 run dog_toy_finder_data llm_trials score \
     "$VISION_TRIAL_DIR/$VISION_TRIAL_RUN_ID/vision_trials.csv"
+
+# Post-collection statistics (paired comparisons across models)
+ros2 run dog_toy_finder_data llm_trials analyze "$ROSA_OUTPUT_CSV" \
+    --confidence "$LLM_TRIAL_CONFIDENCE" --output "$PLANNING_ANALYSIS_JSON"
+ros2 run dog_toy_finder_data llm_trials analyze \
+    "$VISION_TRIAL_DIR/$VISION_TRIAL_RUN_ID/vision_trials.csv" \
+    --confidence "$LLM_TRIAL_CONFIDENCE" --output "$VISION_ANALYSIS_JSON"
 ```
 
 Metrics reported: success, time/steps to find, path length, vision call count
 and average latency, target-visible rate, final pose. The LLM trial tool reports
 per-model vision accuracy, distance error, planning action/argument matches,
-latency, errors, and a mean score.
+latency, errors, and a mean score. `llm_trials analyze` adds confidence
+intervals and paired model comparisons so differences can be judged after all
+trials are collected.
 
 ## 8. Viewing the map
 

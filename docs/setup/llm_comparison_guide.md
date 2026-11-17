@@ -10,7 +10,7 @@ available.
 |---|---|
 | `vision_trial_collector` | Subscribes to `/vision/ask` and `/vision/result`; writes one CSV row per model per request. |
 | ROSA planning logging | `rosa_agent --compare --output-csv` writes one row per prompt and model. |
-| `llm_trials` CLI | `template`, `score`, and `aggregate` for either CSV kind. |
+| `llm_trials` CLI | `template`, `score`, `aggregate`, and `analyze` for either CSV kind. |
 
 The collector fills the automated columns. The `gt_*` ground-truth columns are
 either supplied up front, or filled later in a spreadsheet. `score` computes the
@@ -331,7 +331,46 @@ ros2 run dog_toy_finder_data llm_trials aggregate \
     /workspace/data/planning/plan1/planning_trials.csv --json
 ```
 
-## Part C - Collecting with a template instead
+## Part C - Statistical analysis (after collection)
+
+`analyze` scores the CSV in memory, then reports descriptive statistics for
+every model and paired comparisons between models on matched trials. Vision
+rows are matched by `run_id` + `ask_id`; planning rows are matched by
+`run_id` + `prompt`.
+
+```bash
+# Vision
+ros2 run dog_toy_finder_data llm_trials analyze \
+    /workspace/data/vision/vision1/vision_trials.csv \
+    --output /workspace/data/vision/vision1/vision_analysis.json \
+    --csv-output /workspace/data/vision/vision1/vision_analysis.csv
+
+# Planning
+ros2 run dog_toy_finder_data llm_trials analyze \
+    /workspace/data/planning/plan1/planning_trials.csv \
+    --output /workspace/data/planning/plan1/planning_analysis.json
+```
+
+The JSON report contains, for each model/metric: `n`, `mean`, `median`,
+`std` (sample), `sem`, `ci_low`, `ci_high`, `min`, and `max`. Pairwise entries
+report `mean_diff` (`model_a - model_b`), its confidence interval, a two-sided
+paired t-test `p_value`, a Holm-adjusted `p_value_holm`, `effect_dz`, and
+win/tie/loss counts. The CSV option writes one tidy table containing both
+descriptive and comparison rows.
+
+Useful options:
+
+```bash
+# 99% confidence intervals, and a different matching field
+ros2 run dog_toy_finder_data llm_trials analyze vision_trials.csv \
+    --confidence 0.99 --pair-field run_id,scene --json
+```
+
+Set `LLM_TRIAL_CONFIDENCE` in `scripts/full_system_eval.conf` for the confidence
+level used in evaluation runs. Pairs with fewer than two observations get no
+p-value; rows with different `ask_id`/`prompt` values are never compared.
+
+## Part D - Collecting with a template instead
 
 If another process produces the model answers, create an empty CSV with the
 correct columns and ground-truth fields:
@@ -357,7 +396,7 @@ ros2 run dog_toy_finder_data llm_trials template \
 Fill in the answer and ground-truth columns, then run `llm_trials score` exactly
 as above.
 
-## Part D - How to read the results
+## Part E - How to read the results
 
 ### Vision metrics
 
@@ -399,3 +438,5 @@ authoritative outcome.
    executes.
 6. Keep both the raw CSV and the `*_scored.csv`; the raw file preserves what the
    model actually said.
+7. Run `llm_trials analyze` on the completed CSV and keep the `*_analysis.json`
+   report beside the trial data.

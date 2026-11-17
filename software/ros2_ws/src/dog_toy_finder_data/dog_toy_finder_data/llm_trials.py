@@ -18,6 +18,7 @@ Usage inside the ROS 2 container::
 
     ros2 run dog_toy_finder_data llm_trials score vision_trials.csv
     ros2 run dog_toy_finder_data llm_trials aggregate planning_trials.csv
+    ros2 run dog_toy_finder_data llm_trials analyze vision_trials.csv
     ros2 run dog_toy_finder_data llm_trials template --kind vision \
         --models gemma4,minicpm-v4.5 --output vision_trials.csv
 """
@@ -504,6 +505,24 @@ def _parser():
     aggregate_parser.add_argument("--json", action="store_true",
                                   help="print the summary as JSON")
 
+    analysis = sub.add_parser(
+        "analyze", help="descriptive stats and paired model comparisons")
+    analysis.add_argument("csv", help="trial CSV")
+    analysis.add_argument("-o", "--output", default=None,
+                          help="JSON report (default: <name>_analysis.json)")
+    analysis.add_argument("--csv-output", default=None,
+                          help="optional tidy CSV version of the analysis")
+    analysis.add_argument("--confidence", type=float, default=0.95,
+                          help="confidence level for intervals (default: 0.95)")
+    analysis.add_argument("--tolerance", type=float, default=0.25,
+                          help="distance tolerance in metres when scoring")
+    analysis.add_argument("--pair-field", default=None,
+                          help="comma-separated fields matching rows across "
+                               "models (default: ask_id for vision, prompt "
+                               "for planning)")
+    analysis.add_argument("--json", action="store_true",
+                          help="print the full analysis as JSON")
+
     template = sub.add_parser(
         "template", help="create a CSV with empty ground-truth columns")
     template.add_argument("--kind", choices=[KIND_VISION, KIND_PLANNING],
@@ -527,6 +546,34 @@ def main(argv=None):
                               run_id=args.run_id, target=args.target,
                               prompt=args.prompt)
         print("Wrote template with %d row(s) to %s" % (len(models) or 1, path))
+        return 0
+
+    if args.command == "analyze":
+        try:
+            from . import trial_stats
+        except ImportError:
+            import trial_stats
+        rows, _ = read_csv(args.csv)
+        if not rows:
+            print("No rows in %s" % args.csv)
+            return 1
+        analysis = trial_stats.analyze(
+            rows, confidence=args.confidence, pair_field=args.pair_field,
+            distance_tolerance=args.tolerance)
+        output = args.output
+        if output is None:
+            stem, extension = os.path.splitext(args.csv)
+            output = stem + "_analysis" + (extension or ".json")
+        os.makedirs(os.path.dirname(os.path.abspath(output)), exist_ok=True)
+        with open(output, "w") as handle:
+            json.dump(analysis, handle, indent=2)
+        if args.csv_output:
+            trial_stats.write_analysis_csv(args.csv_output, analysis)
+        print("Wrote statistical analysis to %s" % output)
+        if args.json:
+            print(json.dumps(analysis, indent=2))
+        else:
+            trial_stats.print_summary(analysis)
         return 0
 
     rows, fields = read_csv(args.csv)
