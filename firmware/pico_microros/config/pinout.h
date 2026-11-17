@@ -80,8 +80,15 @@
 //   GPIO20         BIN1            right motor direction 1
 //   GPIO21         BIN2            right motor direction 2
 //   GPIO19         STBY            high = bridge enabled
-//   AO1/AO2        left motor      motor winding, never the Pico
-//   BO1/BO2        right motor     motor winding, never the Pico
+//   A1/AO1         left motor +    motor winding, never the Pico
+//   A2/AO2         left motor -
+//   B1/BO1         right motor +
+//   B2/BO2         right motor -
+//
+// The "1" output of each bridge (A1/AO1, B1/BO1) is the positive motor lead:
+// forward is commanded with IN1=1, IN2=0, which drives OUT1 high and OUT2 low
+// (current flows OUT1 -> motor -> OUT2). Channel A must drive the left wheel
+// and channel B the right wheel. See hardware/wiring.md.
 //
 // Add a 0.1 uF decoupling capacitor across VCC/GND and a bulk capacitor
 // (10-100 uF) across VM/GND near the driver. The TB6612 includes flyback

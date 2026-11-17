@@ -43,7 +43,7 @@ CMD_TOPIC = "/cmd_vel_auto"
 IR_TOPIC = "/ir_obstacle/detected"
 
 MAX_SPEED = 1.0          # m/s
-MIN_SPEED = 0.05          # m/s, slow enough to stop accurately
+MIN_SPEED = 0.10          # m/s, safely above the measured ~0.05 m/s motor dead band
 MAX_TURN = 2.0            # rad/s
 MIN_TURN = 0.7            # rad/s
 DIST_TOL = 0.005          # m

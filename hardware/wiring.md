@@ -59,9 +59,36 @@ Pico GPIO21 --> TB6612 BIN2   (right dir 2)
 
 Pico GPIO19 --> TB6612 STBY   (high = enabled)
 
-TB6612 AO1/AO2 --> left motor
-TB6612 BO1/BO2 --> right motor
+TB6612 A1/AO1 --> left motor  +   ("1" output = positive, see below)
+TB6612 A2/AO2 --> left motor  -   ("2" output = negative)
+TB6612 B1/BO1 --> right motor +   ("1" output = positive, see below)
+TB6612 B2/BO2 --> right motor -   ("2" output = negative)
 ```
+
+### Motor outputs A1/A2 and B1/B2 -> motor leads
+
+Each TB6612 H-bridge has two motor outputs. Many breakout boards print them as
+`A1`/`A2` and `B1`/`B2`; the datasheet names are `AO1`/`AO2` and `BO1`/`BO2`
+(identical terminals). Channel A must drive the **left** wheel and channel B the
+**right** wheel — the firmware's differential mix assumes this.
+
+| Driver output | Datasheet name | Connects to | Motor lead |
+|---|---|---|---|
+| A1 | AO1 / OA1 | left motor  | **+** |
+| A2 | AO2 / OA2 | left motor  | **-** |
+| B1 | BO1 / OB1 | right motor | **+** |
+| B2 | BO2 / OB2 | right motor | **-** |
+
+**Why the "1" output is positive:** with STBY high, the firmware commands
+forward by setting IN1 = 1 and IN2 = 0 (PWM on). Per the TB6612 truth table that
+forces OUT1 high and OUT2 low, so current flows OUT1 -> motor -> OUT2. Wiring
+each motor's **+** lead to its "1" output (A1 or B1) and its **-** lead to the
+"2" output (A2 or B2) makes a positive `cmd_vel` spin that wheel forward.
+
+If a motor's leads are not marked +/-, identify them before wiring: the "+"
+lead is the one that spins that wheel in the robot's forward direction when a
+positive voltage is applied to it relative to the other lead. Swapping the two
+leads of a motor reverses that wheel's direction.
 
 ## Pico 2 W <-> KS0051 IR obstacle sensor
 
