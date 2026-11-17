@@ -1,10 +1,12 @@
 """Feedback motion primitives shared by test scripts and the ROSA agent.
 
-The Mover subscribes to the fused pose on /odometry/filtered and publishes
+The Mover subscribes only to the fused pose on /odometry/filtered and publishes
 Twist commands on /cmd_vel_auto. The cmd_vel_mux node forwards one source at a
-time to the Pico on /cmd_vel, so manual drive can take exclusive control.
-Every move is closed-loop on the odometry estimate: the robot stops when the
-estimate says the requested distance or angle is done.
+time to the Pico on /cmd_vel, so manual drive can take exclusive control. Every
+move is closed-loop on the EKF estimate: the robot stops when the estimate says
+the requested distance or angle is done. Raw /wheel/odom feeds the EKF but is
+never used as motion feedback, and a non-zero command is refused when the EKF
+estimate is missing or stale.
 
 The Mover also subscribes to the Pico IR sensor on /ir_obstacle/detected. The
 Pico runs a local reflex failsafe: it brakes and blocks forward/turn commands
@@ -26,13 +28,18 @@ from rclpy.node import Node
 from rclpy.qos import qos_profile_sensor_data
 from std_msgs.msg import Bool
 
+from .feedback_gate import (
+    FEEDBACK_TIMEOUT,
+    FEEDBACK_TOPIC,
+    FeedbackGate,
+    validate_feedback_topic,
+)
 from .transforms import distance_and_bearing, wrap_angle
 
 # Autonomous commands go to the mux input, never straight to the Pico.
 # cmd_vel_mux owns /cmd_vel so a manual driver can override without two
 # publishers fighting over the motors.
 CMD_TOPIC = "/cmd_vel_auto"
-FEEDBACK_TOPIC = "/odometry/filtered"
 IR_TOPIC = "/ir_obstacle/detected"
 
 MAX_SPEED = 1.0          # m/s
@@ -74,14 +81,19 @@ class Mover(Node):
         node_name: str = "mover",
         feedback_topic: str = FEEDBACK_TOPIC,
         ir_topic: str = IR_TOPIC,
+        feedback_timeout: float = FEEDBACK_TIMEOUT,
     ):
+        # Validate before creating the node so a bad topic cannot leave a
+        # half-initialised ROS node behind.
+        validate_feedback_topic(feedback_topic)
         super().__init__(node_name)
         self.lock = threading.Lock()
         self.feedback_topic = feedback_topic
         self.ir_topic = ir_topic
+        self.feedback_gate = FeedbackGate(timeout=feedback_timeout)
         self.coast_time = COAST_TIME
         self.rates = (0.0, 0.0)
-        self.poses = {"odom": None, "wheel": None}
+        self.poses = {"odom": None}
         # Latest Pico IR state and whether the failsafe interrupted a move.
         # False until the first /ir_obstacle/detected arrives, so a missing
         # sensor degrades to the old behaviour instead of blocking every move.
@@ -93,30 +105,19 @@ class Mover(Node):
             Odometry, feedback_topic, self._on_feedback, qos_profile_sensor_data
         )
         self.create_subscription(
-            Odometry, "/wheel/odom", self._on_wheel_odom, qos_profile_sensor_data
-        )
-        self.create_subscription(
             Bool, ir_topic, self._on_ir, qos_profile_sensor_data
         )
 
-    def _store_pose(self, key: str, pose) -> None:
-        """Record one pose under a key, protected by the node lock."""
-        with self.lock:
-            self.poses[key] = (
-                pose.position.x,
-                pose.position.y,
-                yaw_from_quaternion(pose.orientation),
-            )
-
     def _on_feedback(self, msg: Odometry) -> None:
-        """Store the fused pose and its forward speed / turn rate."""
-        self._store_pose("odom", msg.pose.pose)
+        """Store the EKF pose, speed, and arrival time."""
         with self.lock:
+            self.poses["odom"] = (
+                msg.pose.pose.position.x,
+                msg.pose.pose.position.y,
+                yaw_from_quaternion(msg.pose.pose.orientation),
+            )
             self.rates = (msg.twist.twist.linear.x, msg.twist.twist.angular.z)
-
-    def _on_wheel_odom(self, msg: Odometry) -> None:
-        """Store the wheel-only pose for comparison."""
-        self._store_pose("wheel", msg.pose.pose)
+            self.feedback_gate.update()
 
     def _on_ir(self, msg: Bool) -> None:
         """Store the Pico IR obstacle state (the failsafe signal)."""
@@ -148,13 +149,24 @@ class Mover(Node):
             % what
         )
 
+    def feedback_fresh(self) -> bool:
+        """Return True when a recent EKF pose is available for a move."""
+        return self.pose() is not None and self.feedback_gate.fresh()
+
     def pose(self, key: str = "odom"):
-        """Return (x, y, theta) for a pose key, or None when not received yet."""
+        """Return the fused (x, y, theta), or None before the first EKF pose."""
+        if key != "odom":
+            raise ValueError("only the fused EKF pose 'odom' is available")
         with self.lock:
             return self.poses.get(key)
 
     def send(self, forward: float, turn: float) -> None:
-        """Publish one Twist command."""
+        """Publish one Twist command; non-zero motion requires fresh EKF data."""
+        if (forward != 0.0 or turn != 0.0) and not self.feedback_fresh():
+            raise RuntimeError(
+                "Refusing motion: no fresh %s (EKF) feedback. Is bringup "
+                "running and is the micro-ROS agent connected?" % FEEDBACK_TOPIC
+            )
         msg = Twist()
         msg.linear.x = float(forward)
         msg.angular.z = float(turn)
@@ -167,15 +179,21 @@ class Mover(Node):
             time.sleep(0.05)
 
     def wait_for_odom(self, timeout: float = 10.0) -> None:
-        """Block until the fused pose arrives; raise RuntimeError on timeout."""
+        """Block until fresh fused odometry arrives; raise RuntimeError otherwise."""
         end = time.time() + timeout
-        while self.pose() is None and time.time() < end:
+        while not self.feedback_fresh() and time.time() < end:
             time.sleep(0.05)
-        if self.pose() is None:
+        if not self.feedback_fresh():
             raise RuntimeError(
-                "No %s received. Is the bringup launch running and the "
-                "micro-ROS agent connected?" % self.feedback_topic
+                "No fresh %s (EKF) received. Is the bringup launch running "
+                "and the micro-ROS agent connected?" % self.feedback_topic
             )
+
+    def _abort_for_stale_feedback(self, what: str) -> None:
+        """Warn that the EKF stopped updating and a move was aborted."""
+        self.get_logger().warn(
+            "No fresh %s (EKF) feedback; aborted %s." % (FEEDBACK_TOPIC, what)
+        )
 
     def lead(self, index: int, direction: float) -> float:
         """Distance or angle the robot will coast after a stop command."""
@@ -191,13 +209,17 @@ class Mover(Node):
         allows stepped reverse, so the move can still make progress.
         """
         self.clear_failsafe()
-        start = self.pose()
-        if start is None:
+        if not self.feedback_fresh():
+            self._abort_for_stale_feedback("straight")
             return
+        start = self.pose()
         x0, y0, theta0 = start
         sign = 1.0 if distance >= 0.0 else -1.0
         deadline = time.time() + abs(distance) / MIN_SPEED * 1.5 + 5.0
         while time.time() < deadline:
+            if not self.feedback_fresh():
+                self._abort_for_stale_feedback("straight")
+                break
             if sign > 0.0 and self.obstacle_ahead():
                 self._note_failsafe("forward straight")
                 break
@@ -221,12 +243,16 @@ class Mover(Node):
         the brake until the deadline.
         """
         self.clear_failsafe()
-        start = self.pose()
-        if start is None:
+        if not self.feedback_fresh():
+            self._abort_for_stale_feedback("turn")
             return
+        start = self.pose()
         target = wrap_angle(start[2] + angle)
         deadline = time.time() + abs(angle) / MIN_TURN * 1.5 + 5.0
         while time.time() < deadline:
+            if not self.feedback_fresh():
+                self._abort_for_stale_feedback("turn")
+                break
             if self.obstacle_ahead():
                 self._note_failsafe("turn")
                 break
@@ -247,9 +273,10 @@ class Mover(Node):
         while time.time() < deadline:
             if self.failsafe_hit():
                 break
+            if not self.feedback_fresh():
+                self._abort_for_stale_feedback("goto")
+                break
             pose = self.pose()
-            if pose is None:
-                return
             distance, bearing = distance_and_bearing(pose, goal_x, goal_y)
             if distance <= tolerance:
                 break

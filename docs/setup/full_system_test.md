@@ -228,7 +228,9 @@ ros2 topic echo /cmd_vel_source
 
 The mux holds zero for a short release window after manual input stops before
 autonomous commands may resume; tune it with the `CMD_VEL_*` values in
-`scripts/full_system_eval.conf`.
+`scripts/full_system_eval.conf`. It also blocks non-zero manual or autonomous
+commands while `/odometry/filtered` is missing or stale
+(`CMD_VEL_ODOMETRY_TIMEOUT`), so the EKF must be healthy before the robot moves.
 
 The Pico's IR reflex still brakes in front of an obstacle and the 500 ms
 `/cmd_vel` watchdog still stops the motors if key publishing stops.

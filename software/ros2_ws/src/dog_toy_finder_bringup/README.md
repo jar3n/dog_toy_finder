@@ -19,16 +19,17 @@ Launch files and shared YAML for the computer-side real-robot stack.
 | `/cmd_vel_auto` | `geometry_msgs/msg/Twist` | in | ROSA / autonomous search / test scripts |
 | `/cmd_vel_manual` | `geometry_msgs/msg/Twist` | in | keyboard `manual_drive` |
 | `/cmd_vel` | `geometry_msgs/msg/Twist` | out | `cmd_vel_mux` (the only Pico publisher) |
-| `/cmd_vel_source` | `std_msgs/msg/String` | out | `cmd_vel_mux` (`manual`/`auto`/`released`/`none`) |
+| `/cmd_vel_source` | `std_msgs/msg/String` | out | `cmd_vel_mux` (`manual`/`auto`/`released`/`no_odometry`/`none`) |
 
 The EKF also publishes `odom -> base_link` and `robot_state_publisher` (added
 later) publishes the wheel joint transforms.
 
 `cmd_vel_mux` prevents two controllers from publishing over each other: manual
 commands win while fresh, and autonomous commands resume only after a short
-hands-off release window. Pass `cmd_vel_mux:=false` only if an external mux
-owns `/cmd_vel`. The timeout parameters are listed in the motion package
-README.
+hands-off release window. It also blocks every non-zero command when
+`/odometry/filtered` is missing or stale, so both autonomous and manual motion
+require the EKF. Pass `cmd_vel_mux:=false` only if an external mux owns
+`/cmd_vel`. The timeout parameters are listed in the motion package README.
 
 ## Run
 

@@ -148,9 +148,10 @@ python3 -m rosa_agent --model mistral
 | `find_toy` | `target` | whether a toy is visible, where, size, distance |
 | `is_path_clear` | none | whether the path ahead is blocked |
 
-Every move uses `/odometry/filtered` as feedback and reports what the fused
-estimate measured. If the Pico IR failsafe interrupts a move, the tool result
-says so. The robot stops if a tool fails, if the user interrupts, or
+Every move uses fresh `/odometry/filtered` (EKF) feedback and reports what the
+fused estimate measured; a missing or stale estimate blocks the move before
+anything reaches the motors. If the Pico IR failsafe interrupts a move, the tool
+result says so. The robot stops if a tool fails, if the user interrupts, or
 when the Pico's 500 ms `/cmd_vel` watchdog expires. The Pico mirrors both
 failsafes (IR reflex engage/clear and watchdog stop) to `/pico/log`, and the
 motion layer subscribes to `/ir_obstacle/detected` so ROS acts on them.

@@ -107,8 +107,9 @@ best-effort subscription. The computer side matches the rest:
   (best effort).
 - `robot_localization` reads `odom0` and `imu0` with `rclcpp::SensorDataQoS`
   (best effort) in Humble, so the firmware IMU publisher connects directly.
-- `Mover` reads `/odometry/filtered` and `/wheel/odom` best effort, which a
-  reliable publisher also satisfies.
+- `Mover` and `cmd_vel_mux` read `/odometry/filtered` best effort, which a
+  reliable publisher also satisfies. `Mover` never subscribes to `/wheel/odom`;
+  it is only the EKF's input.
 
 If you change a firmware publisher to reliable, the existing subscribers still
 work. If you change a subscriber to reliable, the matching firmware publisher

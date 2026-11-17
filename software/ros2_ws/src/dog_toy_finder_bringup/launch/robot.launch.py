@@ -5,7 +5,7 @@ Starts:
   * a static base_link -> imu_link transform for the BNO055 mounting
   * robot_localization EKF: /wheel/odom + /imu/data -> /odometry/filtered
   * dog_toy_finder_motion cmd_vel_mux: /cmd_vel_auto + /cmd_vel_manual ->
-    /cmd_vel, with manual drive taking priority over autonomous motion
+    /cmd_vel, with manual priority and non-zero motion gated on fresh EKF data
   * dog_toy_finder_diagnostics health monitor: logs an ERROR on /rosout when
     a Pico sensor, a camera, or the fused odometry stops publishing
 
@@ -109,6 +109,11 @@ def generate_launch_description() -> LaunchDescription:
                 "cmd_vel_publish_rate",
                 default_value="20.0",
                 description="Command publish rate to the Pico in Hz",
+            ),
+            DeclareLaunchArgument(
+                "cmd_vel_odometry_timeout",
+                default_value="1.0",
+                description="Seconds without EKF odometry before motion is blocked",
             ),
             DeclareLaunchArgument(
                 "imu_x", default_value="0.0", description="IMU x offset from base_link"
@@ -254,6 +259,10 @@ def generate_launch_description() -> LaunchDescription:
                         ),
                         "publish_rate": ParameterValue(
                             LaunchConfiguration("cmd_vel_publish_rate"),
+                            value_type=float,
+                        ),
+                        "odometry_timeout": ParameterValue(
+                            LaunchConfiguration("cmd_vel_odometry_timeout"),
                             value_type=float,
                         ),
                     },

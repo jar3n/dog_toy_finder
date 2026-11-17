@@ -9,14 +9,15 @@ request.
 
 | Topic | Type | Direction |
 |---|---|---|
-| `/odometry/filtered` | `nav_msgs/msg/Odometry` | subscribe (feedback) |
-| `/wheel/odom` | `nav_msgs/msg/Odometry` | subscribe (comparison) |
+| `/odometry/filtered` | `nav_msgs/msg/Odometry` | subscribe (EKF feedback) |
 | `/ir_obstacle/detected` | `std_msgs/msg/Bool` | subscribe (Pico failsafe) |
 | `/cmd_vel_auto` | `geometry_msgs/msg/Twist` | publish (mux input) |
 
 Every move stops when the fused estimate says the requested distance or angle
-is complete. The Pico's 500 ms `/cmd_vel` watchdog is a second safety net if the
-computer or Wi-Fi link stops.
+is complete. Raw `/wheel/odom` is an EKF input only: `Mover` never subscribes to
+it, refuses a non-EKF feedback topic, and refuses non-zero commands when the
+EKF estimate is missing or older than `feedback_timeout`. The Pico's 500 ms
+`/cmd_vel` watchdog is a second safety net if the computer or Wi-Fi link stops.
 
 `Mover` never publishes straight to the Pico. Its commands go to
 `/cmd_vel_auto`, and `cmd_vel_mux` forwards one source at a time to `/cmd_vel`.
@@ -82,12 +83,15 @@ by being the only publisher on the Pico's topic:
 ```
 
 - Manual commands always win while they are fresh.
+- All non-zero commands, manual or autonomous, are gated on fresh EKF data
+  from `/odometry/filtered`. If it is missing or stale, `/cmd_vel` stays zero
+  and `/cmd_vel_source` reports `no_odometry`.
 - When manual input stops, the mux holds zero for `release_timeout` before
   autonomous commands can resume, so control does not jump back mid-motion.
 - If neither source is publishing, the mux keeps sending zero at
   `publish_rate`, keeping the Pico watchdog satisfied.
 - `/cmd_vel_source` reports the current winner: `manual`, `auto`, `released`,
-  or `none`.
+  `no_odometry`, or `none`.
 
 `robot.launch.py` starts one `cmd_vel_mux` by default. Its parameters come from
 the bringup launch and `scripts/full_system_eval.conf`:
@@ -97,6 +101,7 @@ the bringup launch and `scripts/full_system_eval.conf`:
 | `manual_timeout` | 0.5 | seconds without a manual command before it expires |
 | `auto_timeout` | 0.5 | seconds without an auto command before it expires |
 | `release_timeout` | 0.5 | seconds of zero after manual control ends |
+| `odometry_timeout` | 1.0 | seconds without EKF odometry before motion is blocked |
 | `publish_rate` | 20.0 | command publish rate to the Pico (Hz) |
 
 ```bash
@@ -156,9 +161,11 @@ the timeout, raise it with `-p key_timeout:=0.8`.
 | `publish_rate` | 20.0 | command publish rate (Hz) |
 | `cmd_topic` | `/cmd_vel_manual` | mux input topic |
 
-The Pico's IR reflex and 500 ms `/cmd_vel` watchdog still apply: the Pico
-brakes locally in front of an obstacle and stops the motors if the node or the
-Wi-Fi link stops publishing.
+The command mux also gates manual motion on fresh EKF odometry, so manual keys
+cannot move the robot while `/odometry/filtered` is unavailable. The Pico's IR
+reflex and 500 ms `/cmd_vel` watchdog still apply: the Pico brakes locally in
+front of an obstacle and stops the motors if the node or the Wi-Fi link stops
+publishing.
 
 The unit tests in `software/rosa_agent/tests/` cover the pure transforms.
 

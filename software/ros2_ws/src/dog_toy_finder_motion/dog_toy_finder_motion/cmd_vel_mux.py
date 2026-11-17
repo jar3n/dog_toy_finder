@@ -16,23 +16,28 @@ This node owns the single publisher on ``/cmd_vel``:
 Manual commands always win while they are fresh (``manual_timeout``). When the
 manual source goes quiet, the mux holds zero for ``release_timeout`` before it
 lets autonomous commands through again, so losing the manual link does not
-hand control back mid-motion. If neither source is publishing, the mux keeps
-sending zero at ``publish_rate`` so the Pico's 500 ms command watchdog stays
-satisfied and the robot cannot keep the last command.
+hand control back mid-motion. All non-zero commands, manual or autonomous, are
+gated on fresh EKF odometry from ``/odometry/filtered``; raw wheel odometry is
+only an EKF input and can never authorize motion. If neither source is
+publishing, the mux keeps sending zero at ``publish_rate`` so the Pico's 500 ms
+command watchdog stays satisfied and the robot cannot keep the last command.
 
 Run it with the bringup launch (which starts one instance):
 
     ros2 run dog_toy_finder_motion cmd_vel_mux
 
 ``/cmd_vel_source`` reports the current winner: ``manual``, ``auto``,
-``released`` (manual just stopped), or ``none``.
+``released`` (manual just stopped), ``no_odometry`` (EKF missing or stale), or
+``none``.
 """
 
 import time
 
 import rclpy
 from geometry_msgs.msg import Twist
+from nav_msgs.msg import Odometry
 from rclpy.node import Node
+from rclpy.qos import qos_profile_sensor_data
 from rclpy.signals import SignalHandlerOptions
 from std_msgs.msg import String
 
@@ -40,16 +45,19 @@ MANUAL_TOPIC = "/cmd_vel_manual"
 AUTO_TOPIC = "/cmd_vel_auto"
 OUTPUT_TOPIC = "/cmd_vel"
 SOURCE_TOPIC = "/cmd_vel_source"
+ODOMETRY_TOPIC = "/odometry/filtered"
 
 SOURCE_MANUAL = "manual"
 SOURCE_AUTO = "auto"
 SOURCE_RELEASED = "released"
+SOURCE_NO_ODOMETRY = "no_odometry"
 SOURCE_NONE = "none"
 
 DEFAULT_PUBLISH_RATE = 20.0      # Hz, keeps the Pico watchdog fed
 DEFAULT_MANUAL_TIMEOUT = 0.5     # s without a manual command before it expires
 DEFAULT_AUTO_TIMEOUT = 0.5       # s without an auto command before it expires
 DEFAULT_RELEASE_TIMEOUT = 0.5    # s of zero after manual control ends
+DEFAULT_ODOMETRY_TIMEOUT = 1.0   # s without the EKF before motion is blocked
 
 
 class CommandSelector:
@@ -94,16 +102,22 @@ class CommandSelector:
         self.auto = (float(linear), float(angular))
         self.last_auto = now
 
-    def select(self, now: float = None):
+    def select(self, now: float = None, odometry_fresh: bool = False):
         """Return ``(source, linear, angular)`` for this instant.
 
-        Manual wins while fresh. After it expires the output is zero for
-        ``release_timeout`` seconds, so autonomous motion cannot resume in the
-        same instant the human stopped. Autonomous commands are used only when
-        they are fresh themselves; otherwise the output is zero.
+        A non-zero command is never selected without fresh EKF odometry; the
+        output stays zero with source ``no_odometry`` until the estimate
+        returns. ``odometry_fresh`` defaults to False so callers must opt in.
+        Manual wins while fresh. After it expires the output is zero
+        for ``release_timeout`` seconds, so autonomous motion cannot resume in
+        the same instant the human stopped. Autonomous commands are used only
+        when they are fresh themselves; otherwise the output is zero.
         """
         if now is None:
             now = time.monotonic()
+
+        if not odometry_fresh:
+            return (SOURCE_NO_ODOMETRY, 0.0, 0.0)
 
         manual_fresh = (
             self.last_manual is not None
@@ -134,25 +148,30 @@ class CommandSelector:
 
 
 class CmdVelMux(Node):
-    """Publish exactly one command source on /cmd_vel with manual priority."""
+    """Publish one EKF-gated command source on /cmd_vel with manual priority."""
 
     def __init__(self):
-        """Read parameters, subscribe to both sources, and start the timer."""
+        """Read parameters, subscribe to commands and EKF, start the timer."""
         super().__init__("cmd_vel_mux")
 
         self.declare_parameter("manual_topic", MANUAL_TOPIC)
         self.declare_parameter("auto_topic", AUTO_TOPIC)
         self.declare_parameter("output_topic", OUTPUT_TOPIC)
         self.declare_parameter("source_topic", SOURCE_TOPIC)
+        self.declare_parameter("odometry_topic", ODOMETRY_TOPIC)
         self.declare_parameter("publish_rate", DEFAULT_PUBLISH_RATE)
         self.declare_parameter("manual_timeout", DEFAULT_MANUAL_TIMEOUT)
         self.declare_parameter("auto_timeout", DEFAULT_AUTO_TIMEOUT)
         self.declare_parameter("release_timeout", DEFAULT_RELEASE_TIMEOUT)
+        self.declare_parameter("odometry_timeout", DEFAULT_ODOMETRY_TIMEOUT)
 
         manual_topic = str(self.get_parameter("manual_topic").value)
         auto_topic = str(self.get_parameter("auto_topic").value)
         output_topic = str(self.get_parameter("output_topic").value)
         self.source_topic = str(self.get_parameter("source_topic").value)
+        odometry_topic = str(self.get_parameter("odometry_topic").value)
+        self.odometry_timeout = max(
+            0.0, float(self.get_parameter("odometry_timeout").value))
         publish_rate = max(
             1.0, float(self.get_parameter("publish_rate").value))
 
@@ -167,12 +186,17 @@ class CmdVelMux(Node):
         self.source_pub = self.create_publisher(String, self.source_topic, 10)
         self.create_subscription(Twist, manual_topic, self._on_manual, 10)
         self.create_subscription(Twist, auto_topic, self._on_auto, 10)
+        self.create_subscription(
+            Odometry, odometry_topic, self._on_odometry,
+            qos_profile_sensor_data)
         self.create_timer(1.0 / publish_rate, self._on_timer)
 
+        self.last_odometry = None
         self.last_source = None
         self.get_logger().info(
-            "cmd_vel mux: %s (manual) + %s (auto) -> %s, manual priority"
-            % (manual_topic, auto_topic, output_topic))
+            "cmd_vel mux: %s (manual) + %s (auto) -> %s, manual priority, "
+            "gated on fresh %s" % (
+                manual_topic, auto_topic, output_topic, odometry_topic))
 
     def _on_manual(self, msg: Twist) -> None:
         """Feed a manual command to the selector."""
@@ -182,9 +206,19 @@ class CmdVelMux(Node):
         """Feed an autonomous command to the selector."""
         self.selector.update_auto(msg.linear.x, msg.angular.z)
 
+    def _on_odometry(self, msg: Odometry) -> None:
+        """Record that the EKF published a pose; payload is not used here."""
+        self.last_odometry = time.monotonic()
+
     def _on_timer(self) -> None:
-        """Publish the selected command and its source at a fixed rate."""
-        source, linear, angular = self.selector.select()
+        """Publish the selected, EKF-gated command and its source."""
+        now = time.monotonic()
+        odometry_fresh = (
+            self.last_odometry is not None
+            and (now - self.last_odometry) <= self.odometry_timeout
+        )
+        source, linear, angular = self.selector.select(
+            now=now, odometry_fresh=odometry_fresh)
 
         command = Twist()
         command.linear.x = linear
@@ -193,7 +227,13 @@ class CmdVelMux(Node):
         self.source_pub.publish(String(data=source))
 
         if source != self.last_source:
-            self.get_logger().info("cmd_vel source: %s" % source)
+            message = "cmd_vel source: %s" % source
+            if source == SOURCE_NO_ODOMETRY:
+                self.get_logger().warn(
+                    message + "; non-zero motion is blocked until the EKF "
+                    "publishes %s" % ODOMETRY_TOPIC)
+            else:
+                self.get_logger().info(message)
             self.last_source = source
 
     def stop(self) -> None:
