@@ -23,8 +23,15 @@
 
 // Set to 1 when a side counts backwards for the robot's forward direction.
 // Swapping the A/B wires is equivalent.
+//
+// Measured on the assembled robot: turning each wheel forward by hand made the
+// left count increase (+2.6 rad over half a turn) but the right count decrease
+// (-3.4 rad). A forward /cmd_vel also spun the right wheel physically forward
+// while its encoder counted negative, so the wiring, not the motor, is
+// reversed. Inverting the right channel makes both wheels report forward as
+// positive, which is required for correct /wheel/odom and EKF fusion.
 #define ENCODER_LEFT_INVERT 0
-#define ENCODER_RIGHT_INVERT 0
+#define ENCODER_RIGHT_INVERT 1
 
 // ---------------------------------------------------------------------------
 // Velocity estimate
