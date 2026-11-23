@@ -1,12 +1,20 @@
-# Host-only dependencies for the open_vocab detector service.
-# Install CPU torch first so pip does not pull a large CUDA runtime:
+# Host-only dependencies for the open-vocabulary detector and dense-stereo
+# services. Install CPU torch first so pip does not pull a large CUDA runtime:
 #   pip install torch --index-url https://download.pytorch.org/whl/cpu
 #   pip install -r software/host_vision/requirements.txt
 # YOLOE-26 requires ultralytics >= 8.4; Grounding DINO uses transformers/timm.
+# The dense-stereo adapters use omegaconf/einops/timm to load upstream models.
 ultralytics>=8.4,<9
 transformers>=4.45
 timm
 accelerate
+omegaconf
+einops
+scipy
+scikit-image
+opencv-python-headless
+imageio
+huggingface_hub
 pillow
 numpy
 pyyaml

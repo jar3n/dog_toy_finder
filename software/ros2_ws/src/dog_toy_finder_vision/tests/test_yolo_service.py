@@ -246,9 +246,28 @@ class HostServiceTests(unittest.TestCase):
         self.assertAlmostEqual(left[0]["u"], 90.0, delta=1.0)
         self.assertAlmostEqual(right[0]["u"], 70.0, delta=1.0)
 
+    def test_single_image_request_supports_second_pipeline(self):
+        """The dense pipeline asks for mask pixels on the left image only."""
+        with mock.patch.object(service.detectors, "load_detector",
+                               return_value=("yolo_world", RedDotModel())):
+            server = ThreadingHTTPServer(("127.0.0.1", 0), service.Handler)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            self.addCleanup(server.server_close)
+            self.addCleanup(server.shutdown)
+            url = "http://127.0.0.1:%d" % server.server_port
+            config = vision_config.load_config()
+            with mock.patch.dict(os.environ, {"YOLO_SERVICE_URL": url}):
+                detections, name = yolo_client.detect_one(
+                    base64.b64decode(_jpeg(90)), ["red ball"], config)
+        self.assertEqual(name, "fake-world")
+        self.assertEqual(len(detections), 1)
+        self.assertAlmostEqual(detections[0]["u"], 90.0, delta=1.0)
+        self.assertIn("depth_sample_pixels", detections[0])
+
     def test_invalid_requests_are_rejected(self):
         with self.assertRaises(ValueError):
-            service.detect({"images": ["only-one"]})
+            service.detect({"images": []})
         with self.assertRaises(ValueError):
             service.detect({"images": [_jpeg(90), _jpeg(70)]})
 

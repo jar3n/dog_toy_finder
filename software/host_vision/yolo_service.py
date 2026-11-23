@@ -3,9 +3,11 @@
 
 Runs on the computer (not in the ROS 2 container) so torch, ultralytics,
 transformers and the model weights stay out of the container image. The
-container sends two rectified JPEGs plus text class prompts to ``POST /detect``;
-this service runs the selected detector on each eye and returns plain-Python
-detection dictionaries. Stereo matching and triangulation stay in the container.
+container sends one or two rectified JPEGs plus text class prompts to
+``POST /detect``; this service runs the selected detector on each image and
+returns plain-Python detection dictionaries. ``open_vocab`` sends both eyes for
+stereo matching in the container; ``second`` sends only the left eye and asks
+for mask-pixel samples for the host depth service.
 
 One detector runs at a time, selected on the host with ``DETECTOR_MODEL`` or
 ``--detector``: ``yolo_world``, ``yoloe_26``, or ``grounding_dino``.
@@ -87,8 +89,9 @@ def detect(body):
     """Run both eyes and return ``(model_name, detections)``."""
     global _MODEL
     images = body.get("images")
-    if not isinstance(images, list) or len(images) != 2:
-        raise ValueError("'images' must be a list of exactly two base64 JPEGs")
+    if not isinstance(images, list) or len(images) not in (1, 2):
+        raise ValueError(
+            "'images' must be a list of one or two base64 JPEGs")
 
     classes = body.get("classes")
     if not isinstance(classes, list) or not classes:
@@ -106,6 +109,13 @@ def detect(body):
         rgb = detectors.decode_jpeg(base64.b64decode(encoded))
         detections.append(
             detectors.detections_for_image(_MODEL, rgb, classes, config))
+
+    # The second pipeline needs the mask pixels for dense-depth sampling. Keep
+    # them off the normal open_vocab response so those answers stay small.
+    if not body.get("include_depth_samples"):
+        for eye in detections:
+            for detection in eye:
+                detection.pop("depth_sample_pixels", None)
     return _MODEL_NAME, detections
 
 

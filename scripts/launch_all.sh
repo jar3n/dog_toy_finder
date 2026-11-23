@@ -132,6 +132,7 @@ VISION_CMD="$VISION_CMD baseline:=$STEREO_BASELINE"
 VISION_CMD="$VISION_CMD config_path:=$VISION_DETECTOR_CONFIG"
 VISION_CMD="$VISION_CMD pipeline:=${VISION_PIPELINE:-}"
 VISION_CMD="$VISION_CMD yolo_service_url:=${YOLO_SERVICE_URL:-}"
+VISION_CMD="$VISION_CMD stereo_service_url:=${STEREO_SERVICE_URL:-}"
 
 MAP_CMD="ros2 launch dog_toy_finder_mapping mapping.launch.py"
 MAP_CMD="$MAP_CMD resolution:=$MAP_RESOLUTION width:=$MAP_WIDTH height:=$MAP_HEIGHT"

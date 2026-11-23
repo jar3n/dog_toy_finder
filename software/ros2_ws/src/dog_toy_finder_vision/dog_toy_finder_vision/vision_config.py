@@ -57,6 +57,13 @@ DEFAULTS = {
         "max_disparity": 96,
         "max_vertical_delta_px": 20,
     },
+    "second": {
+        "name": "lite_any_stereo",
+        "service_url": "http://localhost:5007",
+        "timeout_s": 180,
+        "window_radius_px": 3,
+        "max_disparity": 192,
+    },
 }
 
 

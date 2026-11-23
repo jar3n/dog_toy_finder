@@ -2,14 +2,21 @@
 
 `dog_toy_finder_vision` turns the two ESP32-CAM eyes into a ROS 2 stereo
 pipeline and runs a **selectable vision pipeline on the same rectified colour
-pair**. `open_vocab` is implemented: one host-side open-vocabulary detector
-runs on both rectified images, detections are matched between the eyes, and the
-target location is triangulated from disparity using `fx` and the stereo
-baseline. The detector runs on the computer (YOLO-World, YOLOE-26, or Grounding
-DINO). YOLOE-26-seg supplies instance masks, so the matched centre is the mean
-of the mask pixels; YOLO-World and Grounding DINO are box-only, so they use the
-box centre. `second` is a reserved placeholder that is not configured yet;
-selecting it reports a clear error.
+pair**. Both pipelines are implemented:
+
+- `open_vocab`: one host-side open-vocabulary detector runs on both rectified
+  images, detections are matched between the eyes, and the target location is
+  triangulated from disparity using `fx` and the stereo baseline.
+- `second`: the same detector runs on the left image only; a dense stereo model
+  on the host produces a disparity map from the full pair and its median over
+  the object's mask pixels (YOLOE-26) or a small window around the box centre
+  (YOLO-World / Grounding DINO) gives the depth.
+
+The detector runs on the computer (YOLO-World, YOLOE-26, or Grounding DINO).
+YOLOE-26-seg supplies instance masks, so the reported centre is the mean of the
+mask pixels; YOLO-World and Grounding DINO are box-only, so they use the box
+centre. All model weights, torch, and the dense stereo repositories stay on the
+computer, never in the ROS container.
 
 The pipeline is chosen by the launch arg `pipeline:=open_vocab|second`, the
 `VISION_PIPELINE` environment variable, or the top-level `pipeline` key in
@@ -63,7 +70,7 @@ The path is set once in `scripts/full_system_eval.conf` as
 `VISION_DETECTOR_CONFIG` and forwarded through the launch file. Put your
 measured camera and toy values there:
 
-- `pipeline` — `open_vocab` (default) or the reserved `second`
+- `pipeline` — `open_vocab` (default) or `second`
 - `open_vocab.service_url` — host detector service URL (default
   `http://localhost:5006`; `YOLO_SERVICE_URL` overrides it)
 - `open_vocab.timeout_s` — HTTP timeout in seconds
@@ -71,10 +78,16 @@ measured camera and toy values there:
   (the host service may report its own name)
 - `open_vocab.confidence_threshold`, `max_detections`, `min_disparity`,
   `max_disparity`, `max_vertical_delta_px` — detector and stereo-matching limits
+- `second.service_url` — host dense-stereo depth service URL (default
+  `http://localhost:5007`; `STEREO_SERVICE_URL` overrides it)
+- `second.timeout_s`, `second.window_radius_px` — HTTP timeout and the
+  `(2r+1)^2` box-centre window used by box-only detectors
+- `second.name`, `second.max_disparity` — fallback depth model name and the
+  upper bound on sampled disparity
 - The detector backend, weights, and torch device are **not** in the YAML:
-  configure them on the host service with `DETECTOR_MODEL`,
-  `YOLO_MODEL_PATH` / `YOLOE_MODEL_PATH` / `GROUNDING_DINO_MODEL`, and
-  `YOLO_DEVICE` (see below)
+  configure them on the host services with `DETECTOR_MODEL`,
+  `YOLO_MODEL_PATH` / `YOLOE_MODEL_PATH` / `GROUNDING_DINO_MODEL`,
+  `YOLO_DEVICE`, and `DEPTH_MODEL` / `STEREO_DEVICE` (see below)
 - `camera.fx`, `fy`, `cx`, `cy` — calibrated intrinsics in pixels
 - `camera.baseline_m` — spacing between the two optical centres
 - `camera.depth_min_m`, `depth_max_m` — valid metric depth range
@@ -127,8 +140,7 @@ The container pairs detections by label, image row, and horizontal disparity;
 distance is `fx * baseline_m / disparity`, and lateral bearing comes from the
 left-image centre described above. The service's model name (or
 `open_vocab.name`) is reported as `model`, with `method: "open_vocab"` and
-`distance_source: "stereo_triangulation"` for matched detections. Selecting
-`second` instead raises a clear "reserved but not configured yet" error.
+`distance_source: "stereo_triangulation"` for matched detections.
 
 Each answer uses the existing schema:
 
@@ -153,6 +165,57 @@ Each answer uses the existing schema:
 }
 ```
 
+## Second pipeline (dense stereo depth)
+
+`second` reuses the **same detector service** as `open_vocab` (configured with
+`DETECTOR_MODEL`), but calls `POST /detect` with a single rectified left image
+and `include_depth_samples: true`. A second host service computes a dense
+disparity map from the full pair; start it once from the repository root:
+
+```bash
+./scripts/start_stereo_service.sh                          # Lite Any Stereo (default)
+DEPTH_MODEL=fast_foundation_stereo ./scripts/start_stereo_service.sh
+DEPTH_MODEL=rt_igevpp ./scripts/start_stereo_service.sh
+```
+
+One depth model runs at a time:
+
+| `DEPTH_MODEL` | Model | Default weights |
+|---|---|---|
+| `lite_any_stereo` | Lite Any Stereo V2 (small) | `LAS2_S.pth` |
+| `fast_foundation_stereo` | NVIDIA Fast-FoundationStereo 23-36-37 | `model_best_bp2_serialize.pth` |
+| `rt_igevpp` | IGEV++ real-time (`core_rt`, 6 iterations) | `sceneflow.pth` |
+
+The script creates the same `software/host_vision/.venv`, clones each upstream
+repository over HTTPS into `software/host_vision/models/repos/`, and downloads
+weights from Hugging Face (no file-sharing drives). It serves `POST /depth` on
+`http://localhost:5007` and `GET /health` (which reports the selected `model` and
+weights). The container reaches it via `STEREO_SERVICE_URL` (default
+`http://localhost:5007`, also settable through `second.service_url`).
+
+Host-only environment variables for the depth service:
+
+| Variable | Meaning |
+|---|---|
+| `DEPTH_MODEL` | `lite_any_stereo` (default), `fast_foundation_stereo`, or `rt_igevpp` |
+| `STEREO_DEVICE` | torch device (`cpu` or `cuda:0`); auto-selects CUDA when available |
+| `LITE_ANY_STEREO_MODEL_PATH` | override the Lite Any Stereo checkpoint path |
+| `FAST_FOUNDATION_STEREO_MODEL_PATH` | override the Fast Foundation Stereo checkpoint path |
+| `RT_IGEVPP_MODEL_PATH` | override the RT-IGEV++ checkpoint path |
+| `LITE_ANY_STEREO_REPO`, `FAST_FOUNDATION_STEREO_REPO`, `IGEV_PLUSPLUS_REPO` | override upstream source checkout locations |
+
+The depth sampler uses every instance-mask pixel from YOLOE-26, or the
+`(2 * second.window_radius_px + 1)^2` window around the box centre for
+YOLO-World and Grounding DINO, and takes the median of the valid disparities.
+Depth is `fx * baseline_m / disparity_px`; bearing uses the same left-image
+centre and convention as `open_vocab`. The answer reports `method: "second"`,
+`distance_source: "dense_stereo_depth"`, the dense model name in `model`, the
+detector name in `detector_model`, and `depth_sample_source`,
+`depth_sample_count`, `depth_valid_count`, and `depth_disparity_px` describing
+the depth read. The trial CSV schema is unchanged: the `model` column (dense
+model name) distinguishes Lite Any Stereo, Fast Foundation Stereo, and
+RT-IGEV++ runs.
+
 ## Result fields
 
 `/vision/result` contains a `results` array plus the selected `pipeline` name.
@@ -160,8 +223,9 @@ Every entry has:
 
 | Field | Meaning |
 |---|---|
-| `model` | configured detector name from the pipeline |
-| `method` | `open_vocab` for new vision rows (`ml` only on legacy rows) |
+| `model` | detector name for `open_vocab`; dense depth model name for `second` |
+| `method` | `open_vocab` or `second` (`ml` only on legacy rows) |
+| `detector_model` | detector used for the single-image detection (`second` only) |
 | `target_visible` | whether the requested target was found |
 | `lateral_bearing_deg` | numeric bearing from the optical axis; positive = robot-left |
 | `position` | derived compatibility label: `left`, `center`, `right`, or `none` |
@@ -171,13 +235,17 @@ Every entry has:
 | `path_clear` | `true` when `obstacle_ahead` is `none` |
 | `description` | human-readable detector summary |
 | `seconds` | detector latency |
-| `distance_source` | `stereo_triangulation` for matched detections, `none` when no target was found |
+| `distance_source` | `stereo_triangulation` (`open_vocab`), `dense_stereo_depth` (`second`), or `none` |
 | `bbox_px` | left rectified-image box `[x1, y1, x2, y2]` in pixels (mask bounds for YOLOE-26) |
-| `bbox_right_px` | matching box in the right rectified image |
+| `bbox_right_px` | matching box in the right rectified image (`open_vocab` only) |
 | `center_source` | `mask_centroid` (YOLOE-26), `box_center` (YOLO-World/Grounding DINO), `mixed`, or `none` |
 | `mask_centroid_px` | `[u, v]` mean of mask pixels on the left image, or `null` for box-only models |
 | `mask_area_px` | mask area in left-image pixels, `0` for box-only models |
-| `disparity_px` | horizontal difference between the two reported centres, used for depth |
+| `disparity_px` | horizontal difference between the two reported centres (`open_vocab` only) |
+| `depth_sample_source` | `mask_pixels` or `box_window` used by `second` |
+| `depth_sample_count` | number of disparity samples requested by `second` |
+| `depth_valid_count` | number of valid samples in the median |
+| `depth_disparity_px` | median disparity used for dense depth (`second` only) |
 
 The mapping node consumes all entries and fuses visible toys by median bearing
 and distance. The trial collector writes one CSV row per entry. For fair
@@ -239,8 +307,16 @@ source install/setup.bash
 ros2 launch dog_toy_finder_vision stereo_vision.launch.py \
     pipeline:=open_vocab
 
+# one-eye detection + dense stereo depth (start both host services first)
+ros2 launch dog_toy_finder_vision stereo_vision.launch.py \
+    pipeline:=second
+
 # same pipeline selected via the environment (VISION_PIPELINE in the config)
 VISION_PIPELINE=open_vocab ros2 launch dog_toy_finder_vision stereo_vision.launch.py
+
+# point at a non-default host depth service
+STEREO_SERVICE_URL=http://localhost:5007 ros2 launch \
+    dog_toy_finder_vision stereo_vision.launch.py pipeline:=second
 
 # use a different physical measurement config (including its pipeline key)
 ros2 launch dog_toy_finder_vision stereo_vision.launch.py \

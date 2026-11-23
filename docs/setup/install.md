@@ -32,8 +32,12 @@ run `./scripts/start_yolo_service.sh` once to create a host venv with CPU torch,
 ultralytics, and transformers and download weights to
 `software/host_vision/models/`. Pick the backend with `DETECTOR_MODEL`
 (`yolo_world`, `yoloe_26`, or `grounding_dino`). The container reaches the
-service at `YOLO_SERVICE_URL` (default `http://localhost:5006`). No vision
-Ollama server or model pull is needed (ROSA planning uses Ollama separately).
+service at `YOLO_SERVICE_URL` (default `http://localhost:5006`). The `second`
+pipeline also runs dense stereo on the host: `./scripts/start_stereo_service.sh`
+serves depth at `STEREO_SERVICE_URL` (default `http://localhost:5007`), with one
+model chosen by `DEPTH_MODEL` (`lite_any_stereo`, `fast_foundation_stereo`, or
+`rt_igevpp`). No vision Ollama server or model pull is needed (ROSA planning uses
+Ollama separately).
 
 ## 3. Build the micro-ROS library (Pico)
 

@@ -27,10 +27,11 @@ Run inside the ROS 2 container:
     ros2 launch dog_toy_finder_vision stereo_vision.launch.py vision:=false
 
 ``pipeline`` falls back to ``$VISION_PIPELINE``, then the detector YAML's
-``pipeline`` key, then ``open_vocab``. ``second`` is reserved for a pipeline
-that has not been described yet. ``open_vocab`` sends rectified JPEGs to the
-host-side detector service (``scripts/start_yolo_service.sh``); torch and
-weights are not installed in this container.
+``pipeline`` key, then ``open_vocab``. ``open_vocab`` sends rectified JPEGs to
+the host-side detector service (``scripts/start_yolo_service.sh``). ``second``
+detects in the left image only and asks the host dense-stereo service
+(``scripts/start_stereo_service.sh``) for depth. Torch, models, and weights run
+on the computer, never in this container.
 
 The default capture size is 320x240. At 640x480 each colour frame is ~900 KB
 and the host's DDS socket buffers drop a large fraction of them, which makes
@@ -178,6 +179,7 @@ def generate_launch_description():
             "config_path": LaunchConfiguration("config_path"),
             "pipeline": LaunchConfiguration("pipeline"),
             "yolo_service_url": LaunchConfiguration("yolo_service_url"),
+            "stereo_service_url": LaunchConfiguration("stereo_service_url"),
         }],
     )
 
@@ -216,8 +218,11 @@ def generate_launch_description():
                               description="Vision pipeline: open_vocab|second "
                                           "(default: $VISION_PIPELINE / YAML / open_vocab)"),
         DeclareLaunchArgument("yolo_service_url", default_value="",
-                              description="Host YOLO detector service URL "
+                              description="Host open-vocabulary detector service URL "
                                           "(default: $YOLO_SERVICE_URL / YAML / http://localhost:5006)"),
+        DeclareLaunchArgument("stereo_service_url", default_value="",
+                              description="Host dense-stereo depth service URL "
+                                          "(default: $STEREO_SERVICE_URL / YAML / http://localhost:5007)"),
 
         # --- stereo_image_proc tuning ---
         DeclareLaunchArgument("approximate_sync", default_value="true",

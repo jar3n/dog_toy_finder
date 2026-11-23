@@ -23,8 +23,11 @@ Open-vocabulary inference for the `open_vocab` pipeline runs on the computer via
 transformers, and weights in `software/host_vision/models/`). One detector runs
 at a time, selected with `DETECTOR_MODEL` (`yolo_world`, `yoloe_26`, or
 `grounding_dino`). The container only talks to it over HTTP at
-`YOLO_SERVICE_URL` (default `http://localhost:5006`). Vision does not need an
-Ollama server; Ollama is used separately for ROSA planning.
+`YOLO_SERVICE_URL` (default `http://localhost:5006`). The `second` pipeline also
+uses `./scripts/start_stereo_service.sh` for dense-stereo depth on the host
+(`STEREO_SERVICE_URL`, default `http://localhost:5007`; one model via
+`DEPTH_MODEL`). Vision does not need an Ollama server; Ollama is used separately
+for ROSA planning.
 
 ## micro-ROS agent
 

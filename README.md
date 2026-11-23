@@ -1,8 +1,8 @@
 # Dog Toy Finder Robot
 
 A differential-drive ROS 2 robot that searches for dog toys with a stereo camera
-pair and a selectable vision pipeline (an open-vocabulary detector today; a
-second pipeline is reserved for later).
+pair and a selectable vision pipeline: `open_vocab` (two-eye detection and
+triangulation) or `second` (one-eye detection plus dense-stereo depth).
 
 - **Local brain:** Raspberry Pi Pico 2 W running micro-ROS
 - **Link:** Wi-Fi (UDP) to a computer running the micro-ROS agent
@@ -13,11 +13,15 @@ second pipeline is reserved for later).
 ## What it does
 
 - Captures a stereo pair, rectifies it, computes disparity and a point cloud,
-  then runs a vision pipeline on both rectified images. `open_vocab` uses one
-  host-side open-vocabulary detector (YOLO-World, YOLOE-26, or Grounding DINO),
-  matches detections between the eyes, and triangulates the target's location
-  from disparity using `fx` and the stereo baseline. YOLOE-26-seg reports the
-  centroid of its instance mask; the box-only models report their box centre.
+  then runs a selectable vision pipeline. `open_vocab` uses one host-side
+  open-vocabulary detector (YOLO-World, YOLOE-26, or Grounding DINO), matches
+  detections between the eyes, and triangulates the target's location from
+  disparity using `fx` and the stereo baseline. `second` uses the same detector
+  in the left eye only and reads depth from a dense disparity map produced by a
+  host stereo model (Lite Any Stereo, Fast Foundation Stereo, or RT-IGEV++),
+  taking the median over the object's mask pixels (YOLOE-26) or a small window
+  around its box centre (box-only detectors). YOLOE-26-seg reports the centroid
+  of its instance mask; the box-only models report their box centre.
 - Runs either a deterministic expanding-square search or a ROSA/LLM-driven
   search, for one toy or a comma-separated list of toy kinds.
 - Records poses/vision results to CSV and evaluates success, time, path length,
@@ -97,9 +101,9 @@ and `vision_node` answers `/vision/ask` requests from the planner, the search
 harness, or ROSA using the selected vision pipeline. Choose it with the launch
 arg `pipeline:=open_vocab|second`, the `VISION_PIPELINE` environment variable,
 or the top-level `pipeline` key in `vision_detectors.yaml` (`vision_eval` also
-has `--pipeline`). `open_vocab` is implemented; `second` is a reserved placeholder
-that is not configured yet and reports a clear error if selected. Vision answers
-report a numeric `lateral_bearing_deg` = `atan((cx - u) / fx)` in degrees
+has `--pipeline`). Both pipelines are implemented; `second` uses one-image
+detection plus dense-stereo depth so the two approaches can be compared. Vision
+answers report a numeric `lateral_bearing_deg` = `atan((cx - u) / fx)` in degrees
 (positive = robot-left) rather than only a coarse side label. For comparison,
 `vision_capture` saves rectified pairs with operator-measured ground truth and
 `vision_eval` replays them offline through the configured pipeline.
@@ -118,13 +122,15 @@ docker compose up -d micro_ros_agent
 docker compose run --rm ros2
 ```
 
-The `ros2` image has only Pillow (to convert ROS images to JPEG); detector
-inference runs on the computer, not in Docker. Before starting the vision node,
-run `./scripts/start_yolo_service.sh` in another host terminal once (it creates
-a local venv, installs CPU torch/ultralytics/transformers, and downloads the
-weights). Select the detector with `DETECTOR_MODEL=yolo_world|yoloe_26|
-grounding_dino`. No vision Ollama server is needed; Ollama is used separately
-by the ROSA planner.
+The `ros2` image has only Pillow (to convert ROS images to JPEG); detector and
+dense-stereo inference run on the computer, not in Docker. Before starting the
+vision node, run `./scripts/start_yolo_service.sh` in another host terminal once
+(it creates a local venv, installs CPU torch/ultralytics/transformers, and
+downloads the weights). Select the detector with
+`DETECTOR_MODEL=yolo_world|yoloe_26|grounding_dino`. For the `second` pipeline
+also start `./scripts/start_stereo_service.sh` (one depth model at a time,
+`DEPTH_MODEL=lite_any_stereo|fast_foundation_stereo|rt_igevpp`). No vision Ollama
+server is needed; Ollama is used separately by the ROSA planner.
 
 Inside the container:
 

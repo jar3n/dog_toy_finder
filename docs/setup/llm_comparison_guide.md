@@ -10,11 +10,19 @@ one scoring tool (`dog_toy_finder_data.llm_trials`).
 The vision pipeline is selected with `pipeline:=open_vocab|second` on the launch
 command, `VISION_PIPELINE` in `scripts/full_system_eval.conf`, the top-level
 `pipeline` key in `vision_detectors.yaml`, or `vision_eval --pipeline` (explicit
-selections win). `open_vocab` is implemented: one host-side open-vocabulary
-detector (YOLO-World, YOLOE-26, or Grounding DINO) runs on both rectified
-images, matching detections are paired, and distance comes from stereo
-triangulation using `fx` and the stereo baseline. `second` is a reserved
-placeholder that is not configured yet; selecting it reports a clear error.
+selections win). Both are implemented:
+
+- `open_vocab`: one host-side open-vocabulary detector (YOLO-World, YOLOE-26,
+  or Grounding DINO) runs on both rectified images, matching detections are
+  paired, and distance comes from stereo triangulation using `fx` and the stereo
+  baseline.
+- `second`: the same detector runs on the left image only and a host dense-stereo
+  model (Lite Any Stereo, Fast Foundation Stereo, or RT-IGEV++) supplies depth
+  from a disparity map, sampled over the object's mask pixels (YOLOE-26) or a
+  small box-centre window (box-only detectors).
+
+Each pipeline produces one answer per request/capture, so rows stay comparable
+across runs.
 
 Vision answers use a numeric `lateral_bearing_deg` as the primary lateral
 measurement: degrees from the optical axis, positive to the robot's left. The
@@ -76,10 +84,22 @@ selected weights to `software/host_vision/models/`. One detector runs at a
 time; choose it with `DETECTOR_MODEL=yolo_world|yoloe_26|grounding_dino`
 (defaults: `yolov8s-world.pt`, `yoloe-26s-seg.pt`, and
 `IDEA-Research/grounding-dino-tiny`). The container sends rectified JPEGs to
-that service at `YOLO_SERVICE_URL` (default `http://localhost:5006`). No vision
-Ollama server is needed. Ollama is only used by the ROSA planning comparison in
-Part B; see [`software/rosa_agent/README.md`](../../software/rosa_agent/README.md)
-for its setup.
+that service at `YOLO_SERVICE_URL` (default `http://localhost:5006`).
+
+For the `second` pipeline also start `./scripts/start_stereo_service.sh` on the
+host. It reuses the same venv and serves dense disparity at
+`STEREO_SERVICE_URL` (default `http://localhost:5007`). One depth model runs at
+a time, selected with
+`DEPTH_MODEL=lite_any_stereo|fast_foundation_stereo|rt_igevpp`; weights and
+upstream repositories are prepared under `software/host_vision/models/`. The
+depth model name, not the detector name, is recorded in the `model` column so
+runs can be compared. `STEREO_DEVICE` selects the torch device (auto-detects
+CUDA); per-model `*_MODEL_PATH` variables override checkpoint locations.
+
+No vision Ollama server is needed. Ollama is only used by the ROSA planning
+comparison in Part B; see
+[`software/rosa_agent/README.md`](../../software/rosa_agent/README.md) for its
+setup.
 
 Confirm the data package is available:
 
@@ -104,11 +124,14 @@ own copy). At minimum, set the calibrated `fx`, `fy`, `cx`, `cy`, `baseline_m`,
 and the valid `camera.depth_min_m`/`depth_max_m`. The top-level `pipeline` key
 selects the vision pipeline (`open_vocab` by default); `open_vocab.service_url`
 points at the host detector service and `open_vocab.name` is the fallback model
-name recorded in results and trial CSVs. The detector backend, weights, and
-torch device are configured on the host service via `DETECTOR_MODEL`,
-`YOLO_MODEL_PATH` / `YOLOE_MODEL_PATH` / `GROUNDING_DINO_MODEL`, and
-`YOLO_DEVICE`. `fx` and `baseline_m` drive stereo triangulation
-(`distance = fx * baseline / disparity`), and `cx`/`fx` set the bearing.
+name recorded in results and trial CSVs. The `second.service_url`,
+`second.window_radius_px`, and `second.max_disparity` keys tune the dense-depth
+path. The detector backend, weights, and torch device are configured on the
+host service via `DETECTOR_MODEL`, `YOLO_MODEL_PATH` / `YOLOE_MODEL_PATH` /
+`GROUNDING_DINO_MODEL`, and `YOLO_DEVICE`; the dense model is selected on the
+host with `DEPTH_MODEL` and `STEREO_DEVICE`. `fx` and `baseline_m` drive both
+triangulation and dense depth (`distance = fx * baseline / disparity`), and
+`cx`/`fx` set the bearing.
 
 `lateral_bearing_deg` is measured from the camera's optical axis in degrees:
 
@@ -141,10 +164,10 @@ ros2 launch dog_toy_finder_vision stereo_vision.launch.py \
 
 `vision:=false` leaves `/stereo/{left,right}/image_rect_color` publishing but
 does not start the live detector node, so no detector is loaded during capture.
-Add `pipeline:=open_vocab` if you want the live node running on a known
-pipeline; `second` is reserved and not configured yet. It is also fine to
-capture while the full stack is running; `vision_capture` never publishes a
-`/vision/ask`.
+Add `pipeline:=open_vocab` or `pipeline:=second` if you want the live node
+running on a known pipeline (the latter needs both host services). It is also
+fine to capture while the full stack is running; `vision_capture` never
+publishes a `/vision/ask`.
 
 ### A3. Capture a labelled stereo pair
 
@@ -229,14 +252,16 @@ This writes:
 /workspace/data/vision/vision_eval_summary.json
 ```
 
-One scored row is written per capture per model name produced by the pipeline.
-For `open_vocab` the name is reported by the host detector service (falling back
-to `open_vocab.name` in the detector YAML), and answers carry
-`method=open_vocab`; matched detections report
-`distance_source=stereo_triangulation`. Legacy rows from the retired path use
-`method=ml`. Ground truth is copied from each `meta.json`, so no spreadsheet
-annotation is needed. The summary manifest (`vision_eval_summary.json`) records
-the pipeline that produced the rows.
+One scored row is written per capture (one answer per capture). For
+`open_vocab` the `model` column is reported by the host detector service
+(falling back to `open_vocab.name`), answers carry `method=open_vocab`, and
+matched detections report `distance_source=stereo_triangulation`. For `second`
+the `model` column is the dense depth model name from the host depth service,
+answers carry `method=second` and `detector_model` for the one-eye detector, and
+use `distance_source=dense_stereo_depth` plus `depth_sample_*` fields. Legacy
+rows from the retired path use `method=ml`. Ground truth is copied from each
+`meta.json`, so no spreadsheet annotation is needed. The summary manifest
+(`vision_eval_summary.json`) records the pipeline that produced the rows.
 
 Useful options:
 

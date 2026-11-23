@@ -5,7 +5,8 @@ pair through the selected vision pipeline, then writes a trial CSV that already
 contains the operator's ground truth.
 
 No live camera topics and no ROS graph are needed. Only the shared detector
-config, the saved JPEGs, and the host YOLO detector service are used.
+config, the saved JPEGs, and the host services (detector, plus the depth service
+for ``second``) are used.
 
 Usage inside the ROS 2 container::
 
@@ -75,7 +76,8 @@ def load_capture(path):
     return meta, images
 
 
-def evaluate_capture(path, config, pipeline=None, client=None):
+def evaluate_capture(path, config, pipeline=None, client=None,
+                     depth_client=None):
     """Replay one capture and return a /vision/result-style dict."""
     meta, images = load_capture(path)
     name = vision_pipelines.pipeline_name(pipeline, config)
@@ -94,7 +96,7 @@ def evaluate_capture(path, config, pipeline=None, client=None):
     }
     entries = vision_pipelines.run_pipeline(
         name, target, images["left_jpeg"], images["right_jpeg"],
-        config, client=client)
+        config, client=client, depth_client=depth_client)
     result["results"] = entries
     result["models"] = [entry.get("model", "unknown") for entry in entries]
     return result, meta

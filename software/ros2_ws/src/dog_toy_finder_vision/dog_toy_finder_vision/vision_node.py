@@ -11,10 +11,11 @@ Publishes   /vision/result                       std_msgs/String (JSON)
 
 Parameters
 ----------
-config_path      : str   detector YAML path (from full_system_eval.conf)
-pipeline         : str   open_vocab|second (empty = VISION_PIPELINE / YAML)
-yolo_service_url : str   host YOLO detector service (empty = env / YAML / default)
-left_rect_topic  : str   override the left rectified-color topic
+config_path       : str   detector YAML path (from full_system_eval.conf)
+pipeline          : str   open_vocab|second (empty = VISION_PIPELINE / YAML)
+yolo_service_url  : str   host detector service (empty = env / YAML / default)
+stereo_service_url: str   host dense-depth service (empty = env / YAML / default)
+left_rect_topic   : str   override the left rectified-color topic
 right_rect_topic : str   override the right rectified-color topic
 """
 
@@ -43,8 +44,10 @@ FRESH_PHOTO_TIMEOUT = 5.0
 TOP_LEVEL_KEYS = (
     "description", "target_visible", "position", "lateral_bearing_deg",
     "size", "distance_m", "obstacle_ahead", "path_clear", "seconds",
-    "method", "distance_source", "model", "bbox_px", "bbox_right_px",
-    "disparity_px", "center_source", "mask_centroid_px", "mask_area_px",
+    "method", "distance_source", "model", "detector_model", "bbox_px",
+    "bbox_right_px", "disparity_px", "center_source", "mask_centroid_px",
+    "mask_area_px", "depth_sample_source", "depth_sample_count",
+    "depth_valid_count", "depth_disparity_px",
 )
 
 
@@ -54,6 +57,7 @@ class VisionNode(Node):
         self.declare_parameter("config_path", "")
         self.declare_parameter("pipeline", "")
         self.declare_parameter("yolo_service_url", "")
+        self.declare_parameter("stereo_service_url", "")
         self.declare_parameter("left_rect_topic", "")
         self.declare_parameter("right_rect_topic", "")
 
@@ -62,6 +66,9 @@ class VisionNode(Node):
         service_url = self.get_parameter("yolo_service_url").value
         if service_url:
             self.config.setdefault("open_vocab", {})["service_url"] = service_url
+        stereo_url = self.get_parameter("stereo_service_url").value
+        if stereo_url:
+            self.config.setdefault("second", {})["service_url"] = stereo_url
         self.pipeline = vision_pipelines.pipeline_name(
             self.get_parameter("pipeline").value, self.config)
 

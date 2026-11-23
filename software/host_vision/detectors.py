@@ -160,6 +160,12 @@ def _mask_geometry(masks, index, image_shape):
                         "width_px": x2 - x1,
                         "height_px": y2 - y1,
                         "mask_area_px": int(round(len(xs) * sx * sy)),
+                        # The second pipeline asks the dense-stereo service for
+                        # the median over these pixels. They stay inside this
+                        # host-to-host request and are not part of the answer.
+                        "depth_sample_pixels": [
+                            [round(float(x) * sx, 2), round(float(y) * sy, 2)]
+                            for y, x in zip(ys, xs)],
                     }
     polygons = getattr(masks, "xy", None)
     if polygons is not None and index < len(polygons):
@@ -177,6 +183,8 @@ def _mask_geometry(masks, index, image_shape):
                 "width_px": float(x2 - x1),
                 "height_px": float(y2 - y1),
                 "mask_area_px": int(round(abs(cross.sum()) / 2.0)),
+                "depth_sample_pixels": [
+                    [round(float(x), 2), round(float(y), 2)] for x, y in points],
             }
     return None
 
@@ -195,6 +203,7 @@ def _detection(xyxy, score, label, masks=None, index=None, image_shape=None):
         "center_source": BOX_CENTER,
         "mask_centroid_px": None,
         "mask_area_px": 0,
+        "depth_sample_pixels": [],
     }
     if masks is not None and index is not None and image_shape is not None:
         geometry = _mask_geometry(masks, index, image_shape)

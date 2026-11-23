@@ -10,7 +10,7 @@
 # stereo_vision.launch.py. They are used for stereo triangulation and for the
 # shared numeric bearing convention atan((cx - u) / fx), positive to the left.
 
-pipeline: open_vocab   # open_vocab | second (reserved, not configured yet)
+pipeline: open_vocab   # open_vocab | second (dense-stereo depth)
 
 camera:
   width: 320
@@ -52,3 +52,16 @@ open_vocab:
   min_disparity: 3
   max_disparity: 96
   max_vertical_delta_px: 20
+
+# second: the detector above runs on the left image only; a host dense-stereo
+# service (scripts/start_stereo_service.sh) reads depth from a disparity map.
+# One depth model runs at a time, selected on the host with DEPTH_MODEL:
+#   lite_any_stereo | fast_foundation_stereo | rt_igevpp
+# The model/weights/device are configured on the host, not here. `name` below
+# is only the fallback recorded when the service does not report a name.
+second:
+  name: lite_any_stereo
+  service_url: http://localhost:5007
+  timeout_s: 180
+  window_radius_px: 3       # box-only detectors: median over (2r+1)^2 pixels
+  max_disparity: 192        # upper bound on dense disparity samples

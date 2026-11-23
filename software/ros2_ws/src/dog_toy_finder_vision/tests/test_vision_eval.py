@@ -129,11 +129,49 @@ class OfflineEvalTests(unittest.TestCase):
         self.assertTrue(row["bearing_within_tolerance"])
         self.assertAlmostEqual(row["bearing_error_deg"], 0.0, delta=0.5)
 
-    def test_second_pipeline_reports_not_configured(self):
+    def test_second_pipeline_replays_with_dense_depth(self):
         self._write_synthetic_pair()
-        with self.assertRaises(NotImplementedError):
-            vision_eval.evaluate_capture(self.capture_dir, self.config,
-                                         "second")
+
+        def detect_one(jpeg, classes, config):
+            image = np.asarray(Image.open(io.BytesIO(jpeg)).convert("RGB"))
+            ys, xs = np.nonzero((image[:, :, 0] > 200) & (image[:, :, 1] < 80))
+            if not len(xs):
+                return [], "fake-world"
+            return [{
+                "label": classes[0], "confidence": 0.9,
+                "u": float(xs.mean()), "v": float(ys.mean()),
+                "width_px": 12.0, "height_px": 12.0,
+                "bbox_px": [float(xs.min()), float(ys.min()),
+                            float(xs.max()) + 1, float(ys.max()) + 1],
+                "center_source": "box_center", "mask_area_px": 0,
+                "depth_sample_pixels": [],
+            }], "fake-world"
+
+        def sample_depth(left, right, spec, config):
+            return {
+                "model": "fake-stereo", "depth_m": 1.0,
+                "disparity_px": 20.0, "sample_source": spec["sample_source"],
+                "sample_count": 49, "valid_count": 49,
+            }
+
+        result, meta = vision_eval.evaluate_capture(
+            self.capture_dir, self.config, "second", client=detect_one,
+            depth_client=sample_depth)
+
+        self.assertEqual(result["pipeline"], "second")
+        self.assertEqual(result["models"], ["fake-stereo"])
+        entry = result["results"][0]
+        self.assertEqual(entry["method"], "second")
+        self.assertEqual(entry["distance_source"], "dense_stereo_depth")
+        self.assertTrue(entry["target_visible"])
+        self.assertAlmostEqual(entry["distance_m"], 1.0, places=2)
+
+        row = llm_trials.vision_row(
+            result, entry, entry["model"], "run1",
+            ground_truth=meta["ground_truth"], bearing_tolerance=5.0)
+        self.assertEqual(row["method"], "second")
+        self.assertTrue(row["distance_within_tolerance"])
+        self.assertTrue(row["bearing_within_tolerance"])
 
     def test_main_writes_csv_and_pipeline_manifest(self):
         self._write_synthetic_pair()

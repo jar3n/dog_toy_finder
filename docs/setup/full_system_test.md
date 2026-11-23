@@ -20,9 +20,9 @@ cd docker
 docker compose build
 ```
 
-The image includes Pillow for JPEG conversion, but open-vocabulary inference
-runs on the computer, not in Docker. Start the host detector service once
-before the vision node:
+The image includes Pillow for JPEG conversion, but open-vocabulary and
+dense-stereo inference run on the computer, not in Docker. Start the host
+detector service once before the vision node:
 
 ```bash
 cd /workspace   # or the repository root on the host
@@ -37,8 +37,23 @@ One detector runs at a time. The defaults are `yolov8s-world.pt`,
 creates `software/host_vision/.venv`, installs CPU torch/ultralytics/
 transformers, downloads the selected weights, and serves HTTP on
 `YOLO_SERVICE_URL` (default `http://localhost:5006`). `YOLO_DEVICE` selects the
-torch device; `GROUNDING_DINO_TEXT_THRESHOLD` sets its text threshold. Ollama is
-only needed for the ROSA/planning comparisons; vision does not use it.
+torch device; `GROUNDING_DINO_TEXT_THRESHOLD` sets its text threshold.
+
+For the `second` pipeline also start the host dense-stereo depth service:
+
+```bash
+./scripts/start_stereo_service.sh                          # Lite Any Stereo (default)
+DEPTH_MODEL=fast_foundation_stereo ./scripts/start_stereo_service.sh
+DEPTH_MODEL=rt_igevpp ./scripts/start_stereo_service.sh
+```
+
+It reuses `software/host_vision/.venv`, serves `POST /depth` on
+`STEREO_SERVICE_URL` (default `http://localhost:5007`), and downloads the
+selected checkpoint and upstream repository under `software/host_vision/models/`.
+One depth model runs at a time; `STEREO_DEVICE` selects the torch device and
+per-model `*_MODEL_PATH` variables override checkpoint paths (see
+`software/ros2_ws/src/dog_toy_finder_vision/README.md`). Ollama is only needed
+for the ROSA/planning comparisons; vision does not use it.
 
 ## 2. Flash the Pico firmware
 
@@ -127,9 +142,9 @@ All software parameters for the evaluation run (bringup geometry, health
 timeouts, camera URLs/intrinsics, the detector config path, vision pipeline
 choice, map/toy settings, web-map port, manual drive speeds, and
 the ROSA environment) live in
-`scripts/full_system_eval.conf`. Set `VISION_PIPELINE` there to `open_vocab` (the
-implemented open-vocabulary detector) or `second` (a reserved placeholder that
-is not configured yet and reports a clear error if selected). The pipeline can
+`scripts/full_system_eval.conf`. Set `VISION_PIPELINE` there to `open_vocab`
+(two-eye detection and triangulation) or `second` (one-eye detection plus dense
+stereo depth; start both host services first). The pipeline can
 also be set with the top-level `pipeline` key in `vision_detectors.yaml`;
 explicit selections (launch arg `pipeline:=...` or `vision_eval --pipeline`) win
 over `VISION_PIPELINE`, which wins over the YAML key. `launch_all.sh` sources
@@ -386,11 +401,11 @@ and `data/planning/<run_id>/`. Inside the ROS 2 container those paths are under
 `/workspace/data`.
 
 For vision, set `VISION_DETECTOR_CONFIG` to your measured camera/toy YAML and
-`VISION_PIPELINE` to `open_vocab` (or select it with `pipeline:=open_vocab` on
-the launch command). `second` is reserved and not configured yet. The live
-vision node is not needed for capture; terminate it (or launch
-`stereo_vision.launch.py` with `vision:=false`) and leave the rectified stereo
-pipeline running. Then save a labelled pair:
+`VISION_PIPELINE` to `open_vocab` or `second` (or select it with
+`pipeline:=...` on the launch command). `second` needs the host dense-stereo
+depth service running. The live vision node is not needed for capture;
+terminate it (or launch `stereo_vision.launch.py` with `vision:=false`) and leave
+the rectified stereo pipeline running. Then save a labelled pair:
 
 ```bash
 cd /workspace

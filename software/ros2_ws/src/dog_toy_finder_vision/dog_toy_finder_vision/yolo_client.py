@@ -1,9 +1,10 @@
-"""HTTP client for the host-side YOLO-world detector service.
+"""HTTP client for the host-side open-vocabulary detector service.
 
-The ROS container has no torch/ultralytics installation. It sends the two
-rectified JPEGs and the text class prompts to the service running on the
-computer (host networking makes ``localhost`` reachable from the container),
-and receives one list of plain-Python detections per eye.
+The ROS container has no torch/ultralytics installation. It sends rectified
+JPEGs and text class prompts to the service running on the computer (host
+networking makes ``localhost`` reachable from the container), and receives plain
+Python detection dictionaries back. ``detect`` sends both eyes for triangulation;
+``detect_one`` sends only the left eye for the dense-stereo ``second`` pipeline.
 
 ``YOLO_SERVICE_URL`` overrides the ``open_vocab.service_url`` config key when
 set in the container environment.
@@ -28,26 +29,26 @@ def service_url(config):
             or DEFAULT_SERVICE_URL)
 
 
-def detect(left_jpeg, right_jpeg, classes, config):
-    """Return ``(left_detections, right_detections, model_name)`` from the host."""
+def _post_detect(jpegs, classes, config, include_depth_samples):
+    """Send one or two JPEGs to the host service and return its response body."""
     url = service_url(config).rstrip("/") + "/detect"
     timeout = float(vision_config.get(
         config, "open_vocab", "timeout_s", default=60))
     payload = {
-        "images": [base64.b64encode(jpeg).decode("ascii")
-                   for jpeg in (left_jpeg, right_jpeg)],
+        "images": [base64.b64encode(jpeg).decode("ascii") for jpeg in jpegs],
         "classes": list(classes),
         "confidence_threshold": float(vision_config.get(
             config, "open_vocab", "confidence_threshold", default=0.25)),
         "max_detections": int(vision_config.get(
             config, "open_vocab", "max_detections", default=10)),
+        "include_depth_samples": bool(include_depth_samples),
     }
     request = urllib.request.Request(
         url, data=json.dumps(payload).encode("utf-8"),
         headers={"Content-Type": "application/json"}, method="POST")
     try:
         with urllib.request.urlopen(request, timeout=timeout) as response:
-            body = json.loads(response.read().decode("utf-8"))
+            return json.loads(response.read().decode("utf-8"))
     except urllib.error.HTTPError as error:
         detail = error.read().decode("utf-8", "replace")[:500]
         raise RuntimeError(
@@ -59,6 +60,12 @@ def detect(left_jpeg, right_jpeg, classes, config):
             "computer with ./scripts/start_yolo_service.sh (%s)"
             % (url, error)) from error
 
+
+def detect(left_jpeg, right_jpeg, classes, config, include_depth_samples=False):
+    """Return ``(left_detections, right_detections, model_name)`` from the host."""
+    body = _post_detect((left_jpeg, right_jpeg), classes, config,
+                        include_depth_samples)
+    url = service_url(config)
     detections = body.get("detections")
     if (not isinstance(detections, list) or len(detections) != 2
             or any(not isinstance(eye, list) for eye in detections)):
@@ -66,3 +73,16 @@ def detect(left_jpeg, right_jpeg, classes, config):
             "YOLO detector service at %s returned an invalid detections list"
             % url)
     return detections[0], detections[1], body.get("model")
+
+
+def detect_one(jpeg, classes, config, include_depth_samples=True):
+    """Return ``(detections, model_name)`` for a single (left) image."""
+    body = _post_detect((jpeg,), classes, config, include_depth_samples)
+    url = service_url(config)
+    detections = body.get("detections")
+    if (not isinstance(detections, list) or len(detections) != 1
+            or not isinstance(detections[0], list)):
+        raise RuntimeError(
+            "YOLO detector service at %s returned an invalid single-image "
+            "detections list" % url)
+    return detections[0], body.get("model")

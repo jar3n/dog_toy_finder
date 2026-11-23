@@ -210,11 +210,15 @@ class DetectionConversionTests(unittest.TestCase):
         self.assertEqual(first["mask_centroid_px"],
                          [round(first["u"], 2), round(first["v"], 2)])
         self.assertEqual(first["mask_area_px"], len(xs))
+        self.assertEqual(len(first["depth_sample_pixels"]), len(xs))
+        self.assertAlmostEqual(first["depth_sample_pixels"][0][0],
+                               float(xs[0]), places=2)
         self.assertAlmostEqual(first["bbox_px"][0], 80.0)
         self.assertAlmostEqual(first["bbox_px"][2], 100.0)
         # A second detection with an empty mask falls back to its box centre.
         self.assertEqual(entries[1]["center_source"], "box_center")
         self.assertAlmostEqual(entries[1]["u"], 190.0)
+        self.assertEqual(entries[1]["depth_sample_pixels"], [])
 
     def test_mask_at_network_resolution_is_scaled_to_image_pixels(self):
         mask = np.zeros((120, 160), dtype=np.uint8)  # half of 240x320
