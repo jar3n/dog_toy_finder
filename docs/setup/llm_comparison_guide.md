@@ -53,10 +53,16 @@ data/
     captures/<run_id>/<capture_id>/left.jpg
     captures/<run_id>/<capture_id>/right.jpg
     captures/<run_id>/<capture_id>/meta.json
-    vision_eval_trials.csv
+    vision_eval_trials.csv                     # default generic output
     vision_eval_results.jsonl
     vision_eval_summary.json
     vision_eval_analysis.json
+    open_vocab_trials.csv                      # example per-pipeline outputs
+    open_vocab_results.jsonl
+    open_vocab_summary.json
+    second_trials.csv
+    second_results.jsonl
+    second_summary.json
     <live_run_id>/vision_trials.csv            # optional live-path collector
   planning/<run_id>/planning_trials.csv
 ```
@@ -238,12 +244,15 @@ Use `--notes` for anything the numeric fields do not capture.
 
 Run **one pipeline per invocation**. `--pipeline` (or `$VISION_PIPELINE`, then
 the YAML `pipeline` key when the flag is omitted) selects exactly one pipeline
-for the whole run; the other is not touched. To compare both, replay the same
-captures twice with different output paths so the first run is not overwritten.
-Captures are shuffled before replay so directory names do not determine the
-processing order; `--limit` is applied after the shuffle.
+for the whole run; the other is not touched. Keep the same host `DETECTOR_MODEL`
+for both pipelines: `open_vocab` uses the detector service only, while `second`
+also uses the depth service (one depth model at a time). To compare both, replay
+the same captures twice with different output paths so the first run is not
+overwritten. Captures are shuffled before replay so directory names do not
+determine the processing order; `--limit` is applied after the shuffle.
 
 ```bash
+# Optional: add --seed N to both commands; reuse a recorded seed for identical order.
 ros2 run dog_toy_finder_vision vision_eval \
     --captures-dir "$VISION_CAPTURE_DIR" \
     --pipeline open_vocab \
@@ -320,8 +329,8 @@ ros2 run dog_toy_finder_data llm_trials analyze "$VISION_EVAL_CSV" \
 ```
 
 Vision rows are paired by `run_id` + `ask_id`; for offline captures, `ask_id` is
-the capture ID, so each configured model name's answer on the same saved pair is
-compared.
+the capture ID, so each pipeline's `model` value is compared on the same saved
+pair when both replay commands use the same seed.
 
 ### A7. Optional: live `/vision/ask` trials
 
@@ -345,19 +354,20 @@ EOF
 python3 /workspace/scripts/vision_test.py "red ball" --gt-json gt_vision.json
 ```
 
-Each ask appends one row per answer entry (one per configured detector name) to
-`$VISION_TRIAL_DIR/$VISION_TRIAL_RUN_ID/vision_trials.csv`. `distance_m` may be
-a single number or repeated measurements; scoring uses the mean. If ground
-truth is not supplied, fill these columns later:
+Each ask appends one row per answer entry from the selected pipeline to
+`$VISION_TRIAL_DIR/$VISION_TRIAL_RUN_ID/vision_trials.csv`; the `model` column is
+the detector name for `open_vocab` or the dense depth model name for `second`.
+`distance_m` may be a single number or repeated measurements; scoring uses the
+mean. If ground truth is not supplied, fill these columns later:
 
 ```text
 gt_target_visible, gt_position, gt_lateral_bearing_deg, gt_size,
 gt_distance_m, gt_obstacle_ahead, gt_notes
 ```
 
-Capture-first is preferred for fair comparisons: the same saved image is
-replayed for every configured model name, and capture and evaluation are fully
-decoupled.
+Capture-first is preferred for fair comparisons: the same saved images are
+replayed by each selected pipeline with a recorded shuffle seed, and capture
+and evaluation are fully decoupled.
 
 ## Part B - Planning model comparison
 
@@ -593,9 +603,11 @@ above.
 | `score` | Mean of the checks that apply to that row. |
 
 The summary manifest also reports `bearing_mae_deg` and
-`bearing_within_rate` for each configured model name. Rows where the toy is not
-visible only score visibility and obstacle checks. Blank ground-truth fields are
-ignored, so partial annotation still produces useful results.
+`bearing_within_rate` for each `model` value reported by the selected pipeline
+(detector name for `open_vocab`, dense depth model name for `second`). Rows where
+the toy is not visible only score visibility and obstacle checks. Blank
+ground-truth fields are ignored, so partial annotation still produces useful
+results.
 
 ### Planning metrics
 
@@ -611,12 +623,14 @@ authoritative outcome.
 
 ## Recommended experiment discipline
 
-1. Keep the pipeline and its configured model names identical across a
-   comparison run.
+1. Keep the pipeline and its host detector/depth model selection identical
+   across a comparison run.
 2. Use one `run_id` per experiment and a new run ID when the setup changes.
-3. For vision, save each scene once with `vision_capture` and replay that same
-   capture for every configured name; measure depth and bearing before running
-   `vision_eval`, and do not use a detector under test to create ground truth.
+3. For vision, save each scene once with `vision_capture` and replay those same
+   captures with `vision_eval` once per pipeline; keep `DETECTOR_MODEL` fixed,
+   use the recorded seed so both pipelines see the same order, measure depth and
+   bearing before running `vision_eval`, and do not use a detector under test to
+   create ground truth.
 4. For planning, use the same prompt, same starting pose, and same vision state
    for every model.
 5. Record the operator verdict in `gt_success` whenever a move actually

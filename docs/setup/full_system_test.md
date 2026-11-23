@@ -52,8 +52,11 @@ It reuses `software/host_vision/.venv`, serves `POST /depth` on
 selected checkpoint and upstream repository under `software/host_vision/models/`.
 One depth model runs at a time; `STEREO_DEVICE` selects the torch device and
 per-model `*_MODEL_PATH` variables override checkpoint paths (see
-`software/ros2_ws/src/dog_toy_finder_vision/README.md`). Ollama is only needed
-for the ROSA/planning comparisons; vision does not use it.
+`software/ros2_ws/src/dog_toy_finder_vision/README.md`). Keep the same
+`DETECTOR_MODEL` for both pipelines: `open_vocab` needs only the detector
+service, while `second` also needs the depth service. Run one detector and one
+depth model at a time. Ollama is only needed for the ROSA/planning comparisons;
+vision does not use it.
 
 ## 2. Flash the Pico firmware
 
@@ -402,10 +405,12 @@ and `data/planning/<run_id>/`. Inside the ROS 2 container those paths are under
 
 For vision, set `VISION_DETECTOR_CONFIG` to your measured camera/toy YAML and
 `VISION_PIPELINE` to `open_vocab` or `second` (or select it with
-`pipeline:=...` on the launch command). `second` needs the host dense-stereo
-depth service running. The live vision node is not needed for capture;
-terminate it (or launch `stereo_vision.launch.py` with `vision:=false`) and leave
-the rectified stereo pipeline running. Then save a labelled pair:
+`pipeline:=...` on the launch command). Use the same `DETECTOR_MODEL` for both
+pipelines: `open_vocab` needs only the host detector service; `second` also
+needs the host dense-stereo depth service, with one depth model at a time. The
+live vision node is not needed for capture; terminate it (or launch
+`stereo_vision.launch.py` with `vision:=false`) and leave the rectified stereo
+pipeline running. Then save a labelled pair:
 
 ```bash
 cd /workspace
@@ -438,25 +443,43 @@ $VISION_CAPTURE_DIR/<run_id>/<capture_id>/meta.json
 `meta.json` contains the operator's ground truth, including
 `lateral_bearing_deg`; the legacy `position` label is derived from it. Repeat
 with a new `--capture-id` for each scene. After the capture phase, replay every
-saved pair with no camera topics or ROS graph:
+saved pair offline with no camera topics or ROS graph. Run **one pipeline per
+invocation**. To compare both, use distinct output paths and pass the same
+`--seed` to each run so they process the randomized captures in the same order;
+a seed is printed and recorded in the summary when omitted:
 
 ```bash
+# Add --seed N to both commands (use a recorded seed for identical order).
 ros2 run dog_toy_finder_vision vision_eval \
     --captures-dir "$VISION_CAPTURE_DIR" \
-    --pipeline "$VISION_PIPELINE" \
+    --pipeline open_vocab \
     --tolerance "$VISION_EVAL_TOLERANCE" \
     --bearing-tolerance "$VISION_EVAL_BEARING_TOLERANCE" \
-    --output-csv "$VISION_EVAL_CSV" \
-    --results-json "$VISION_EVAL_JSONL" \
-    --summary-json "$VISION_EVAL_SUMMARY_JSON"
+    --output-csv "$DATA_DIR/vision/open_vocab_trials.csv" \
+    --results-json "$DATA_DIR/vision/open_vocab_results.jsonl" \
+    --summary-json "$DATA_DIR/vision/open_vocab_summary.json"
+
+# detector + depth service must be running for this second invocation
+ros2 run dog_toy_finder_vision vision_eval \
+    --captures-dir "$VISION_CAPTURE_DIR" \
+    --pipeline second \
+    --tolerance "$VISION_EVAL_TOLERANCE" \
+    --bearing-tolerance "$VISION_EVAL_BEARING_TOLERANCE" \
+    --output-csv "$DATA_DIR/vision/second_trials.csv" \
+    --results-json "$DATA_DIR/vision/second_results.jsonl" \
+    --summary-json "$DATA_DIR/vision/second_summary.json"
 ```
 
-One scored row is written per capture per configured model name produced by the
-pipeline (for `open_vocab`, the detector name from the config). New vision rows
-carry `method=open_vocab` and `distance_source=stereo_triangulation` for matched
-detections; `method=ml` is only used by legacy rows. Ground truth is copied from
-`meta.json`, and scored columns are written immediately. The summary manifest
-(`vision_eval_summary.json`) records which pipeline was used.
+One scored row is written per capture per invocation; the trial CSV schema is
+unchanged. For `open_vocab`, `model` is the detector name and matched detections
+carry `method=open_vocab` plus `distance_source=stereo_triangulation`. For
+`second`, `model` is the dense depth model name, `detector_model` records the
+one-image detector, and answers carry `method=second` plus
+`distance_source=dense_stereo_depth`. `method=ml` is only used by legacy rows.
+Ground truth is copied from `meta.json`, and scored columns are written
+immediately. Each summary manifest (`vision_eval_summary.json`) records the
+pipeline, `shuffle_seed`, and `capture_order` (paths relative to
+`--captures-dir`) so an order can be reproduced.
 
 Planning rows are written by ROSA (section 5.1) to `$ROSA_OUTPUT_CSV`. The
 `gt_*` columns stay blank unless `ROSA_GT_JSON` points at a JSON file. A flat
@@ -473,9 +496,11 @@ ros2 run dog_toy_finder_data llm_trials aggregate "$ROSA_OUTPUT_CSV" --json
 
 `score` writes `<name>_scored.csv` and prints per-model latency, error count,
 ground-truthed row count, per-field accuracy, distance/bearing error, and mean
-score. Create an empty template for data collected another way with
-`llm_trials template --kind vision|planning --models ... --output ...` (for
-vision, use the configured detector name as the model value).
+score. Repeat the score/analyze commands for each pipeline CSV when comparing
+both. Create an empty template for data collected another way with
+`llm_trials template --kind vision|planning --models ... --output ...`: for
+vision use the detector name for `open_vocab` rows or the dense depth model name
+for `second` rows.
 
 ## 6. Reset and run again
 
@@ -514,15 +539,19 @@ ros2 run dog_toy_finder_data llm_trials analyze "$VISION_EVAL_CSV" \
     --tolerance "$VISION_EVAL_TOLERANCE" \
     --bearing-tolerance "$VISION_EVAL_BEARING_TOLERANCE" \
     --confidence "$LLM_TRIAL_CONFIDENCE" --output "$VISION_EVAL_ANALYSIS_JSON"
+
+# repeat the vision score/analyze commands for the other pipeline CSV
 ```
 
 Metrics reported: success, time/steps to find, path length, vision call count
 and average latency, target-visible rate, final pose. The LLM trial tool reports
-vision accuracy per configured model name, distance/bearing error, planning
-action/argument matches, latency, errors, and a mean score. `llm_trials analyze`
-adds confidence intervals and paired comparisons so differences can be judged
-after all trials are collected. For captured trials, `ask_id` is the capture ID,
-so each configured model name is compared on the same saved image.
+vision accuracy per `model` value (detector name for `open_vocab`, dense depth
+model name for `second`), distance/bearing error, planning action/argument
+matches, latency, errors, and a mean score. `llm_trials analyze` adds confidence
+intervals and paired comparisons so differences can be judged after all trials
+are collected. For captured trials, `ask_id` is the capture ID, so each pipeline
+is compared on the same saved images; use the recorded `shuffle_seed` and
+`capture_order` to keep replay order identical across pipelines.
 
 ## 8. Viewing the map
 

@@ -249,8 +249,8 @@ Every entry has:
 
 The mapping node consumes all entries and fuses visible toys by median bearing
 and distance. The trial collector writes one CSV row per entry. For fair
-offline comparison, prefer `vision_capture` + `vision_eval` below: every
-configured detector name sees the exact same saved images.
+offline comparison, prefer `vision_capture` + `vision_eval` below: each selected
+pipeline sees the exact same saved images.
 
 ## Capture-first comparison
 
@@ -278,8 +278,11 @@ non-hardware-synchronised ESP32-CAMs.
 After capturing all scenes, replay them offline. Select **one** pipeline per
 invocation with `--pipeline open_vocab` or `--pipeline second` (or set
 `VISION_PIPELINE` / the YAML `pipeline` key and omit the flag); the other
-pipeline is not run. To compare both, use different output paths for each run so
-the first result is not overwritten:
+pipeline is not run. Keep the same host `DETECTOR_MODEL` for both: `open_vocab`
+uses the detector service only, while `second` also needs the depth service
+(one depth model at a time). Use the same `--seed` for both runs so they process
+the randomized captures in identical order. To compare both, use different
+output paths for each run so the first result is not overwritten:
 
 ```bash
 ros2 run dog_toy_finder_vision vision_eval \

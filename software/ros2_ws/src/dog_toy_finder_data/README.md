@@ -63,9 +63,11 @@ Each capture stores `left.jpg`, `right.jpg`, and `meta.json` under
 bearing is in degrees from the optical axis, positive to the robot's left. The
 legacy `position` label is derived from it.
 
-`vision_eval` writes one scored row per capture per configured model name
-produced by the pipeline, with the columns already filled. Its summary manifest
-records the selected pipeline.
+`vision_eval` writes one scored row per capture per invocation, with the columns
+already filled. The `model` column is the detector name for `open_vocab` or the
+dense depth model name for `second`. Its summary manifest records the selected
+pipeline, the `shuffle_seed`, and the resulting `capture_order`, so the same
+captures can be replayed in the same order by both pipelines.
 
 A live `/vision/ask` path is still available for robot control and optional
 live trials:
@@ -87,7 +89,8 @@ python3 /workspace/scripts/vision_test.py "red ball" --gt-json gt.json
 `distance_m` also accepts a single number; a list stores repeated measurements
 of the same target and scoring uses their mean. Without ground truth, fill the
 `gt_*` columns in a spreadsheet after the run. Capture-first is preferred for
-fair comparison because every configured name sees the same saved image.
+fair comparison because each selected pipeline replays the same saved images in
+the same recorded order.
 
 ### Planning trials
 

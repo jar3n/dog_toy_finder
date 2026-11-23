@@ -33,12 +33,14 @@ data/
   `meta.json` records the target, intrinsics, image timestamps, and
   `ground_truth` (including `lateral_bearing_deg`).
 - `vision_eval_*` files are written by `dog_toy_finder_vision vision_eval`,
-  which replays every capture through the configured vision pipeline.
-  `vision_eval_trials.csv` has one scored row per capture per configured model
-  name produced by the pipeline, with ground truth and scored columns already
-  filled. `vision_eval_summary.json` records the selected pipeline as well as
-  the per-name summary. The trial CSV schema is unchanged: new vision rows use
-  `method=open_vocab`, while `method=ml` only appears on legacy rows.
+  which replays every capture through one selected vision pipeline per
+  invocation. `vision_eval_trials.csv` has one scored row per capture, with
+  ground truth and scored columns already filled. The `model` column is the
+  detector name for `open_vocab` or the dense depth model name for `second`.
+  `vision_eval_summary.json` records the selected pipeline, `shuffle_seed`,
+  `capture_order`, and the per-model summary. The trial CSV schema is unchanged:
+  new vision rows use `method=open_vocab` or `method=second`, while `method=ml`
+  only appears on legacy rows.
 - `vision/<live_run_id>/` is the optional live `/vision/ask` collector
   (`collect_llm_trials.launch.py`), one row per answer entry per request.
 - `planning/` is written by `rosa_agent --compare --output-csv` (and the
