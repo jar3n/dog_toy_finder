@@ -41,9 +41,9 @@ SCENARIOS = {
     "size": {
         "answers": [
             {"target_visible": False},
-            {"target_visible": True, "position": "center", "size": "small",
+            {"target_visible": True, "lateral_bearing_deg": 0.0, "size": "small",
              "distance_m": 1.5},
-            {"target_visible": True, "position": "center", "size": "medium",
+            {"target_visible": True, "lateral_bearing_deg": 0.0, "size": "medium",
              "distance_m": 0.5},
         ],
         "find_all": False,
@@ -51,7 +51,7 @@ SCENARIOS = {
     "distance": {
         "answers": [
             {"target_visible": False},
-            {"target_visible": True, "position": "left", "size": "small",
+            {"target_visible": True, "lateral_bearing_deg": 15.0, "size": "small",
              "distance_m": 0.3},
         ],
         "find_all": False,
@@ -63,12 +63,12 @@ SCENARIOS = {
     "findall": {
         "answers": [
             {"target_visible": False},
-            {"target_visible": True, "position": "left", "size": "small",
+            {"target_visible": True, "lateral_bearing_deg": 15.0, "size": "small",
              "distance_m": 0.6},
-            {"target_visible": True, "position": "left", "size": "small",
+            {"target_visible": True, "lateral_bearing_deg": 15.0, "size": "small",
              "distance_m": 0.3},
             {"target_visible": False},
-            {"target_visible": True, "position": "right", "size": "medium",
+            {"target_visible": True, "lateral_bearing_deg": -15.0, "size": "medium",
              "distance_m": 1.0},
             {"target_visible": False},
             {"target_visible": False},
@@ -84,7 +84,7 @@ SCENARIOS = {
             "red ball": [{"target_visible": False}],
             "blue bone": [
                 {"target_visible": False},
-                {"target_visible": True, "position": "center",
+                {"target_visible": True, "lateral_bearing_deg": 0.0,
                  "size": "medium", "distance_m": 0.5},
                 {"target_visible": False},
             ],

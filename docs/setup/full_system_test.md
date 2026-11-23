@@ -422,8 +422,9 @@ ros2 run dog_toy_finder_vision vision_capture \
     --bearing-deg +12 \
     --size medium \
     --run-id "$VISION_CAPTURE_RUN_ID" \
-    --capture-id ball_115m_left12 \
+    --capture-id ball_115m_b12 \
     --output-dir "$VISION_CAPTURE_DIR" \
+    --config "$VISION_DETECTOR_CONFIG" \
     --timeout "$VISION_CAPTURE_TIMEOUT"
 ```
 
@@ -441,8 +442,8 @@ $VISION_CAPTURE_DIR/<run_id>/<capture_id>/meta.json
 ```
 
 `meta.json` contains the operator's ground truth, including
-`lateral_bearing_deg`; the legacy `position` label is derived from it. Repeat
-with a new `--capture-id` for each scene. After the capture phase, replay every
+`lateral_bearing_deg`, the sole lateral measurement. Repeat with a new
+`--capture-id` for each scene. After the capture phase, replay every
 saved pair offline with no camera topics or ROS graph. Run **one pipeline per
 invocation**. To compare both, use distinct output paths and pass the same
 `--seed` to each run so they process the randomized captures in the same order;
@@ -585,9 +586,9 @@ separate occupied value (`60`) so they stay visually distinct from obstacles
 and are never mistaken for an IR or vision detection. Toy spheres use the
 fused detectors' median `distance_m` as the distance ahead and the median
 `lateral_bearing_deg` for the lateral angle (degrees from the optical axis,
-positive = robot-left); the legacy `left`/`center`/`right` label is only a
-fallback for old results with no bearing. If `distance_m` is missing or zero,
-the fallback `toy_forward_distance` (default 0.6 m) is used. Markers are merged
+positive = robot-left / ROS `+y`). No coarse side label is emitted or accepted.
+If `distance_m` is missing or zero, the fallback `toy_forward_distance`
+(default 0.6 m) is used. Markers are merged
 within `toy_merge_radius` (default 0.15 m), and each toy marks a
 `(2 * toy_occupancy_radius + 1)` square of cells (default radius `1`, a 3x3
 patch). Tune these with:

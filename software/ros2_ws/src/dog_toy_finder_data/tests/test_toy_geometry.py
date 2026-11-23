@@ -23,12 +23,19 @@ class ToyGeometryTests(unittest.TestCase):
         placement = toy_geometry.place(0.0, 0.0, 0.0, 2.0, -30.0)
         self.assertAlmostEqual(placement["y"], -1.0, places=4)
 
-    def test_bearing_falls_back_to_legacy_label(self):
-        self.assertAlmostEqual(
-            toy_geometry.bearing_deg({"position": "left"}),
-            toy_geometry.LEGACY_BEARING_DEG)
+    def test_bearing_reads_numeric_keys(self):
         self.assertAlmostEqual(
             toy_geometry.bearing_deg({"lateral_bearing_deg": -7.5}), -7.5)
+        self.assertAlmostEqual(
+            toy_geometry.bearing_deg({"bearing_deg": 4.0}), 4.0)
+        self.assertAlmostEqual(
+            toy_geometry.bearing_deg({"lateral_bearing": 6.0}), 6.0)
+
+    def test_bearing_uses_default_without_numeric_value(self):
+        self.assertAlmostEqual(toy_geometry.bearing_deg({}, default=3.0), 3.0)
+        self.assertAlmostEqual(
+            toy_geometry.bearing_deg({"position": "ignored"}, default=3.0), 3.0)
+        self.assertFalse(hasattr(toy_geometry, "LEGACY_BEARING_DEG"))
 
     def test_home_turn_uses_bearing_and_is_clamped(self):
         self.assertAlmostEqual(

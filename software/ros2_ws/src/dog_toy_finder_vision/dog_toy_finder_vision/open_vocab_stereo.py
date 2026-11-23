@@ -139,7 +139,6 @@ def detect(left_jpeg, right_jpeg, target, config, client=None):
         answer = vision_answer.tidy({
             "description": "No text target supplied; nothing to detect.",
             "target_visible": False,
-            "position": "none",
             "lateral_bearing_deg": 0.0,
             "size": "none",
             "distance_m": 0.0,
@@ -159,7 +158,6 @@ def detect(left_jpeg, right_jpeg, target, config, client=None):
             "description": "No matching %s detection in the rectified stereo pair."
                            % classes[0],
             "target_visible": False,
-            "position": "none",
             "lateral_bearing_deg": 0.0,
             "size": "none",
             "distance_m": 0.0,
@@ -176,7 +174,6 @@ def detect(left_jpeg, right_jpeg, target, config, client=None):
             % (pair["label"], pair["u_left"], pair["v_left"],
                pair["disparity_px"])),
         "target_visible": True,
-        "position": "center",
         "lateral_bearing_deg": bearing,
         "size": _size(pair["width_px"], image_width),
         "distance_m": round(pair["distance_m"], 3),

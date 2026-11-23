@@ -45,8 +45,8 @@ source scripts/full_system_eval.conf
 
 ros2 run dog_toy_finder_vision vision_capture \
     --target "$VISION_CAPTURE_TARGET" --depth-m 1.15 --bearing-deg +12 \
-    --run-id "$VISION_CAPTURE_RUN_ID" --capture-id ball_115m_left12 \
-    --output-dir "$VISION_CAPTURE_DIR"
+    --run-id "$VISION_CAPTURE_RUN_ID" --capture-id ball_115m_b12 \
+    --output-dir "$VISION_CAPTURE_DIR" --config "$VISION_DETECTOR_CONFIG"
 
 ros2 run dog_toy_finder_vision vision_eval \
     --captures-dir "$VISION_CAPTURE_DIR" --pipeline "$VISION_PIPELINE" \
@@ -60,8 +60,9 @@ Each capture stores `left.jpg`, `right.jpg`, and `meta.json` under
 `$VISION_CAPTURE_DIR/<run_id>/<capture_id>/`. The `gt_*` columns in
 `$VISION_EVAL_CSV` are copied from `meta.json`, including
 `gt_lateral_bearing_deg`; no spreadsheet annotation is required. Lateral
-bearing is in degrees from the optical axis, positive to the robot's left. The
-legacy `position` label is derived from it.
+bearing is in degrees from the optical axis, positive to the robot's left
+(ROS `+y`); it is the sole lateral measurement, and no coarse side label is
+emitted or accepted.
 
 `vision_eval` writes one scored row per capture per invocation, with the columns
 already filled. The `model` column is the detector name for `open_vocab` or the
@@ -82,7 +83,7 @@ python3 /workspace/scripts/vision_test.py "red ball" --gt-json gt.json
 ```
 
 ```json
-{"target_visible": true, "position": "left", "lateral_bearing_deg": 12.0,
+{"target_visible": true, "lateral_bearing_deg": 12.0,
  "size": "medium", "distance_m": [0.7, 0.72], "obstacle_ahead": "none"}
 ```
 
@@ -156,8 +157,8 @@ t-test, Holm-adjusted p-value, effect size, and win/tie/loss counts. Use
 `--confidence 0.99` to change the interval level or `--pair-field run_id,scene`
 to override matching.
 
-Vision metrics: `visible_correct`, `position_correct`, `lateral_bearing_deg`,
-`bearing_error_deg`, `bearing_within_tolerance`, `size_correct`,
-`distance_error_m`, `distance_within_tolerance`, `obstacle_correct`, `score`.
+Vision metrics: `visible_correct`, `lateral_bearing_deg`, `bearing_error_deg`,
+`bearing_within_tolerance`, `size_correct`, `distance_error_m`,
+`distance_within_tolerance`, `obstacle_correct`, `score`.
 Planning metrics: `action_mentioned`, `args_mentioned`, and `score` (from
 `gt_success` when recorded).

@@ -24,11 +24,10 @@ selections win). Both are implemented:
 Each pipeline produces one answer per request/capture, so rows stay comparable
 across runs.
 
-Vision answers use a numeric `lateral_bearing_deg` as the primary lateral
-measurement: degrees from the optical axis, positive to the robot's left. The
-legacy `left`/`center`/`right` label is derived from that number and kept only
-for older consumers. The same convention is used by live control, mapping, and
-the offline evaluator.
+Vision answers use a numeric `lateral_bearing_deg` as the sole lateral
+measurement: degrees from the optical axis, positive to the robot's left (ROS
+`+y`). No coarse side label is emitted or accepted. The same convention is used
+by live control, mapping, and the offline evaluator.
 
 | Tool | Purpose |
 |---|---|
@@ -153,68 +152,137 @@ numbers cross HTTP; full masks stay on the computer. The same centre drives
 disparity and depth.
 
 Positive bearing means the toy is to the robot's **left** (image column less
-than `cx`, ROS `+y`), negative means right, and zero means centred.
-`target.position_bearing_deg` (default `15°`) is only a fallback for older
-results that contain a legacy `left`/`center`/`right` label but no numeric
-bearing.
+than `cx`, ROS `+y`), negative means right, and zero means centred. Numeric
+`lateral_bearing_deg` is the only lateral measurement; no coarse side label is
+emitted or accepted.
 
-### A2. Start the rectified stereo pipeline
+### A2. Capture a vision dataset (step by step)
 
-```bash
-ros2 launch dog_toy_finder_vision stereo_vision.launch.py \
-    left_url:=http://esp32cam-left.local/capture \
-    right_url:=http://esp32cam-right.local/capture \
-    config_path:=/workspace/software/ros2_ws/src/dog_toy_finder_vision/config/vision_detectors.yaml \
-    vision:=false
-```
+Use two shells inside the ROS 2 container: one keeps the stereo pipeline
+running, the other runs `vision_capture`. No host detector or depth service is
+needed for capture; those are started later for `vision_eval`.
 
-`vision:=false` leaves `/stereo/{left,right}/image_rect_color` publishing but
-does not start the live detector node, so no detector is loaded during capture.
-Add `pipeline:=open_vocab` or `pipeline:=second` if you want the live node
-running on a known pipeline (the latter needs both host services). It is also
-fine to capture while the full stack is running; `vision_capture` never
-publishes a `/vision/ask`.
-
-### A3. Capture a labelled stereo pair
+#### Step 1 - Load the same settings in both shells
 
 ```bash
 cd /workspace
-source scripts/full_system_eval.conf
+source /opt/ros/humble/setup.bash
+source /workspace/software/ros2_ws/install/setup.bash
+source /workspace/scripts/full_system_eval.conf
+```
 
+The config uses `:-` defaults, so values already exported win. For a different
+run label or target, export them before sourcing the config:
+
+```bash
+export VISION_CAPTURE_RUN_ID=ball_set_01
+export VISION_CAPTURE_TARGET="red ball"
+source /workspace/scripts/full_system_eval.conf
+```
+
+Check where captures will go and which YAML supplies the intrinsics:
+
+```bash
+printf 'captures=%s\nconfig=%s\nrun=%s\ntarget=%s\n' \
+    "$VISION_CAPTURE_DIR" "$VISION_DETECTOR_CONFIG" \
+    "$VISION_CAPTURE_RUN_ID" "$VISION_CAPTURE_TARGET"
+```
+
+`VISION_DETECTOR_CONFIG` must be the same file whose `fx`, `cx`, and baseline
+you checked in A1. `vision_capture` copies those values into each `meta.json`.
+Keep `CAMERA_FX`, `CAMERA_FY`, `CAMERA_CX`, `CAMERA_CY`, and `STEREO_BASELINE`
+in `full_system_eval.conf` equal to `camera.fx`, `camera.fy`, `camera.cx`,
+`camera.cy`, and `camera.baseline_m` in that YAML. The launch uses the config
+values; the capture metadata uses the YAML values.
+
+#### Step 2 - Start a capture-only stereo pipeline (first shell)
+
+```bash
+ros2 launch dog_toy_finder_vision stereo_vision.launch.py \
+    left_url:="$LEFT_URL" \
+    right_url:="$RIGHT_URL" \
+    rate:="$CAMERA_RATE" \
+    width:="$IMAGE_WIDTH" \
+    height:="$IMAGE_HEIGHT" \
+    fx:="$CAMERA_FX" \
+    fy:="$CAMERA_FY" \
+    cx:="$CAMERA_CX" \
+    cy:="$CAMERA_CY" \
+    baseline:="$STEREO_BASELINE" \
+    config_path:="$VISION_DETECTOR_CONFIG" \
+    stereo_proc:=false \
+    vision:=false
+```
+
+`vision:=false` skips the live detector node, and `stereo_proc:=false` skips
+disparity/point-cloud generation. Capture only needs the rectified colour
+topics. Leave this launch running. Capturing while the full stack is running is
+also fine; `vision_capture` never publishes `/vision/ask`.
+
+#### Step 3 - Confirm both rectified topics are publishing (second shell)
+
+```bash
+ros2 topic hz /stereo/left/image_rect_color
+ros2 topic hz /stereo/right/image_rect_color
+```
+
+Each should report roughly `$CAMERA_RATE` Hz. Press Ctrl+C after each check.
+If either topic is silent, fix the camera URL or rectification before
+capturing; `vision_capture` will otherwise time out.
+
+#### Step 4 - Position the toy and measure ground truth
+
+For each scene:
+
+1. Put the toy where you want it and leave it still.
+2. Measure `distance_m` with a tape measure from the camera baseline to the
+   toy. This is operator-entered ground truth, never an estimate from the
+   pipeline under test.
+3. Measure `lateral_bearing_deg` from the optical axis using the convention in
+   A1: `bearing = atan((cx - u) / fx)`. Positive means the toy is to the
+   robot's left (image column less than `cx`, ROS `+y`); negative means the
+   opposite side; zero means on the optical axis.
+4. Write down a short, unique `--capture-id` for this scene.
+
+#### Step 5 - Save one capture
+
+```bash
 ros2 run dog_toy_finder_vision vision_capture \
     --target "$VISION_CAPTURE_TARGET" \
     --depth-m 1.15 \
-    --bearing-deg +12 \
+    --bearing-deg +12.0 \
     --size medium \
     --run-id "$VISION_CAPTURE_RUN_ID" \
-    --capture-id ball_115m_left12 \
+    --capture-id ball_115m_b12 \
     --output-dir "$VISION_CAPTURE_DIR" \
+    --config "$VISION_DETECTOR_CONFIG" \
     --timeout "$VISION_CAPTURE_TIMEOUT"
 ```
 
-Measure `depth-m` with a tape measure from the cameras and `bearing-deg` from
-the optical axis using the sign convention above. In an interactive terminal,
-`--depth-m` and `--bearing-deg` may be omitted and are prompted for; without a
-TTY they are required. For a frame where the target is absent, use `--not-visible`
-instead (depth and bearing are stored as `0`).
+One invocation saves exactly one fresh matched stereo pair. Use a new
+`--capture-id` for every scene; reusing an ID overwrites that capture
+directory. If the ID is omitted, a timestamp is used. The command prints JSON
+with `capture_dir` and the full `meta` when it succeeds.
 
-Each invocation writes:
+If it times out, return to Step 3 and check the two rectified topics.
 
-```text
-$VISION_CAPTURE_DIR/<run_id>/<capture_id>/left.jpg
-$VISION_CAPTURE_DIR/<run_id>/<capture_id>/right.jpg
-$VISION_CAPTURE_DIR/<run_id>/<capture_id>/meta.json
+#### Step 6 - Verify the saved capture
+
+```bash
+CAP="$VISION_CAPTURE_DIR/$VISION_CAPTURE_RUN_ID/ball_115m_b12"
+ls -l "$CAP"
+cat "$CAP/meta.json"
 ```
 
-`meta.json` records the target, the camera intrinsics, the image topics and
-timestamps, and the operator's ground truth:
+You should see `left.jpg`, `right.jpg`, and `meta.json`. The metadata records
+the target, camera intrinsics, image topics/timestamps, and the operator's
+ground truth:
 
 ```json
 {
   "target": "red ball",
   "ground_truth": {
     "target_visible": true,
-    "position": "left",
     "lateral_bearing_deg": 12.0,
     "distance_m": 1.15,
     "size": "medium",
@@ -224,21 +292,72 @@ timestamps, and the operator's ground truth:
 }
 ```
 
-`position` is derived from `lateral_bearing_deg` for compatibility; the bearing
-is the value operators enter and evaluators score.
+The bearing and distance in this file are the values `vision_eval` will score.
 
-### A4. Repeat across scene cases
+#### Step 7 - Capture the other scene cases
 
-Move the toy or change the scene and capture again with a new `--capture-id`.
-Keep one `--run-id` for the experiment. A useful comparison covers:
+Move the toy or change the scene, then run Step 5 again with a new
+`--capture-id`. Keep the same `--run-id` for the whole dataset. Common
+variants:
 
-- toy visible / not visible (`--not-visible`)
-- left / centre / right (negative, zero, positive bearing)
-- near / medium / far depth
-- clear path / obstacle present (`--obstacle`)
-- more than one toy kind (`--target`)
+```bash
+# Interactively prompted for distance and bearing (requires a TTY)
+ros2 run dog_toy_finder_vision vision_capture \
+    --target "$VISION_CAPTURE_TARGET" \
+    --run-id "$VISION_CAPTURE_RUN_ID" \
+    --capture-id ball_prompted \
+    --output-dir "$VISION_CAPTURE_DIR" \
+    --config "$VISION_DETECTOR_CONFIG" \
+    --timeout "$VISION_CAPTURE_TIMEOUT"
 
-Use `--notes` for anything the numeric fields do not capture.
+# Target absent: stores target_visible=false, distance=0, bearing=0
+ros2 run dog_toy_finder_vision vision_capture \
+    --target "$VISION_CAPTURE_TARGET" \
+    --not-visible \
+    --run-id "$VISION_CAPTURE_RUN_ID" \
+    --capture-id ball_absent \
+    --output-dir "$VISION_CAPTURE_DIR" \
+    --config "$VISION_DETECTOR_CONFIG" \
+    --timeout "$VISION_CAPTURE_TIMEOUT"
+
+# Obstacle in the path plus free-form notes
+ros2 run dog_toy_finder_vision vision_capture \
+    --target "$VISION_CAPTURE_TARGET" \
+    --depth-m 0.90 \
+    --bearing-deg -8.0 \
+    --obstacle chair \
+    --notes "chair between cameras and toy" \
+    --run-id "$VISION_CAPTURE_RUN_ID" \
+    --capture-id ball_090m_bneg8_obstacle \
+    --output-dir "$VISION_CAPTURE_DIR" \
+    --config "$VISION_DETECTOR_CONFIG" \
+    --timeout "$VISION_CAPTURE_TIMEOUT"
+```
+
+In non-interactive use, `--depth-m` and `--bearing-deg` are required unless
+`--not-visible` is set. Use `--notes` for anything the numeric fields do not
+capture.
+
+#### Step 8 - Aim for a varied set
+
+A useful comparison covers all of these cases:
+
+| Scene | Example capture ID | Key options |
+|---|---|---|
+| On axis, medium range | `ball_100m_b0` | `--depth-m 1.00 --bearing-deg 0` |
+| Positive bearing | `ball_115m_b12` | `--depth-m 1.15 --bearing-deg +12.0` |
+| Negative bearing | `ball_090m_bneg8` | `--depth-m 0.90 --bearing-deg -8.0` |
+| Near | `ball_040m_b5` | `--depth-m 0.40 --bearing-deg +5.0` |
+| Far | `ball_200m_bneg3` | `--depth-m 2.00 --bearing-deg -3.0` |
+| Target absent | `ball_absent` | `--not-visible` |
+| Obstacle present | `ball_090m_bneg8_obstacle` | `--obstacle chair --notes "..."` |
+| Different target | `bone_110m_b10` | `--target "dog bone"` |
+
+#### Step 9 - Finish capture
+
+When all scenes are saved, press Ctrl+C in the first shell to stop the stereo
+launch. The captures can now be replayed offline; no camera topics, Pico, or
+ROS graph are needed for `vision_eval`.
 
 ### A5. Replay every capture offline
 
@@ -302,7 +421,7 @@ Useful options:
 ```bash
 # one run or one capture only
 ros2 run dog_toy_finder_vision vision_eval \
-    --capture /workspace/data/vision/captures/capture_run1/ball_115m_left12
+    --capture /workspace/data/vision/captures/capture_run1/ball_115m_b12
 
 # explicit pipeline and output paths; --limit applies after the shuffle
 ros2 run dog_toy_finder_vision vision_eval --captures-dir "$VISION_CAPTURE_DIR" \
@@ -346,7 +465,7 @@ ros2 launch dog_toy_finder_data collect_llm_trials.launch.py \
     bearing_tolerance:="$LLM_TRIAL_BEARING_TOLERANCE"
 
 cat > gt_vision.json <<'EOF'
-{"target_visible": true, "position": "left", "lateral_bearing_deg": 12.0,
+{"target_visible": true, "lateral_bearing_deg": 12.0,
  "size": "medium", "distance_m": [1.10, 1.15, 1.12],
  "obstacle_ahead": "none"}
 EOF
@@ -361,7 +480,7 @@ the detector name for `open_vocab` or the dense depth model name for `second`.
 mean. If ground truth is not supplied, fill these columns later:
 
 ```text
-gt_target_visible, gt_position, gt_lateral_bearing_deg, gt_size,
+gt_target_visible, gt_lateral_bearing_deg, gt_size,
 gt_distance_m, gt_obstacle_ahead, gt_notes
 ```
 
@@ -592,7 +711,6 @@ above.
 | Column | Meaning |
 |---|---|
 | `visible_correct` | Detector's visible/not-visible answer matches ground truth. |
-| `position_correct` | Derived left/centre/right label matches (compatibility view of the bearing). |
 | `lateral_bearing_deg` | Detector's numeric bearing in degrees, positive to the robot's left. |
 | `bearing_error_deg` | Absolute bearing error in degrees against the operator's measurement. |
 | `bearing_within_tolerance` | Error is within `--bearing-tolerance` (default `5°`). |

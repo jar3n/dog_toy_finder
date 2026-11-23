@@ -42,7 +42,7 @@ FRESH_PHOTO_TIMEOUT = 5.0
 # Copied from a single pipeline answer to the top level of /vision/result for
 # the mapping, planning, and trial collector consumers that expect them there.
 TOP_LEVEL_KEYS = (
-    "description", "target_visible", "position", "lateral_bearing_deg",
+    "description", "target_visible", "lateral_bearing_deg",
     "size", "distance_m", "obstacle_ahead", "path_clear", "seconds",
     "method", "distance_source", "model", "detector_model", "bbox_px",
     "bbox_right_px", "disparity_px", "center_source", "mask_centroid_px",

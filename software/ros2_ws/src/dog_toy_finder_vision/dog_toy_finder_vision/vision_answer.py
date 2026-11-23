@@ -3,14 +3,11 @@
 The live ``vision_node`` and the offline ``vision_eval`` replay use this module
 so a saved capture is interpreted exactly the same way as a live photo.
 
-The numeric ``lateral_bearing_deg`` is the primary lateral measurement: degrees
-from the optical axis, positive to the robot's left. ``position`` is kept as a
-derived ``left|center|right|none`` label for older consumers.
+Lateral direction is reported only as the numeric ``lateral_bearing_deg``:
+degrees from the optical axis, positive to the robot's left.
 """
 
 import math
-
-from . import vision_config
 
 
 def as_bool(value, default=False):
@@ -36,11 +33,11 @@ def _as_float(value):
 def tidy(answer, config=None):
     """Normalise an answer while preserving pipeline-specific extra fields.
 
-    A missing bearing is recovered from the legacy label, and the legacy label
-    is always re-derived from the bearing so mapping and homing see one
-    consistent lateral measurement.
+    The numeric bearing is clamped to +/-90 degrees and rounded; a missing or
+    non-numeric bearing defaults to zero.
     """
     result = dict(answer)
+    result.pop("position", None)
     obstacle = str(result.get("obstacle_ahead") or "").strip().strip(".")
     if obstacle.lower() in ("", "none", "nothing", "no", "n/a"):
         obstacle = "none"
@@ -53,17 +50,12 @@ def tidy(answer, config=None):
 
     bearing = _as_float(result.get("lateral_bearing_deg"))
     if bearing is None:
-        bearing = vision_config.bearing_from_position(
-            result.get("position"), config)
+        bearing = 0.0
     bearing = max(-90.0, min(90.0, bearing))
     result["lateral_bearing_deg"] = round(bearing, 2)
 
     if not result["target_visible"]:
-        result["position"] = "none"
         result["size"] = "none"
         result["distance_m"] = 0.0
         result["lateral_bearing_deg"] = 0.0
-    else:
-        result["position"] = vision_config.position_from_bearing(
-            bearing, config)
     return result

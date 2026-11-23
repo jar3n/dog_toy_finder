@@ -10,7 +10,7 @@ Strategy ("smart search"):
 With find_all=true (the demo mode), a found toy is recorded and the robot
 backs away and keeps searching instead of stopping, until the planned
 coverage is complete. Found toys are estimated in the odom frame from the
-robot pose plus the vision pipeline position/distance, and deduplicated within
+robot pose plus the vision pipeline bearing/distance, and deduplicated within
 toy_merge_radius metres, so the summary reports every distinct toy found.
 
 This deterministic planner is the baseline against which the LLM planner
@@ -249,7 +249,6 @@ class AutonomousSearch(Mover):
     def log_step(self, action, result, found_now, t0):
         x, y, theta = self.current_pose()
         target_visible = False
-        position = "none"
         size = "none"
         obstacle = "none"
         path_clear = True
@@ -258,7 +257,6 @@ class AutonomousSearch(Mover):
         if result is not None:
             entry = self._entry(result)
             target_visible = bool(entry.get("target_visible", False))
-            position = entry.get("position", "none")
             bearing = toy_geometry.bearing_deg(entry) if target_visible else 0.0
             size = entry.get("size", "none")
             obstacle = entry.get("obstacle_ahead", "none")
@@ -273,7 +271,6 @@ class AutonomousSearch(Mover):
             "theta_deg": round(math.degrees(theta), 2),
             "target": self.target,
             "target_visible": target_visible,
-            "position": position,
             "lateral_bearing_deg": round(bearing, 2),
             "size": size,
             "obstacle_ahead": obstacle,
@@ -284,15 +281,14 @@ class AutonomousSearch(Mover):
         })
         self.get_logger().info(
             f"step {self.step} [{action}]: found={found_now} visible={target_visible} "
-            f"pos={position} bearing={bearing:+.1f} size={size} obstacle={obstacle}")
+            f"bearing={bearing:+.1f} size={size} obstacle={obstacle}")
 
     def home_on_target(self, result, t0):
         """Turn toward a visible target and drive a short step."""
         if not result or not self._entry(result).get("target_visible"):
             return False
         entry = self._entry(result)
-        # The numeric bearing is the actual angle to the toy; the legacy label
-        # is only used as a fallback by toy_geometry.bearing_deg().
+        # The numeric bearing is the actual angle to the toy.
         turn_angle = toy_geometry.home_turn_rad(entry)
         if turn_angle != 0.0:
             self.turn(turn_angle)
@@ -384,7 +380,7 @@ class AutonomousSearch(Mover):
     def _write_csv(self):
         os.makedirs(os.path.dirname(os.path.abspath(self.output_csv)), exist_ok=True)
         fieldnames = ["run_id", "step", "t_sec", "x", "y", "theta_deg", "target",
-                      "target_visible", "position", "lateral_bearing_deg",
+                      "target_visible", "lateral_bearing_deg",
                       "size", "obstacle_ahead", "path_clear", "vision_seconds",
                       "found", "action"]
         with open(self.output_csv, "w", newline="") as f:

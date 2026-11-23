@@ -34,8 +34,9 @@ def build_prompts() -> RobotSystemPrompts:
             "Every move is closed-loop on the "
             "fused estimate and reports the measured result. "
             "describe_scene() looks at the stereo camera and describes what is ahead. "
-            "find_toy(target) reports whether a toy is visible, where it is "
-            "(left/center/right), its size, and an estimated distance. "
+            "find_toy(target) reports whether a toy is visible, its lateral "
+            "bearing in degrees (positive to the left), its size, and an "
+            "estimated distance. "
             "is_path_clear() checks whether the path ahead is blocked. "
             "The arm is not connected yet."
         ),

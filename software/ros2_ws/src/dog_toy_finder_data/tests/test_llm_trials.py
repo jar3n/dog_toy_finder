@@ -25,14 +25,25 @@ class GroundTruthTests(unittest.TestCase):
     def test_short_keys_map_to_gt_columns(self):
         mapped = llm_trials.merged_ground_truth({
             "target_visible": True,
-            "position": "left",
+            "lateral_bearing_deg": 15.0,
             "distance": 0.6,
             "notes": "on the rug",
         })
         self.assertEqual(mapped["gt_target_visible"], True)
-        self.assertEqual(mapped["gt_position"], "left")
+        self.assertEqual(mapped["gt_lateral_bearing_deg"], 15.0)
         self.assertEqual(mapped["gt_distance_m"], 0.6)
         self.assertEqual(mapped["gt_notes"], "on the rug")
+        self.assertNotIn("gt_position", mapped)
+
+    def test_legacy_position_keys_are_ignored(self):
+        mapped = llm_trials.merged_ground_truth({
+            "position": "ignored",
+            "gt_position": "ignored",
+        })
+        self.assertEqual(mapped, {})
+        for field in ("position", "gt_position", "position_correct"):
+            self.assertNotIn(field, llm_trials.VISION_FIELDS)
+            self.assertNotIn(field, llm_trials.VISION_METRIC_FIELDS)
 
     def test_distance_list_maps_to_json_csv_value(self):
         mapped = llm_trials.merged_ground_truth({
@@ -58,24 +69,26 @@ class VisionMetricsTests(unittest.TestCase):
     def test_full_match_scores_one(self):
         row = {
             "target_visible": "True",
-            "position": "left",
+            "lateral_bearing_deg": "12.0",
             "size": "medium",
             "distance_m": "0.72",
             "obstacle_ahead": "none",
             "gt_target_visible": "True",
-            "gt_position": "left",
+            "gt_lateral_bearing_deg": "10.0",
             "gt_size": "medium",
             "gt_distance_m": "0.7",
             "gt_obstacle_ahead": "none",
         }
         metrics = llm_trials.vision_metrics(row, distance_tolerance=0.1)
         self.assertTrue(metrics["visible_correct"])
-        self.assertTrue(metrics["position_correct"])
         self.assertTrue(metrics["size_correct"])
         self.assertAlmostEqual(metrics["distance_error_m"], 0.02)
         self.assertTrue(metrics["distance_within_tolerance"])
+        self.assertAlmostEqual(metrics["bearing_error_deg"], 2.0)
+        self.assertTrue(metrics["bearing_within_tolerance"])
         self.assertTrue(metrics["obstacle_correct"])
         self.assertEqual(metrics["score"], 1.0)
+        self.assertNotIn("position_correct", metrics)
 
     def test_multiple_distance_measurements_use_mean(self):
         row = {
@@ -101,12 +114,10 @@ class VisionMetricsTests(unittest.TestCase):
     def test_distance_outside_tolerance_fails_check(self):
         row = {
             "target_visible": "True",
-            "position": "left",
             "size": "medium",
             "distance_m": "1.2",
             "obstacle_ahead": "none",
             "gt_target_visible": "True",
-            "gt_position": "left",
             "gt_size": "medium",
             "gt_distance_m": "0.7",
             "gt_obstacle_ahead": "none",
@@ -114,34 +125,30 @@ class VisionMetricsTests(unittest.TestCase):
         metrics = llm_trials.vision_metrics(row, distance_tolerance=0.25)
         self.assertFalse(metrics["distance_within_tolerance"])
         self.assertAlmostEqual(metrics["distance_error_m"], 0.5)
-        self.assertAlmostEqual(metrics["score"], 0.8)
+        self.assertAlmostEqual(metrics["score"], 0.75)
 
     def test_not_visible_only_scores_visibility_and_obstacle(self):
         row = {
             "target_visible": "False",
-            "position": "none",
             "size": "none",
             "distance_m": "0",
             "obstacle_ahead": "chair",
             "gt_target_visible": "False",
-            "gt_position": "none",
             "gt_obstacle_ahead": "chair",
         }
         metrics = llm_trials.vision_metrics(row)
         self.assertTrue(metrics["visible_correct"])
         self.assertTrue(metrics["obstacle_correct"])
         self.assertEqual(metrics["score"], 1.0)
-        self.assertEqual(metrics["position_correct"], "")
+        self.assertNotIn("position_correct", metrics)
 
     def test_blank_obstacle_ground_truth_is_not_scored(self):
         row = {
             "target_visible": "True",
-            "position": "left",
             "size": "medium",
             "distance_m": "0.7",
             "obstacle_ahead": "chair",
             "gt_target_visible": "True",
-            "gt_position": "left",
             "gt_size": "medium",
             "gt_distance_m": "0.7",
         }
@@ -153,6 +160,7 @@ class VisionMetricsTests(unittest.TestCase):
         metrics = llm_trials.vision_metrics({"target_visible": "True"})
         for field in llm_trials.VISION_METRIC_FIELDS:
             self.assertEqual(metrics[field], "")
+        self.assertNotIn("position_correct", llm_trials.VISION_METRIC_FIELDS)
 
 
 class PlanningMetricsTests(unittest.TestCase):
@@ -199,9 +207,9 @@ class RowAndCsvTests(unittest.TestCase):
             "models": ["gemma4"],
             "results": [{
                 "model": "gemma4",
-                "description": "a red ball on the left",
+                "description": "a red ball",
                 "target_visible": True,
-                "position": "left",
+                "lateral_bearing_deg": 15.0,
                 "size": "medium",
                 "distance_m": 0.68,
                 "obstacle_ahead": "none",
@@ -211,21 +219,24 @@ class RowAndCsvTests(unittest.TestCase):
         }
         row = llm_trials.vision_row(
             result, result["results"][0], "gemma4", "vision1",
-            ground_truth={"target_visible": True, "position": "left",
+            ground_truth={"target_visible": True,
+                          "lateral_bearing_deg": 15.0,
                           "size": "medium", "distance_m": 0.7,
                           "obstacle_ahead": "none"})
         self.assertEqual(row["trial_id"], "vision1-42-gemma4")
         self.assertEqual(row["latency_s"], 1.5)
+        self.assertEqual(row["lateral_bearing_deg"], 15.0)
         self.assertEqual(row["gt_distance_m"], 0.7)
         self.assertEqual(row["visible_correct"], True)
         self.assertEqual(row["score"], 1.0)
         self.assertEqual(row["method"], "ml")
+        self.assertNotIn("position", row)
 
     def test_vision_row_defaults_method_to_ml_for_legacy_answers(self):
         result = {"id": "43", "target": "red ball", "image": ""}
         entry = {
             "model": "gemma4",
-            "target_visible": False, "position": "none", "size": "none",
+            "target_visible": False, "size": "none",
             "distance_m": 0.0, "obstacle_ahead": "none", "seconds": 0.02,
         }
         row = llm_trials.vision_row(result, entry, "gemma4", "vision1")
@@ -238,7 +249,7 @@ class RowAndCsvTests(unittest.TestCase):
         entry = {
             "model": "yolov8s-world", "method": "open_vocab",
             "target_visible": True, "lateral_bearing_deg": 15.6,
-            "position": "left", "distance_m": 1.0,
+            "distance_m": 1.0,
             "distance_source": "stereo_triangulation", "seconds": 0.08,
         }
         row = llm_trials.vision_row(result, entry, "yolov8s-world", "vision1")
@@ -256,6 +267,8 @@ class RowAndCsvTests(unittest.TestCase):
             rows, fields = llm_trials.read_csv(path)
             self.assertEqual(len(rows), 2)
             self.assertEqual(fields, llm_trials.VISION_FIELDS)
+            for field in ("position", "gt_position", "position_correct"):
+                self.assertNotIn(field, fields)
             self.assertEqual(rows[0]["model"], "gemma4")
             self.assertEqual(rows[1]["model"], "minicpm")
 
@@ -301,19 +314,22 @@ class AggregateTests(unittest.TestCase):
         rows = [
             {"kind": "vision", "model": "a", "latency_s": "1.0",
              "target_visible": "True", "gt_target_visible": "True",
-             "position": "left", "gt_position": "left",
+             "lateral_bearing_deg": "10.0",
+             "gt_lateral_bearing_deg": "10.0",
              "size": "medium", "gt_size": "medium",
              "distance_m": "0.7", "gt_distance_m": "0.7",
              "obstacle_ahead": "none", "gt_obstacle_ahead": "none"},
             {"kind": "vision", "model": "a", "latency_s": "2.0",
              "target_visible": "False", "gt_target_visible": "True",
-             "position": "none", "gt_position": "left",
+             "lateral_bearing_deg": "20.0",
+             "gt_lateral_bearing_deg": "10.0",
              "size": "none", "gt_size": "medium",
              "distance_m": "0", "gt_distance_m": "0.7",
              "obstacle_ahead": "none", "gt_obstacle_ahead": "none"},
             {"kind": "vision", "model": "b", "latency_s": "3.0",
              "target_visible": "True", "gt_target_visible": "True",
-             "position": "left", "gt_position": "left",
+             "lateral_bearing_deg": "12.0",
+             "gt_lateral_bearing_deg": "10.0",
              "size": "medium", "gt_size": "medium",
              "distance_m": "0.8", "gt_distance_m": "0.7",
              "obstacle_ahead": "none", "gt_obstacle_ahead": "none"},
@@ -325,6 +341,8 @@ class AggregateTests(unittest.TestCase):
         self.assertEqual(summaries["a"]["mean_latency_s"], 1.5)
         self.assertEqual(summaries["b"]["visible_accuracy"], 1.0)
         self.assertAlmostEqual(summaries["b"]["distance_mae_m"], 0.1)
+        self.assertNotIn("position_accuracy", summaries["a"])
+        self.assertNotIn("position_accuracy", summaries["b"])
 
 
 class BearingScoringTests(unittest.TestCase):
@@ -340,7 +358,6 @@ class BearingScoringTests(unittest.TestCase):
         row = {
             "gt_target_visible": True,
             "target_visible": True,
-            "position": "center",
             "size": "small",
             "distance_m": 1.0,
             "gt_distance_m": 1.0,
@@ -361,7 +378,7 @@ class BearingScoringTests(unittest.TestCase):
             {"id": "cap1", "target": "red ball", "image": "run1/cap1/left.jpg"},
             {"model": "gemma4", "method": "ml",
              "target_visible": True, "lateral_bearing_deg": -9.5,
-             "position": "right", "distance_m": 1.1},
+             "distance_m": 1.1},
             "gemma4", "run1",
             ground_truth={"target_visible": True,
                           "lateral_bearing_deg": -10.0, "distance_m": 1.0},
@@ -370,6 +387,8 @@ class BearingScoringTests(unittest.TestCase):
         self.assertEqual(row["gt_lateral_bearing_deg"], -10.0)
         self.assertTrue(row["bearing_within_tolerance"])
         self.assertAlmostEqual(row["bearing_error_deg"], 0.5)
+        self.assertNotIn("position", row)
+        self.assertNotIn("gt_position", row)
 
     def test_aggregate_reports_bearing_summary(self):
         rows = [{
@@ -381,6 +400,7 @@ class BearingScoringTests(unittest.TestCase):
         summary = llm_trials.aggregate(rows, bearing_tolerance=2.0)[0]
         self.assertAlmostEqual(summary["bearing_mae_deg"], 1.0)
         self.assertEqual(summary["bearing_within_rate"], 1.0)
+        self.assertNotIn("position_accuracy", summary)
 
 
 if __name__ == "__main__":

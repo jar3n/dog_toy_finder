@@ -43,9 +43,6 @@ DEFAULTS = {
     "target": {
         "known_width_m": 0.075,
         "known_height_m": 0.075,
-        "position_split_left": 0.333,
-        "position_split_right": 0.667,
-        "position_bearing_deg": 15.0,
     },
     "open_vocab": {
         "name": "yolov8s-world",
@@ -172,8 +169,7 @@ def get(config, *keys, default=None):
 #     bearing = atan((cx - u) / fx)
 #
 # which is positive for u < cx (the left half of the image) and matches the
-# ROS convention that +y is left. The old left/center/right label is retained
-# only as a compatibility view of this number.
+# ROS convention that +y is left.
 
 
 def lateral_bearing_deg(u_px, config, image_width=None):
@@ -186,46 +182,3 @@ def lateral_bearing_deg(u_px, config, image_width=None):
         return 0.0
     bearing = math.degrees(math.atan((cx - float(u_px)) / fx))
     return round(max(-90.0, min(90.0, bearing)), 2)
-
-
-def position_bearing_deg(config=None):
-    """Fallback bearing magnitude for the legacy left/right labels."""
-    magnitude = float(get(config or {}, "target", "position_bearing_deg",
-                          default=15.0))
-    return abs(magnitude)
-
-
-def bearing_from_position(position, config=None):
-    """Convert a legacy left/center/right label to an approximate bearing."""
-    label = str(position or "none").strip().lower()
-    magnitude = position_bearing_deg(config)
-    return {"left": magnitude, "center": 0.0, "right": -magnitude,
-            "none": 0.0}.get(label, 0.0)
-
-
-def position_from_bearing(bearing_deg, config=None, image_width=None):
-    """Derive the compatibility left/center/right label from a bearing."""
-    try:
-        bearing = float(bearing_deg)
-    except (TypeError, ValueError):
-        bearing = 0.0
-    if not isinstance(config, dict) or not config.get("camera"):
-        edge = position_bearing_deg(config)
-        if bearing > edge:
-            return "left"
-        if bearing < -edge:
-            return "right"
-        return "center"
-    camera = config["camera"]
-    width = float(image_width or camera.get("width", 320))
-    left_edge = lateral_bearing_deg(
-        float(get(config, "target", "position_split_left",
-                  default=0.333)) * width, config, width)
-    right_edge = lateral_bearing_deg(
-        float(get(config, "target", "position_split_right",
-                  default=0.667)) * width, config, width)
-    if bearing >= left_edge:
-        return "left"
-    if bearing <= right_edge:
-        return "right"
-    return "center"

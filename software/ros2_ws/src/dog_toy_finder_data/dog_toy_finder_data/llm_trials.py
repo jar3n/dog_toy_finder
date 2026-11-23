@@ -39,11 +39,11 @@ KIND_PLANNING = "planning"
 VISION_FIELDS = [
     "trial_id", "kind", "run_id", "t", "ask_id", "target", "model", "method",
     "image",
-    "latency_s", "error", "description", "target_visible", "position",
+    "latency_s", "error", "description", "target_visible",
     "lateral_bearing_deg", "size", "distance_m", "obstacle_ahead", "path_clear",
-    "gt_target_visible", "gt_position", "gt_lateral_bearing_deg", "gt_size",
+    "gt_target_visible", "gt_lateral_bearing_deg", "gt_size",
     "gt_distance_m", "gt_obstacle_ahead", "gt_notes",
-    "visible_correct", "position_correct", "size_correct", "distance_error_m",
+    "visible_correct", "size_correct", "distance_error_m",
     "distance_within_tolerance", "bearing_error_deg", "bearing_within_tolerance",
     "obstacle_correct", "score",
 ]
@@ -58,7 +58,7 @@ PLANNING_FIELDS = [
 VISION_GT_FIELDS = [f for f in VISION_FIELDS if f.startswith("gt_")]
 PLANNING_GT_FIELDS = [f for f in PLANNING_FIELDS if f.startswith("gt_")]
 VISION_METRIC_FIELDS = [
-    "visible_correct", "position_correct", "size_correct", "distance_error_m",
+    "visible_correct", "size_correct", "distance_error_m",
     "distance_within_tolerance", "bearing_error_deg", "bearing_within_tolerance",
     "obstacle_correct", "score",
 ]
@@ -151,7 +151,7 @@ def merged_ground_truth(ground_truth):
     """Map a ground-truth dict to the ``gt_*`` column names.
 
     Accepts either the short keys used in the vision ask JSON
-    (``target_visible``, ``position``, ...) or the actual column names
+    (``target_visible``, ``lateral_bearing_deg``, ...) or the actual column names
     (``gt_target_visible``, ...). Unknown keys are ignored. Distance ground
     truth may be a number or a list of repeated measurements; lists are stored
     as JSON so they survive the CSV round trip.
@@ -161,7 +161,6 @@ def merged_ground_truth(ground_truth):
     aliases = {
         "target_visible": "gt_target_visible",
         "visible": "gt_target_visible",
-        "position": "gt_position",
         "lateral_bearing_deg": "gt_lateral_bearing_deg",
         "bearing_deg": "gt_lateral_bearing_deg",
         "lateral_bearing": "gt_lateral_bearing_deg",
@@ -220,11 +219,6 @@ def vision_metrics(row, distance_tolerance=0.25, bearing_tolerance=5.0):
             checks.append(metrics["obstacle_correct"])
         metrics["score"] = round(sum(1 for c in checks if c) / len(checks), 3)
         return metrics
-
-    gt_position = _text(row.get("gt_position"))
-    if gt_position and gt_position != "none":
-        metrics["position_correct"] = _text(row.get("position")) == gt_position
-        checks.append(metrics["position_correct"])
 
     gt_size = _text(row.get("gt_size"))
     if gt_size and gt_size != "none":
@@ -311,8 +305,8 @@ def vision_row(result, entry, model, run_id, distance_tolerance=0.25,
         "image": result.get("image", ""),
     })
     row["trial_id"] = "%s-%s-%s" % (run_id, ask_id, row["model"])
-    for key in ("description", "target_visible", "position",
-                "lateral_bearing_deg", "size", "distance_m", "obstacle_ahead",
+    for key in ("description", "target_visible", "lateral_bearing_deg",
+                "size", "distance_m", "obstacle_ahead",
                 "path_clear", "error"):
         if key in entry:
             row[key] = entry[key]
@@ -439,8 +433,6 @@ def aggregate(rows, distance_tolerance=0.25, bearing_tolerance=5.0):
                                if _as_bool(r.get("gt_target_visible")) is not None),
                 "visible_accuracy": _rate(
                     [r.get("visible_correct") for r in model_rows]),
-                "position_accuracy": _rate(
-                    [r.get("position_correct") for r in model_rows]),
                 "size_accuracy": _rate(
                     [r.get("size_correct") for r in model_rows]),
                 "distance_mae_m": _mean(

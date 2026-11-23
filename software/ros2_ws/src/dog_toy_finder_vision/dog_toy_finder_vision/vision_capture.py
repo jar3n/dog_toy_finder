@@ -2,7 +2,7 @@
 
 Capturing and evaluating are deliberately separate: this node only waits for a
 new left/right rectified-color pair from the running stereo pipeline and writes
-it to disk. No detector runs at capture time, so the robot can be positioned
+it to disk. No detector runs at capture time, so the robot can be placed
 and the target measured without loading a vision model.
 
 Usage inside the ROS 2 container::
@@ -217,8 +217,6 @@ def main(argv=None):
             "target": args.target,
             "ground_truth": {
                 "target_visible": target_visible,
-                "position": vision_config.position_from_bearing(bearing, config)
-                if target_visible else "none",
                 "lateral_bearing_deg": round(float(bearing), 2),
                 "distance_m": round(float(depth), 3),
                 "size": args.size or "none",

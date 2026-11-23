@@ -95,6 +95,13 @@ class AnalyzeTests(unittest.TestCase):
                        if row["metric"] == "elapsed_s")
         self.assertAlmostEqual(elapsed["mean_diff"], -1.0)
 
+    def test_legacy_position_metric_is_excluded(self):
+        self.assertNotIn("position_correct", trial_stats.VISION_METRICS)
+        analysis = trial_stats.analyze(self._vision_rows())
+        self.assertNotIn("position_correct", analysis["metrics"])
+        for row in analysis["descriptives"] + analysis["comparisons"]:
+            self.assertNotEqual(row["metric"], "position_correct")
+
     def test_custom_pair_field(self):
         rows = self._vision_rows()
         for row in rows:

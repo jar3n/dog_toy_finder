@@ -244,13 +244,13 @@ class ToySearchTest(Mover):
         x, y, theta = self.current_pose()
         vision_seconds = None
         target_visible = False
-        position = "none"
+        bearing = 0.0
         size = "none"
         obstacle = "none"
         path_clear = True
         if result is not None:
             target_visible = bool(result.get("target_visible", False))
-            position = result.get("position", "none")
+            bearing = toy_geometry.bearing_deg(result) if target_visible else 0.0
             size = result.get("size", "none")
             obstacle = result.get("obstacle_ahead", "none")
             path_clear = bool(result.get("path_clear", True))
@@ -264,7 +264,7 @@ class ToySearchTest(Mover):
             "theta_deg": round(math.degrees(theta), 2),
             "target": self.target,
             "target_visible": target_visible,
-            "position": position,
+            "lateral_bearing_deg": round(bearing, 2),
             "size": size,
             "obstacle_ahead": obstacle,
             "path_clear": path_clear,
@@ -302,9 +302,11 @@ class ToySearchTest(Mover):
                     if found_now and not self.find_all:
                         self.found_step = step
                 self.log_step(step, result, found_now, t0)
+                bearing = (toy_geometry.bearing_deg(result)
+                           if result and result.get("target_visible") else 0.0)
                 self.get_logger().info(
                     f"step {step}: found={found_now} visible={result.get('target_visible') if result else None} "
-                    f"pos={result.get('position') if result else None} size={result.get('size') if result else None}")
+                    f"bearing={bearing:+.1f} size={result.get('size') if result else None}")
                 if self.found:
                     self.stop()
                     self._write_csv()
@@ -324,7 +326,7 @@ class ToySearchTest(Mover):
     def _write_csv(self):
         os.makedirs(os.path.dirname(os.path.abspath(self.output_csv)), exist_ok=True)
         fieldnames = ["run_id", "step", "t_sec", "x", "y", "theta_deg", "target",
-                      "target_visible", "position", "size", "obstacle_ahead",
+                      "target_visible", "lateral_bearing_deg", "size", "obstacle_ahead",
                       "path_clear", "vision_seconds", "found"]
         with open(self.output_csv, "w", newline="") as f:
             writer = csv.DictWriter(f, fieldnames=fieldnames)

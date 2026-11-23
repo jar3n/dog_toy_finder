@@ -14,6 +14,14 @@ from .vision import get_vision
 MAX_TARGET_LEN = 80
 
 
+def _bearing_text(entry):
+    """Format a numeric lateral bearing, or 'unknown' when it is missing."""
+    try:
+        return f"{float(entry.get('lateral_bearing_deg')):+.1f}"
+    except (TypeError, ValueError):
+        return "unknown"
+
+
 def _summary(result):
     if result is None:
         return "No vision result (is the vision node running?)."
@@ -35,7 +43,7 @@ def _summary(result):
             continue
         desc = e.get("description", "")
         visible = e.get("target_visible", False)
-        pos = e.get("position", "none")
+        bearing = _bearing_text(e)
         size = e.get("size", "none")
         obstacle = e.get("obstacle_ahead", "none")
         dist = e.get("distance_m")
@@ -43,7 +51,8 @@ def _summary(result):
         if dist is not None:
             extra = f", ~{dist:.2f} m"
         lines.append(
-            f"  {model}: {desc} | target_visible={visible} position={pos} "
+            f"  {model}: {desc} | target_visible={visible} "
+            f"lateral_bearing_deg={bearing} "
             f"size={size} obstacle_ahead={obstacle}{extra} "
             f"({e.get('seconds', 0):.1f}s)")
     if len(entries) == 1:
@@ -53,7 +62,7 @@ def _summary(result):
         path = "clear" if e.get("path_clear") else f"blocked by {e.get('obstacle_ahead')}"
         return (
             f"{e.get('description', '')} Target visible: {e.get('target_visible')}. "
-            f"Position: {e.get('position')}, size: {e.get('size')}. "
+            f"Lateral bearing: {_bearing_text(e)} deg, size: {e.get('size')}. "
             f"Path ahead: {path}."
         )
     # Multi-model: also give a compact consensus line.

@@ -31,8 +31,8 @@ Comparison is **capture-first**. `vision_capture` saves a rectified
 left/right pair with operator-measured ground truth, and `vision_eval` later
 replays those saved pairs through the configured pipeline. Lateral position is a
 numeric `lateral_bearing_deg` (degrees from the optical axis, positive =
-robot-left / ROS `+y`); the legacy `left`/`center`/`right` label is derived from
-it for compatibility.
+robot-left / ROS `+y`); it is the sole lateral measurement, and no coarse side
+label is emitted or accepted.
 
 ## Topics
 
@@ -94,10 +94,6 @@ measured camera and toy values there:
 - `camera.{left,right}_rectified_topic` — detector image inputs
 - `target.known_width_m`, `known_height_m` — retained for older tooling;
   `open_vocab` triangulates from disparity rather than apparent size
-- `target.position_split_left/right` — image thirds used to derive the
-  compatibility `left`/`center`/`right` label
-- `target.position_bearing_deg` — fallback bearing (default `15°`) only for old
-  answers that have a label but no numeric `lateral_bearing_deg`
 
 The camera values should match the `CAMERA_*` and `STEREO_BASELINE` values in
 `full_system_eval.conf`. The defaults are placeholders until you calibrate the
@@ -142,7 +138,7 @@ left-image centre described above. The service's model name (or
 `open_vocab.name`) is reported as `model`, with `method: "open_vocab"` and
 `distance_source: "stereo_triangulation"` for matched detections.
 
-Each answer uses the existing schema:
+Each answer uses this schema:
 
 ```json
 {
@@ -151,7 +147,6 @@ Each answer uses the existing schema:
   "distance_source": "stereo_triangulation",
   "description": "...",
   "target_visible": true,
-  "position": "left | center | right | none",
   "lateral_bearing_deg": 12.0,
   "size": "small | medium | large | none",
   "distance_m": 1.15,
@@ -227,8 +222,7 @@ Every entry has:
 | `method` | `open_vocab` or `second` (`ml` only on legacy rows) |
 | `detector_model` | detector used for the single-image detection (`second` only) |
 | `target_visible` | whether the requested target was found |
-| `lateral_bearing_deg` | numeric bearing from the optical axis; positive = robot-left |
-| `position` | derived compatibility label: `left`, `center`, `right`, or `none` |
+| `lateral_bearing_deg` | sole lateral measurement: numeric bearing from the optical axis in degrees, positive = robot-left / ROS `+y` |
 | `size` | `small`, `medium`, `large`, or `none` |
 | `distance_m` | distance to the target in metres, `0` if unknown/not visible |
 | `obstacle_ahead` | object blocking the centre of the path, or `none` |
@@ -265,8 +259,9 @@ ros2 run dog_toy_finder_vision vision_capture \
     --target "$VISION_CAPTURE_TARGET" \
     --depth-m 1.15 --bearing-deg +12 \
     --run-id "$VISION_CAPTURE_RUN_ID" \
-    --capture-id ball_115m_left12 \
-    --output-dir "$VISION_CAPTURE_DIR"
+    --capture-id ball_115m_b12 \
+    --output-dir "$VISION_CAPTURE_DIR" \
+    --config "$VISION_DETECTOR_CONFIG"
 ```
 
 Each capture writes `left.jpg`, `right.jpg`, and `meta.json` under

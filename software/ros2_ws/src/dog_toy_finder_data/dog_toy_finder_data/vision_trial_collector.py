@@ -17,7 +17,8 @@ The ``gt_*`` ground-truth columns stay empty for a spreadsheet, or are filled
 immediately when the ask JSON carries a ``ground_truth`` object::
 
     {"id": "1", "target": "red ball",
-     "ground_truth": {"target_visible": true, "position": "left",
+     "ground_truth": {"target_visible": true,
+                      "lateral_bearing_deg": 15.0,
                       "size": "medium", "distance_m": [0.7, 0.72],
                       "obstacle_ahead": "none"}}
 
@@ -157,7 +158,7 @@ class VisionTrialCollector(Node):
             # Older/single-model results put the answer at the top level.
             entries = [{
                 key: result.get(key)
-                for key in ("description", "target_visible", "position",
+                for key in ("description", "target_visible",
                             "lateral_bearing_deg", "size", "distance_m",
                             "obstacle_ahead", "path_clear", "seconds", "error")
                 if key in result

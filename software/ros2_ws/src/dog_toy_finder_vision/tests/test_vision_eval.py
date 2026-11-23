@@ -83,7 +83,6 @@ class OfflineEvalTests(unittest.TestCase):
                 os.path.join(self.capture_dir, "%s.jpg" % eye))
         truth = {
             "target_visible": visible,
-            "position": "left" if visible else "none",
             "lateral_bearing_deg": vision_config.lateral_bearing_deg(
                 center_x, config) if visible else 0.0,
             "distance_m": 1.0 if visible else 0.0,
@@ -163,7 +162,9 @@ class OfflineEvalTests(unittest.TestCase):
         self.assertTrue(entry["target_visible"])
         self.assertEqual(entry["method"], "open_vocab")
         self.assertEqual(entry["distance_source"], "stereo_triangulation")
-        self.assertEqual(entry["position"], "left")
+        self.assertAlmostEqual(
+            entry["lateral_bearing_deg"],
+            meta["ground_truth"]["lateral_bearing_deg"], delta=0.5)
         self.assertAlmostEqual(entry["distance_m"], 1.0, places=2)
 
         row = llm_trials.vision_row(

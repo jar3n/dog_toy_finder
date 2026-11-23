@@ -1,7 +1,7 @@
 """Fast checks for the found/toy-counting logic (no driving involved).
 
 Covers AutonomousSearch and ToySearchTest _note_found: single-target
-latching, find-all counting, position dedupe, and the invisible case.
+latching, find-all counting, bearing dedupe, and the invisible case.
 
     python3 tests_e2e/note_found.py
 """
@@ -20,8 +20,8 @@ def check(name, cond):
         raise SystemExit(1)
 
 
-FOUND = {"target_visible": True, "position": "center", "size": "medium",
-         "distance_m": 0.5}
+FOUND = {"target_visible": True, "lateral_bearing_deg": 0.0,
+         "size": "medium", "distance_m": 0.5}
 
 rclpy.init()
 

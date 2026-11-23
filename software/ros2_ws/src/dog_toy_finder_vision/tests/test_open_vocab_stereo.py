@@ -118,7 +118,6 @@ class TriangulationTests(unittest.TestCase):
         self.assertAlmostEqual(entry["disparity_px"], 20.0, delta=1.5)
         # atan((cx - u) / fx) = atan((160 - 90) / 250) about 15.6 deg, +left.
         self.assertAlmostEqual(entry["lateral_bearing_deg"], 15.64, delta=0.5)
-        self.assertEqual(entry["position"], "left")
         self.assertIn("bbox_px", entry)
         self.assertIn("bbox_right_px", entry)
         self.assertEqual(entry["center_source"], "mask_centroid")

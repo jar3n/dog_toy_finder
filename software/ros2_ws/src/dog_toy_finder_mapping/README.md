@@ -40,12 +40,12 @@ disabled with `use_vision:=false`.
 
 `/detected_toys` is a separate `geometry_msgs/PoseArray` layer. When a vision
 pipeline answer has `target_visible: true`, the mapper uses its numeric
-`lateral_bearing_deg` (degrees from the optical axis, positive = robot-left)
-and `distance_m` to place the toy in the robot's frame. For `open_vocab`,
-`distance_m` comes from stereo triangulation. If several detector answers
-arrive in one `/vision/result`, bearings and distances are fused by median.
-Older results with only a `left`/`center`/`right` label are still accepted via a
-small fallback bearing. If no answer provides a usable `distance_m`, the
+`lateral_bearing_deg` (degrees from the optical axis, positive = robot-left /
+ROS `+y`) and `distance_m` to place the toy in the robot's frame. For
+`open_vocab`, `distance_m` comes from stereo triangulation. If several detector
+answers arrive in one `/vision/result`, bearings and distances are fused by
+median. The numeric bearing is the sole lateral measurement; no coarse side
+label is emitted or accepted. If no answer provides a usable `distance_m`, the
 fallback `toy_forward_distance` (default 0.6 m) is used; estimates are clamped
 to `toy_max_distance` (default 5 m). Markers closer than `toy_merge_radius`
 (default 0.15 m) are merged.

@@ -26,16 +26,9 @@ camera:
   right_rectified_topic: /stereo/right/image_rect_color
 
 # Real-world toy measurements. Measure these with a ruler for your actual toy.
-# The position_* fields only derive the legacy left/center/right label from the
-# numeric bearing; they do not affect triangulation.
 target:
   known_width_m: 0.075
   known_height_m: 0.075
-  position_split_left: 0.333
-  position_split_right: 0.667
-  # Fallback bearing (degrees) when an older answer has only the legacy
-  # left/center/right label and no lateral_bearing_deg field.
-  position_bearing_deg: 15.0
 
 # open_vocab: an open-vocabulary detector runs on the computer as an HTTP
 # service (scripts/start_yolo_service.sh); this container only sends JPEGs and

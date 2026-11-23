@@ -24,18 +24,15 @@ class BearingTests(unittest.TestCase):
             vision_config.lateral_bearing_deg(config["camera"]["cx"], config),
             0.0, places=2)
 
-    def test_position_derived_from_bearing(self):
+    def test_bearing_magnitude_grows_away_from_optical_axis(self):
         config = vision_config.load_config()
-        self.assertEqual(vision_config.position_from_bearing(30, config), "left")
-        self.assertEqual(vision_config.position_from_bearing(-30, config),
-                         "right")
-        self.assertEqual(vision_config.position_from_bearing(0, config),
-                         "center")
-
-    def test_legacy_label_recovers_a_bearing(self):
-        self.assertEqual(vision_config.bearing_from_position("left"), 15.0)
-        self.assertEqual(vision_config.bearing_from_position("right"), -15.0)
-        self.assertEqual(vision_config.bearing_from_position("none"), 0.0)
+        cx = config["camera"]["cx"]
+        self.assertLess(
+            vision_config.lateral_bearing_deg(cx - 40, config),
+            vision_config.lateral_bearing_deg(cx - 80, config))
+        self.assertGreater(
+            vision_config.lateral_bearing_deg(cx + 40, config),
+            vision_config.lateral_bearing_deg(cx + 80, config))
 
 
 class AnswerTests(unittest.TestCase):
@@ -57,36 +54,31 @@ class AnswerTests(unittest.TestCase):
         self.assertEqual(answer["disparity_px"], 20.0)
         self.assertEqual(answer["bbox_px"], [10, 20, 30, 40])
 
-    def test_tidy_derives_position_from_bearing(self):
+    def test_tidy_keeps_numeric_bearing(self):
         answer = vision_answer.tidy({
             "description": "toy",
             "target_visible": True,
-            "position": "center",  # stale label; bearing wins
             "lateral_bearing_deg": 28.0,
             "size": "small",
             "distance_m": 1.2,
             "obstacle_ahead": "",
         }, self.config)
-        self.assertEqual(answer["position"], "left")
         self.assertEqual(answer["lateral_bearing_deg"], 28.0)
         self.assertTrue(answer["path_clear"])
 
-    def test_tidy_recovers_bearing_from_legacy_label(self):
+    def test_tidy_defaults_missing_bearing_to_zero(self):
         answer = vision_answer.tidy({
             "target_visible": True,
-            "position": "right",
             "distance_m": 0.8,
         }, self.config)
-        self.assertEqual(answer["lateral_bearing_deg"], -15.0)
+        self.assertEqual(answer["lateral_bearing_deg"], 0.0)
 
     def test_tidy_clears_bearing_when_not_visible(self):
         answer = vision_answer.tidy({
             "target_visible": False,
-            "position": "left",
             "lateral_bearing_deg": 25.0,
             "distance_m": 1.0,
         }, self.config)
-        self.assertEqual(answer["position"], "none")
         self.assertEqual(answer["lateral_bearing_deg"], 0.0)
         self.assertEqual(answer["distance_m"], 0.0)
 
