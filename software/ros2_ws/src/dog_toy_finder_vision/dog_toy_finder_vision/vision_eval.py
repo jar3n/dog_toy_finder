@@ -1,11 +1,11 @@
 """Offline batch evaluation of saved rectified stereo captures.
 
 Captures are written first by ``vision_capture``; this tool replays every saved
-pair through the classical detector and the configured Ollama vision models,
-then writes a trial CSV that already contains the operator's ground truth.
+pair through the configured Ollama vision models, then writes a trial CSV that
+already contains the operator's ground truth.
 
 No live camera topics and no ROS graph are needed. Only the shared detector
-config, the saved JPEGs, and (for ML rows) a reachable Ollama server are used.
+config, the saved JPEGs, and a reachable Ollama server are used.
 
 Usage inside the ROS 2 container::
 
@@ -15,7 +15,7 @@ Usage inside the ROS 2 container::
 
 Outputs (defaults next to the captures directory)::
 
-    vision_eval_trials.csv     one scored row per capture and detector/model
+    vision_eval_trials.csv     one scored row per capture and model
     vision_eval_results.jsonl  full /vision/result-style entries for inspection
     vision_eval_summary.json   per-model aggregate metrics
 """
@@ -24,13 +24,9 @@ import argparse
 import json
 import os
 import sys
-import time
 from datetime import datetime
 
-import numpy as np
-from PIL import Image as PilImage
-
-from . import classical_detector, ollama_vlm, vision_answer, vision_config
+from . import ollama_vlm, vision_answer, vision_config
 
 # Both packages are installed together in the ROS workspace. The fallback lets
 # the tool run from a source checkout in a plain Python environment, where the
@@ -69,21 +65,17 @@ def iter_captures(root, run_id=None, capture=None):
 
 
 def load_capture(path):
-    """Load a capture's metadata, RGB arrays, and JPEG bytes."""
+    """Load a capture's metadata and the two rectified JPEG byte strings."""
     with open(os.path.join(path, "meta.json")) as handle:
         meta = json.load(handle)
     images = {}
     for eye in ("left", "right"):
-        jpeg_path = os.path.join(path, "%s.jpg" % eye)
-        with open(jpeg_path, "rb") as handle:
+        with open(os.path.join(path, "%s.jpg" % eye), "rb") as handle:
             images[eye + "_jpeg"] = handle.read()
-        with PilImage.open(jpeg_path) as image:
-            images[eye + "_rgb"] = np.asarray(image.convert("RGB"))
     return meta, images
 
 
-def evaluate_capture(path, config, models, classical, chat_url,
-                     compare_models, timeout, include_ml=True,
+def evaluate_capture(path, config, models, chat_url, compare_models, timeout,
                      generate_url=None):
     """Replay one capture and return a /vision/result-style dict."""
     meta, images = load_capture(path)
@@ -100,29 +92,20 @@ def evaluate_capture(path, config, models, classical, chat_url,
         "capture_dir": path,
     }
     entries = []
-    if classical:
-        start = time.time()
-        detection = classical_detector.detect(
-            images["left_rgb"], images["right_rgb"], target, config)
-        detection["model"] = "classical"
-        detection["seconds"] = round(time.time() - start, 3)
-        entries.append(vision_answer.tidy(detection, config))
-
-    if include_ml:
-        prompt = vision_answer.prompt_for(target, config)
-        jpegs = [images["left_jpeg"], images["right_jpeg"]]
-        for model in models:
-            try:
-                entries.append(ollama_vlm.ask_model(
-                    model, jpegs, target, prompt, chat_url,
-                    compare_models=compare_models, timeout=timeout,
-                    config=config))
-            finally:
-                if compare_models:
-                    ollama_vlm.unload_model(
-                        model, generate_url or (
-                            chat_url.rstrip("/").rsplit("/", 1)[0]
-                            + "/api/generate"), timeout=15)
+    prompt = vision_answer.prompt_for(target, config)
+    jpegs = [images["left_jpeg"], images["right_jpeg"]]
+    for model in models:
+        try:
+            entries.append(ollama_vlm.ask_model(
+                model, jpegs, target, prompt, chat_url,
+                compare_models=compare_models, timeout=timeout,
+                config=config))
+        finally:
+            if compare_models:
+                ollama_vlm.unload_model(
+                    model, generate_url or (
+                        chat_url.rstrip("/").rsplit("/", 1)[0]
+                        + "/api/generate"), timeout=15)
     result["results"] = entries
     result["models"] = [entry.get("model", "unknown") for entry in entries]
     return result, meta
@@ -142,13 +125,10 @@ def _build_parser():
                         help="only evaluate captures from this run id")
     parser.add_argument("--config", default=None, help="detector YAML path")
     parser.add_argument("--models", default=None,
-                        help="comma-separated Ollama models; empty skips ML")
+                        help="comma-separated Ollama models (default: "
+                             "$VISION_MODELS / $VISION_MODEL / gemma4)")
     parser.add_argument("--ollama-url", default=None,
                         help="Ollama endpoint (default: $OLLAMA_URL or localhost)")
-    parser.add_argument("--no-classical", action="store_true",
-                        help="skip the deterministic detector")
-    parser.add_argument("--no-ml", action="store_true",
-                        help="skip Ollama models (classical-only replay)")
     parser.add_argument("--compare-models", action="store_true",
                         help="unload each model between requests, as live compare mode")
     parser.add_argument("--timeout", type=float, default=180.0,
@@ -192,6 +172,9 @@ def main(argv=None):
     else:
         models_text = args.models
     models = [m.strip() for m in models_text.split(",") if m.strip()]
+    if not models:
+        print("No models configured; set --models or VISION_MODELS", file=sys.stderr)
+        return 1
     base_url = (args.ollama_url or os.environ.get(
         "OLLAMA_URL", "http://localhost:11434")).rstrip("/")
 
@@ -211,9 +194,8 @@ def main(argv=None):
     for path in captures:
         try:
             result, meta = evaluate_capture(
-                path, config, models, not args.no_classical,
-                base_url + "/api/chat", compare_models,
-                args.timeout, include_ml=not args.no_ml and bool(models),
+                path, config, models, base_url + "/api/chat",
+                compare_models, args.timeout,
                 generate_url=base_url + "/api/generate")
         except Exception as error:
             print("Failed to replay %s: %s" % (path, error), file=sys.stderr)
@@ -228,7 +210,7 @@ def main(argv=None):
                 bearing_tolerance=args.bearing_tolerance))
 
     if not rows:
-        print("No detector/model rows produced", file=sys.stderr)
+        print("No model rows produced", file=sys.stderr)
         return 1
     llm_trials.write_csv(output_csv, rows, llm_trials.VISION_FIELDS)
     os.makedirs(os.path.dirname(os.path.abspath(results_json)), exist_ok=True)
@@ -244,9 +226,8 @@ def main(argv=None):
         "captures_dir": root,
         "captures": len(captures),
         "rows": len(rows),
-        "models": models if not args.no_ml else [],
-        "classical": not args.no_classical,
-        "compare_models": compare_models if not args.no_ml else False,
+        "models": models,
+        "compare_models": compare_models,
         "distance_tolerance": args.tolerance,
         "bearing_tolerance": args.bearing_tolerance,
         "config_path": config.get("config_path"),

@@ -221,16 +221,16 @@ class RowAndCsvTests(unittest.TestCase):
         self.assertEqual(row["score"], 1.0)
         self.assertEqual(row["method"], "ml")
 
-    def test_vision_row_records_classical_detector_method(self):
+    def test_vision_row_marks_every_answer_as_ml(self):
         result = {"id": "43", "target": "red ball", "image": ""}
         entry = {
-            "model": "classical", "method": "classical",
+            "model": "gemma4",
             "target_visible": False, "position": "none", "size": "none",
             "distance_m": 0.0, "obstacle_ahead": "none", "seconds": 0.02,
         }
-        row = llm_trials.vision_row(result, entry, "classical", "vision1")
-        self.assertEqual(row["model"], "classical")
-        self.assertEqual(row["method"], "classical")
+        row = llm_trials.vision_row(result, entry, "gemma4", "vision1")
+        self.assertEqual(row["model"], "gemma4")
+        self.assertEqual(row["method"], "ml")
         self.assertIn("method", llm_trials.VISION_FIELDS)
 
     def test_append_then_read_roundtrip(self):
@@ -347,10 +347,10 @@ class BearingScoringTests(unittest.TestCase):
     def test_vision_row_copies_bearing_and_ground_truth(self):
         row = llm_trials.vision_row(
             {"id": "cap1", "target": "red ball", "image": "run1/cap1/left.jpg"},
-            {"model": "classical", "method": "classical",
+            {"model": "gemma4", "method": "ml",
              "target_visible": True, "lateral_bearing_deg": -9.5,
              "position": "right", "distance_m": 1.1},
-            "classical", "run1",
+            "gemma4", "run1",
             ground_truth={"target_visible": True,
                           "lateral_bearing_deg": -10.0, "distance_m": 1.0},
             bearing_tolerance=3.0)

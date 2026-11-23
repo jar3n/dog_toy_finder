@@ -22,10 +22,9 @@ ros2 run dog_toy_finder_data dataset_summary /tmp/dog_toy_dataset/run1
 ## LLM comparison trials
 
 Vision and planning comparisons share one CSV schema and one scoring tool, so
-the classical detector, vision models, and a planner can be judged with the
-same fields. Rows contain automated answers first (including a `method` column:
-`classical` or `ml`), then `gt_*` ground-truth fields, then metrics computed by
-`score`.
+vision models and a planner can be judged with the same fields. Vision rows
+contain automated answers first (including a `method` column, always `ml`),
+then `gt_*` ground-truth fields, then metrics computed by `score`.
 
 Trial data lives in the repository's `data/` folder, next to `hardware/` and
 `software/`: `data/vision/captures/`, `data/vision/vision_eval_*` files, and
@@ -63,7 +62,7 @@ Each capture stores `left.jpg`, `right.jpg`, and `meta.json` under
 bearing is in degrees from the optical axis, positive to the robot's left. The
 legacy `position` label is derived from it.
 
-`vision_eval` writes one row per capture and detector/model with the scored
+`vision_eval` writes one row per capture and model with the scored
 columns already filled. Multiple models are unloaded between answers; use
 `--compare-models` for a single model to get the same cold-load policy.
 

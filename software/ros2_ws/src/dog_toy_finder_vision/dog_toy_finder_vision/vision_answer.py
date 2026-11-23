@@ -97,7 +97,7 @@ def prompt_for(target, config=None):
 
 
 def tidy(answer, config=None):
-    """Normalise an answer while preserving detector-specific extra fields.
+    """Normalise an answer while preserving model-specific extra fields.
 
     A missing bearing is recovered from the legacy label, and the legacy label
     is always re-derived from the bearing so mapping and homing see one

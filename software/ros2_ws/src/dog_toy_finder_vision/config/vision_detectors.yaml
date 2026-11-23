@@ -1,11 +1,10 @@
-# Physical measurements and thresholds for the two rectified-stereo toy
-# detectors. The path to this file is set in scripts/full_system_eval.conf as
-# VISION_DETECTOR_CONFIG; both detector paths read the same file.
+# Physical measurements for the Ollama vision models. The path to this file is
+# set in scripts/full_system_eval.conf as VISION_DETECTOR_CONFIG and forwarded
+# to the capture/eval tools and stereo_vision.launch.py.
 #
 # The camera values must match the calibrated intrinsics passed to
-# stereo_vision.launch.py. They are repeated here because the classical
-# detector turns disparity into metres and uses the toy's real size as a
-# second, independent distance estimate.
+# stereo_vision.launch.py. They are included in the model prompt so the model
+# can judge depth and lateral bearing from the rectified pair.
 camera:
   width: 320
   height: 240
@@ -19,83 +18,20 @@ camera:
   left_rectified_topic: /stereo/left/image_rect_color
   right_rectified_topic: /stereo/right/image_rect_color
 
-# Real-world toy measurements used by the classical detector and included in
-# the ML prompt. Measure these with a ruler for your actual toy.
+# Real-world toy measurements included in the model prompt. Measure these with
+# a ruler for your actual toy. The position_* fields are only used to derive
+# the legacy left/center/right label from a numeric bearing.
 target:
-  default_color: red
   known_width_m: 0.075
   known_height_m: 0.075
-  apparent_width_small_fraction: 0.08
-  apparent_width_large_fraction: 0.25
   position_split_left: 0.333
   position_split_right: 0.667
-  # Fallback bearing (degrees) when an older VLM answer has only the legacy
+  # Fallback bearing (degrees) when an older answer has only the legacy
   # left/center/right label and no lateral_bearing_deg field.
   position_bearing_deg: 15.0
 
-# HSV ranges. Hue is 0..179, saturation and value are 0..255. The classical
-# detector combines every range whose colour word appears in the ask target.
-# Unknown colours fall back to target.default_color.
-color_ranges:
-  red:
-    - lower: [0, 90, 60]
-      upper: [15, 255, 255]
-    - lower: [165, 90, 60]
-      upper: [179, 255, 255]
-  blue:
-    - lower: [95, 80, 50]
-      upper: [130, 255, 255]
-  green:
-    - lower: [40, 80, 50]
-      upper: [85, 255, 255]
-  yellow:
-    - lower: [20, 90, 70]
-      upper: [40, 255, 255]
-  orange:
-    - lower: [5, 100, 70]
-      upper: [20, 255, 255]
-  pink:
-    - lower: [150, 60, 90]
-      upper: [179, 255, 255]
-
-# Deterministic path: colour segmentation -> connected components -> edges ->
-# rectified-stereo patch matching -> metric depth. No learned model is used.
-classical:
-  enabled: true
-  min_confidence: 0.30
-  min_component_area: 45
-  max_component_area_fraction: 0.35
-  min_bbox_width_px: 7
-  max_bbox_width_px: 180
-  min_bbox_height_px: 7
-  max_bbox_height_px: 180
-  max_aspect_ratio: 3.0
-  min_fill_ratio: 0.22
-  min_edge_strength: 6.0
-  morph_kernel_size: 3
-  morph_open_iterations: 1
-  morph_close_iterations: 2
-  stereo:
-    patch_radius: 7
-    min_disparity: 3
-    max_disparity: 96
-    sample_step: 6
-    min_valid_samples: 3
-    max_mean_abs_error: 55.0
-  depth:
-    method: fuse
-    stereo_weight: 0.7
-    size_weight: 0.3
-  obstacle:
-    enabled: true
-    roi_x: [0.30, 0.70]
-    roi_y: [0.45, 1.00]
-    edge_threshold: 55.0
-    min_edge_fraction: 0.06
-    label: obstacle
-
-# ML path: Ollama vision models. They receive the same rectified images and
-# this physical measurement summary. Set VISION_MODELS in
+# Ollama vision models receive the same rectified images and this physical
+# measurement summary. Set VISION_MODELS in
 # scripts/full_system_eval.conf to compare several models; models are loaded
 # and unloaded one at a time.
 ml:

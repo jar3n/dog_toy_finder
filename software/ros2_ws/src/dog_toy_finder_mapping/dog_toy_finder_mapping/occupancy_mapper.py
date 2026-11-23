@@ -20,9 +20,9 @@ When both sensors agree, both the near (IR) and far (vision) obstacle regions
 are marked as "both". The toy location is estimated from each detector's
 ``target_visible``/``lateral_bearing_deg`` fields plus its ``distance_m``
 estimate: distance cos(bearing) gives the forward offset and distance
-sin(bearing) gives the lateral offset (positive left). Classical and ML answers
+sin(bearing) gives the lateral offset (positive left). Multiple model answers
 in one /vision/result message are fused by median bearing and median distance.
-When no detector has a usable distance, ``toy_forward_distance`` is used. Each
+When no model has a usable distance, ``toy_forward_distance`` is used. Each
 toy also marks a small occupied
 patch in the grid (value 60) so it is treated as occupied space, in addition to
 being published on /detected_toys.

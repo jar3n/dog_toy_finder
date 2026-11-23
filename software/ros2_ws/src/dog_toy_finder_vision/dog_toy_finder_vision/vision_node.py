@@ -1,15 +1,12 @@
-"""Vision node with two independent paths over the same rectified stereo pair.
+"""Vision node answering ``/vision/ask`` with Ollama vision models.
 
-Path 1 (classical) is deterministic: colour/edge segmentation, connected
-components, and rectified-stereo patch matching with a calibrated baseline. No
-learned model is involved.
-
-Path 2 (ML) sends the same rectified images to one or more Ollama vision models.
+The same rectified stereo pair is sent to one or more Ollama vision models.
 Models are loaded and unloaded one at a time, even when ``models`` lists
 several, so each model gets all of the Ollama host's VRAM.
 
-Both paths read ``vision_detectors.yaml`` for the camera intrinsics, baseline,
-valid depth range, and the toy's real-world measurements.
+The node reads ``vision_detectors.yaml`` for camera intrinsics, baseline, valid
+depth range, and the toy's real-world measurements; those numbers are included
+in the model prompt.
 
 Subscribes  /stereo/{left,right}/image_rect_color  sensor_msgs/Image
              /vision/ask                         std_msgs/String
@@ -18,7 +15,6 @@ Publishes   /vision/result                       std_msgs/String (JSON)
 Parameters
 ----------
 config_path      : str   detector YAML path (from full_system_eval.conf)
-classical_enabled: bool  run the deterministic detector
 ml_enabled       : bool  run the Ollama model(s)
 model            : str   fallback single model when `models` is empty
 models           : str   comma-separated list of Ollama vision models
@@ -40,8 +36,7 @@ from rclpy.time import Time
 from sensor_msgs.msg import Image
 from std_msgs.msg import String
 
-from . import classical_detector, ollama_vlm, vision_answer, vision_config
-from .vision_answer import tidy
+from . import ollama_vlm, vision_answer, vision_config
 
 RESULTS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "results", "images")
 FRESH_PHOTO_TIMEOUT = 5.0
@@ -50,7 +45,6 @@ class VisionNode(Node):
     def __init__(self):
         super().__init__("vision_node")
         self.declare_parameter("config_path", "")
-        self.declare_parameter("classical_enabled", True)
         self.declare_parameter("ml_enabled", True)
         self.declare_parameter("left_rect_topic", "")
         self.declare_parameter("right_rect_topic", "")
@@ -61,15 +55,11 @@ class VisionNode(Node):
 
         self.config = vision_config.load_config(
             self.get_parameter("config_path").value or None)
-        self.classical_enabled = (
-            bool(self.get_parameter("classical_enabled").value)
-            and bool(vision_config.get(self.config, "classical", "enabled",
-                                       default=True)))
         self.ml_enabled = (
             bool(self.get_parameter("ml_enabled").value)
             and bool(vision_config.get(self.config, "ml", "enabled", default=True)))
-        if not self.classical_enabled and not self.ml_enabled:
-            raise ValueError("Both vision paths are disabled; check the detector config")
+        if not self.ml_enabled:
+            raise ValueError("Vision ML path is disabled; check the detector config")
 
         left_topic = self.get_parameter("left_rect_topic").value or \
             vision_config.get(self.config, "camera", "left_rectified_topic")
@@ -101,9 +91,8 @@ class VisionNode(Node):
         threading.Thread(target=self.worker, daemon=True).start()
         os.makedirs(RESULTS, exist_ok=True)
         self.get_logger().info(
-            "Vision node ready: rectified stereo %s + %s, classical=%s, "
-            "ML models=%s at %s"
-            % (left_topic, right_topic, self.classical_enabled,
+            "Vision node ready: rectified stereo %s + %s, ML models=%s at %s"
+            % (left_topic, right_topic,
                self.models if self.ml_enabled else "disabled", self.chat_url))
 
     def on_left(self, msg):
@@ -173,16 +162,6 @@ class VisionNode(Node):
                     result["image"] = self.save(left_msg, request["id"])
 
                     entries = []
-                    if self.classical_enabled:
-                        start = time.time()
-                        detection = classical_detector.detect(
-                            classical_detector.message_to_rgb(left_msg),
-                            classical_detector.message_to_rgb(right_msg),
-                            request["target"], self.config)
-                        detection["model"] = "classical"
-                        detection["seconds"] = round(time.time() - start, 3)
-                        entries.append(tidy(detection, self.config))
-
                     if self.ml_enabled:
                         # Load and unload one model at a time. Ollama would
                         # otherwise keep several models resident, and the later
@@ -203,14 +182,14 @@ class VisionNode(Node):
                         for key in ("description", "target_visible", "position",
                                     "lateral_bearing_deg", "size", "distance_m",
                                     "obstacle_ahead", "path_clear", "seconds",
-                                    "method", "distance_source", "confidence"):
+                                    "method", "distance_source"):
                             if key in single:
                                 result[key] = single[key]
             except Exception as error:
                 result["error"] = f"Vision node error: {error}"
             self.result_pub.publish(String(data=json.dumps(result)))
             self.get_logger().info(
-                "[%s] %d detector/model answer(s) done"
+                "[%s] %d model answer(s) done"
                 % (request["target"] or "scene", len(result.get("results", []))))
 
     def save(self, msg, request_id):

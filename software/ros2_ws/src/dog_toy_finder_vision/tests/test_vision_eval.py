@@ -12,6 +12,7 @@ from PIL import Image
 SRC_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 sys.path.insert(0, SRC_ROOT)
 
+from dog_toy_finder_vision import vision_answer  # noqa: E402
 from dog_toy_finder_vision import vision_config  # noqa: E402
 from dog_toy_finder_vision import vision_eval  # noqa: E402
 try:  # installed ROS workspace vs. plain source checkout
@@ -72,25 +73,60 @@ class OfflineEvalTests(unittest.TestCase):
             os.path.join(self.temp.name, "captures")))
         self.assertEqual(found, [self.capture_dir])
 
-    def test_replay_classical_answer_uses_ground_truth(self):
+    def test_replay_model_answer_uses_ground_truth(self):
         self._write_synthetic_pair()
+        calls = []
+
+        def fake_ask(model, jpegs, target, prompt, chat_url, **kwargs):
+            calls.append((model, target, len(jpegs), bool(prompt)))
+            answer = vision_answer.tidy({
+                "description": "a red ball on the left",
+                "target_visible": True,
+                "position": "left",
+                "lateral_bearing_deg": vision_config.lateral_bearing_deg(
+                    90, self.config),
+                "size": "small",
+                "distance_m": 1.0,
+                "obstacle_ahead": "none",
+            }, self.config)
+            answer["model"] = model
+            answer["method"] = "ml"
+            answer["seconds"] = 0.1
+            return answer
+
+        original = vision_eval.ollama_vlm.ask_model
+        vision_eval.ollama_vlm.ask_model = fake_ask
+        self.addCleanup(setattr, vision_eval.ollama_vlm, "ask_model", original)
+
         result, meta = vision_eval.evaluate_capture(
-            self.capture_dir, self.config, [], True, "", False, 1.0,
-            include_ml=False)
+            self.capture_dir, self.config, ["fake-vlm"],
+            "http://localhost:11434/api/chat", False, 1.0)
         self.assertEqual(result["id"], "cap1")
+        self.assertEqual(result["models"], ["fake-vlm"])
         self.assertEqual(len(result["results"]), 1)
+        self.assertEqual(calls, [("fake-vlm", "red ball", 2, True)])
+
         entry = result["results"][0]
         self.assertTrue(entry["target_visible"])
         self.assertEqual(entry["position"], "left")
         self.assertGreater(entry["lateral_bearing_deg"], 0.0)
 
         row = llm_trials.vision_row(
-            result, entry, "classical", "run1",
+            result, entry, "fake-vlm", "run1",
             ground_truth=meta["ground_truth"], bearing_tolerance=5.0)
+        self.assertEqual(row["method"], "ml")
         self.assertEqual(row["gt_lateral_bearing_deg"],
                          meta["ground_truth"]["lateral_bearing_deg"])
         self.assertTrue(row["bearing_within_tolerance"])
         self.assertAlmostEqual(row["bearing_error_deg"], 0.0)
+
+    def test_replay_without_models_produces_no_entries(self):
+        self._write_synthetic_pair()
+        result, _ = vision_eval.evaluate_capture(
+            self.capture_dir, self.config, [],
+            "http://localhost:11434/api/chat", False, 1.0)
+        self.assertEqual(result["results"], [])
+        self.assertEqual(result["models"], [])
 
 
 if __name__ == "__main__":

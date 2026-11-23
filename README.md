@@ -93,8 +93,8 @@ and `vision_node` answers `/vision/ask` requests from the planner, the search
 harness, or ROSA. Vision answers report a numeric `lateral_bearing_deg`
 (positive = robot-left) rather than only a coarse side label. For model
 comparison, `vision_capture` saves rectified pairs with operator-measured ground
-truth and `vision_eval` replays them offline against the classical detector and
-configured Ollama models.
+truth and `vision_eval` replays them offline against the configured Ollama
+models.
 
 ## Running the full system
 

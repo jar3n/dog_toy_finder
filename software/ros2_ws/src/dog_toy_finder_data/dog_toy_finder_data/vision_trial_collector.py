@@ -1,9 +1,9 @@
-"""Record one row per vision detector/model for every /vision/ask comparison.
+"""Record one row per vision model answer for every /vision/ask comparison.
 
-The vision node runs a deterministic classical detector and asks every model in
-its ``models`` parameter about the same rectified stereo pair, publishing all
-answers in one ``/vision/result`` JSON. This collector turns that stream into
-an annotatable CSV with a ``method`` column (``classical`` or ``ml``):
+The vision node asks every model in its ``models`` parameter about the same
+rectified stereo pair, publishing all answers in one ``/vision/result`` JSON.
+This collector turns that stream into an annotatable CSV with a ``method``
+column (always ``ml``):
 
     <output_dir>/<run_id>/vision_trials.csv
     <output_dir>/<run_id>/manifest.json

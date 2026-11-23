@@ -1,9 +1,9 @@
 # LLM comparison guide (vision and planning)
 
-This guide walks through comparing the deterministic vision detector, several
-vision models, and several planning models. Vision comparison is **capture
-first**: save rectified left/right images with operator-entered ground truth,
-then replay every saved capture offline. Planning comparison still sends each
+This guide walks through comparing several vision models and several planning
+models. Vision comparison is **capture first**: save rectified left/right
+images with operator-entered ground truth, then replay every saved capture
+offline. Planning comparison still sends each
 prompt to every model live with ROSA. Both trial kinds share one CSV schema and
 one scoring tool (`dog_toy_finder_data.llm_trials`).
 
@@ -16,8 +16,8 @@ the offline evaluator.
 | Tool | Purpose |
 |---|---|
 | `vision_capture` | Saves one fresh rectified stereo pair with operator-entered depth and bearing. |
-| `vision_eval` | Replays every saved capture through the classical detector and Ollama models, then writes a scored CSV. |
-| `vision_trial_collector` | Optional live-path collector: subscribes to `/vision/ask` and `/vision/result`; one CSV row per detector/model per request. |
+| `vision_eval` | Replays every saved capture through the configured Ollama models, then writes a scored CSV. |
+| `vision_trial_collector` | Optional live-path collector: subscribes to `/vision/ask` and `/vision/result`; one CSV row per model per request. |
 | ROSA planning logging | `rosa_agent --compare --output-csv` writes one row per prompt and model. |
 | `llm_trials` CLI | `template`, `score`, `aggregate`, and `analyze` for either CSV kind. |
 
@@ -91,8 +91,8 @@ Edit
 `/workspace/software/ros2_ws/src/dog_toy_finder_vision/config/vision_detectors.yaml`
 (or point `VISION_DETECTOR_CONFIG` in `scripts/full_system_eval.conf` at your
 own copy). At minimum, set the calibrated `fx`, `fy`, `cx`, `cy`, `baseline_m`,
-and the measured `target.known_width_m`. Both detector paths use these values;
-the classical path needs them to turn disparity into metres.
+and the measured `target.known_width_m`. These values are included in the model
+prompt so the VLM can judge depth and bearing from the rectified pair.
 
 `lateral_bearing_deg` is measured from the camera's optical axis in degrees:
 
@@ -204,8 +204,7 @@ This writes:
 /workspace/data/vision/vision_eval_summary.json
 ```
 
-One row is written per capture and detector/model. The classical row is
-`model=classical`, `method=classical`; ML rows use the Ollama model name and
+One row is written per capture and model, using the Ollama model name and
 `method=ml`. Ground truth is copied from each `meta.json`, so no spreadsheet
 annotation is needed. When more than one model is listed, each model is unloaded
 after its answer (`--compare-models` forces this even for a single model), so
@@ -218,13 +217,9 @@ Useful options:
 ros2 run dog_toy_finder_vision vision_eval \
     --capture /workspace/data/vision/captures/capture_run1/ball_115m_left12
 
-# deterministic detector only (no Ollama server needed)
+# a subset of models with explicit output paths
 ros2 run dog_toy_finder_vision vision_eval --captures-dir "$VISION_CAPTURE_DIR" \
-    --no-ml
-
-# ML only, a subset of models, and explicit output paths
-ros2 run dog_toy_finder_vision vision_eval --captures-dir "$VISION_CAPTURE_DIR" \
-    --no-classical --models gemma4,minicpm-v4.5 \
+    --models gemma4,minicpm-v4.5 \
     --output-csv "$VISION_EVAL_CSV" --limit 10
 ```
 
@@ -268,7 +263,7 @@ EOF
 python3 /workspace/scripts/vision_test.py "red ball" --gt-json gt_vision.json
 ```
 
-Each ask appends one row per detector/model to
+Each ask appends one row per model to
 `$VISION_TRIAL_DIR/$VISION_TRIAL_RUN_ID/vision_trials.csv`. `distance_m` may be
 a single number or repeated measurements; scoring uses the mean. If ground
 truth is not supplied, fill these columns later:

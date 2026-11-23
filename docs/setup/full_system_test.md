@@ -104,8 +104,8 @@ back to tmux:
 ```
 
 All software parameters for the evaluation run (bringup geometry, health
-timeouts, camera URLs/intrinsics, the detector config path, classical/ML path
-switches, VLM models, map/toy settings, web-map port, manual drive speeds, and
+timeouts, camera URLs/intrinsics, the detector config path, VLM path switch,
+VLM models, map/toy settings, web-map port, manual drive speeds, and
 the ROSA environment) live in
 `scripts/full_system_eval.conf`. `launch_all.sh` sources that file and passes
 each value to its launch file. Edit the file for a run, pass a different file
@@ -409,8 +409,7 @@ ros2 run dog_toy_finder_vision vision_eval \
     --summary-json "$VISION_EVAL_SUMMARY_JSON"
 ```
 
-One row is written per capture and detector/model, with `method=classical` for
-the deterministic detector and `method=ml` for each Ollama model. Ground truth
+One row is written per capture and Ollama model, with `method=ml`. Ground truth
 is copied from `meta.json`, and scored columns are written immediately. With
 several models configured, each model is unloaded after its answer; use
 `--compare-models` to force that behaviour for a single model.
@@ -503,7 +502,7 @@ The map distinguishes where each obstacle came from:
 | blue | `70` | vision only |
 | orange | `85` | both IR and vision |
 | green cells | `60` | occupied by a detected toy |
-| bright green sphere | `/detected_toys` pose | vision toy detection (classical/ML fusion) |
+| bright green sphere | `/detected_toys` pose | vision toy detection (VLM answers fused by median) |
 | white floor | `0` | driven-through free space |
 
 Vision obstacles expire after `vision_timeout` (default 5 s), so blue/orange

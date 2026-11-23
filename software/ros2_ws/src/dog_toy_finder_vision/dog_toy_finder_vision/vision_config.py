@@ -1,8 +1,8 @@
 """Load and validate the shared rectified-stereo detector configuration.
 
-Both detector paths read the same YAML file. Keeping the physical measurements
-in one place means the classical depth calculation and the ML prompt agree on
-intrinsics, baseline, valid range, and the toy's real-world size.
+The live node, capture tool, and offline evaluator read the same YAML file, so
+the physical measurements in the VLM prompt match the calibrated intrinsics,
+baseline, valid depth range, and the toy's real-world size.
 
 The path is normally supplied by ``scripts/full_system_eval.conf`` as
 ``VISION_DETECTOR_CONFIG`` and forwarded through ``stereo_vision.launch.py``.
@@ -11,7 +11,6 @@ The path is normally supplied by ``scripts/full_system_eval.conf`` as
 import copy
 import math
 import os
-import re
 
 try:
     import yaml
@@ -41,19 +40,11 @@ DEFAULTS = {
         "right_rectified_topic": "/stereo/right/image_rect_color",
     },
     "target": {
-        "default_color": "red",
         "known_width_m": 0.075,
         "known_height_m": 0.075,
-        "apparent_width_small_fraction": 0.08,
-        "apparent_width_large_fraction": 0.25,
         "position_split_left": 0.333,
         "position_split_right": 0.667,
         "position_bearing_deg": 15.0,
-    },
-    "color_ranges": {},
-    "classical": {
-        "enabled": True,
-        "min_confidence": 0.30,
     },
     "ml": {
         "enabled": True,
@@ -157,37 +148,6 @@ def get(config, *keys, default=None):
             return default
         value = value[key]
     return value
-
-
-def target_color_names(config, target):
-    """Return configured colour names found in the target text.
-
-    ``"red ball"`` maps to ``["red"]``; a target with no recognised colour uses
-    ``target.default_color`` so the classical path still has a deterministic
-    segmentation rule.
-    """
-    text = " " + re.sub(r"[^a-z0-9]+", " ", str(target or "").lower()) + " "
-    ranges = config.get("color_ranges", {}) or {}
-    names = [name for name in ranges if re.search(
-        r"\b%s\b" % re.escape(str(name).lower()), text)]
-    if not names:
-        fallback = str(get(config, "target", "default_color", default="red"))
-        if fallback.lower() in ranges:
-            names = [fallback]
-    return names
-
-
-def color_ranges(config, target):
-    """Return all (lower, upper) HSV ranges for the target's colours."""
-    ranges = config.get("color_ranges", {}) or {}
-    result = []
-    for name in target_color_names(config, target):
-        for entry in ranges.get(name, []) or []:
-            lower = entry.get("lower")
-            upper = entry.get("upper")
-            if lower is not None and upper is not None:
-                result.append((list(lower), list(upper)))
-    return result
 
 
 def physical_summary(config):

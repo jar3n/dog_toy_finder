@@ -305,9 +305,7 @@ def vision_row(result, entry, model, run_id, distance_tolerance=0.25,
         "ask_id": ask_id,
         "target": result.get("target", ""),
         "model": entry.get("model") or model or "",
-        "method": entry.get("method") or (
-            "classical" if str(entry.get("model") or model).strip().lower()
-            == "classical" else "ml"),
+        "method": "ml",
         "image": result.get("image", ""),
     })
     row["trial_id"] = "%s-%s-%s" % (run_id, ask_id, row["model"])

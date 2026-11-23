@@ -13,19 +13,17 @@ This single entry point replaces the old ``stereo.launch.py`` and
      synchronised and frames arrive in bursts.
   3. ``stereo_image_proc`` -- disparity and point cloud from the rectified
      pair, using approximate sync.
-  4. ``vision_node`` -- answers ``/vision/ask`` with two paths over the same
-     rectified colour pair: a deterministic colour/edge/stereo detector and
-     one or more Ollama vision models.
+  4. ``vision_node`` -- answers ``/vision/ask`` with one or more Ollama vision
+     models over the same rectified colour pair.
 
 Every stage can be switched off independently (``stereo``, ``stereo_proc``,
-``vision``, ``classical``, ``ml``) so the same launch file serves depth-only
-debugging, detector comparison runs, and the full dog-toy-finder stack.
+``vision``, ``ml``) so the same launch file serves depth-only debugging, model
+comparison runs, and the full dog-toy-finder stack.
 
 Run inside the ROS 2 container:
     ros2 launch dog_toy_finder_vision stereo_vision.launch.py
     ros2 launch dog_toy_finder_vision stereo_vision.launch.py \\
         models:="gemma4,minicpm-v4.5"
-    ros2 launch dog_toy_finder_vision stereo_vision.launch.py classical:=false
     ros2 launch dog_toy_finder_vision stereo_vision.launch.py ml:=false
     ros2 launch dog_toy_finder_vision stereo_vision.launch.py vision:=false
 
@@ -59,7 +57,6 @@ def generate_launch_description():
     stereo_enabled = LaunchConfiguration("stereo")
     stereo_proc_enabled = LaunchConfiguration("stereo_proc")
     vision_enabled = LaunchConfiguration("vision")
-    classical_enabled = LaunchConfiguration("classical")
     ml_enabled = LaunchConfiguration("ml")
 
     stereo_camera = Node(
@@ -175,7 +172,6 @@ def generate_launch_description():
         condition=IfCondition(vision_enabled),
         parameters=[{
             "config_path": LaunchConfiguration("config_path"),
-            "classical_enabled": classical_enabled,
             "ml_enabled": ml_enabled,
             "model": LaunchConfiguration("model"),
             "models": LaunchConfiguration("models"),
@@ -211,8 +207,6 @@ def generate_launch_description():
                               description="Start disparity + point cloud (needs stereo:=true)"),
         DeclareLaunchArgument("vision", default_value="true",
                               description="Start the vision_node detector server"),
-        DeclareLaunchArgument("classical", default_value="true",
-                              description="Run the deterministic rectified-stereo detector"),
         DeclareLaunchArgument("ml", default_value="true",
                               description="Run the Ollama vision model(s)"),
         DeclareLaunchArgument("config_path",
