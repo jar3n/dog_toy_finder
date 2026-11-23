@@ -157,6 +157,7 @@ TRIALS_CMD="ros2 launch dog_toy_finder_data collect_llm_trials.launch.py"
 TRIALS_CMD="$TRIALS_CMD output_dir:=$VISION_TRIAL_DIR"
 TRIALS_CMD="$TRIALS_CMD run_id:=$VISION_TRIAL_RUN_ID"
 TRIALS_CMD="$TRIALS_CMD distance_tolerance:=$LLM_TRIAL_DISTANCE_TOLERANCE"
+TRIALS_CMD="$TRIALS_CMD bearing_tolerance:=$LLM_TRIAL_BEARING_TOLERANCE"
 
 MANUAL_CMD="ros2 run dog_toy_finder_motion manual_drive --ros-args"
 MANUAL_CMD="$MANUAL_CMD -p linear_speed:=${MANUAL_LINEAR_SPEED:-0.12}"

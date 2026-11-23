@@ -333,12 +333,10 @@ def detect_obstacle(edge, toy_features, config):
 
 
 def _position(center_x, config, image_width=None):
-    width = float(image_width or config["camera"]["width"])
-    if center_x < float(config["target"]["position_split_left"]) * width:
-        return "left"
-    if center_x < float(config["target"]["position_split_right"]) * width:
-        return "center"
-    return "right"
+    """Compatibility label derived from the numeric bearing."""
+    return vision_config.position_from_bearing(
+        vision_config.lateral_bearing_deg(center_x, config, image_width),
+        config, image_width)
 
 
 def _size(bbox_width, config, image_width=None):
@@ -374,6 +372,7 @@ def detect(rgb_left, rgb_right, target, config):
         "description": "Classical detector found no matching toy.",
         "target_visible": False,
         "position": "none",
+        "lateral_bearing_deg": 0.0,
         "size": "none",
         "distance_m": 0.0,
         "obstacle_ahead": "none",
@@ -435,6 +434,8 @@ def detect(rgb_left, rgb_right, target, config):
                 % (features["center_x"], features["center_y"],
                    features["width"], features["height"], confidence)),
             "target_visible": True,
+            "lateral_bearing_deg": vision_config.lateral_bearing_deg(
+                features["center_x"], config, image_width),
             "position": _position(features["center_x"], config, image_width),
             "size": _size(features["width"], config, image_width),
             "distance_m": round(depth["depth_m"], 3)

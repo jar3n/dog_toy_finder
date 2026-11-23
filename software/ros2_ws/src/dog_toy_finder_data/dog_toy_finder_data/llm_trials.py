@@ -39,12 +39,13 @@ KIND_PLANNING = "planning"
 VISION_FIELDS = [
     "trial_id", "kind", "run_id", "t", "ask_id", "target", "model", "method",
     "image",
-    "latency_s", "error", "description", "target_visible", "position", "size",
-    "distance_m", "obstacle_ahead", "path_clear",
-    "gt_target_visible", "gt_position", "gt_size", "gt_distance_m",
-    "gt_obstacle_ahead", "gt_notes",
+    "latency_s", "error", "description", "target_visible", "position",
+    "lateral_bearing_deg", "size", "distance_m", "obstacle_ahead", "path_clear",
+    "gt_target_visible", "gt_position", "gt_lateral_bearing_deg", "gt_size",
+    "gt_distance_m", "gt_obstacle_ahead", "gt_notes",
     "visible_correct", "position_correct", "size_correct", "distance_error_m",
-    "distance_within_tolerance", "obstacle_correct", "score",
+    "distance_within_tolerance", "bearing_error_deg", "bearing_within_tolerance",
+    "obstacle_correct", "score",
 ]
 
 PLANNING_FIELDS = [
@@ -58,7 +59,8 @@ VISION_GT_FIELDS = [f for f in VISION_FIELDS if f.startswith("gt_")]
 PLANNING_GT_FIELDS = [f for f in PLANNING_FIELDS if f.startswith("gt_")]
 VISION_METRIC_FIELDS = [
     "visible_correct", "position_correct", "size_correct", "distance_error_m",
-    "distance_within_tolerance", "obstacle_correct", "score",
+    "distance_within_tolerance", "bearing_error_deg", "bearing_within_tolerance",
+    "obstacle_correct", "score",
 ]
 PLANNING_METRIC_FIELDS = ["action_mentioned", "args_mentioned", "score"]
 
@@ -160,6 +162,9 @@ def merged_ground_truth(ground_truth):
         "target_visible": "gt_target_visible",
         "visible": "gt_target_visible",
         "position": "gt_position",
+        "lateral_bearing_deg": "gt_lateral_bearing_deg",
+        "bearing_deg": "gt_lateral_bearing_deg",
+        "lateral_bearing": "gt_lateral_bearing_deg",
         "size": "gt_size",
         "distance_m": "gt_distance_m",
         "distance": "gt_distance_m",
@@ -189,13 +194,14 @@ def apply_ground_truth(row, ground_truth):
     return row
 
 
-def vision_metrics(row, distance_tolerance=0.25):
+def vision_metrics(row, distance_tolerance=0.25, bearing_tolerance=5.0):
     """Compute vision correctness columns from a row's answers and ground truth.
 
     Returns blank metrics until ``gt_target_visible`` is filled. A blank
     metric means that check does not apply to this row (for example a distance
     when the target is not visible). When ``gt_distance_m`` contains multiple
     measurements, their mean is used as the ground-truth distance.
+    ``bearing_tolerance`` is in degrees for the numeric lateral bearing.
     """
     metrics = _blank(VISION_METRIC_FIELDS)
     gt_visible = _as_bool(row.get("gt_target_visible"))
@@ -235,6 +241,15 @@ def vision_metrics(row, distance_tolerance=0.25):
             metrics["distance_error_m"] = round(error, 3)
             metrics["distance_within_tolerance"] = error <= distance_tolerance
             checks.append(metrics["distance_within_tolerance"])
+
+    gt_bearing = _as_float(row.get("gt_lateral_bearing_deg"))
+    if gt_bearing is not None:
+        model_bearing = _as_float(row.get("lateral_bearing_deg"))
+        if model_bearing is not None:
+            error = abs(model_bearing - gt_bearing)
+            metrics["bearing_error_deg"] = round(error, 2)
+            metrics["bearing_within_tolerance"] = error <= bearing_tolerance
+            checks.append(metrics["bearing_within_tolerance"])
 
     obstacle_truth = _text(row.get("gt_obstacle_ahead")).strip(".")
     if obstacle_truth:
@@ -279,7 +294,7 @@ def planning_metrics(row):
 
 
 def vision_row(result, entry, model, run_id, distance_tolerance=0.25,
-               ground_truth=None):
+               ground_truth=None, bearing_tolerance=5.0):
     """Build one vision trial row from a /vision/result model entry."""
     row = _blank(VISION_FIELDS)
     ask_id = str(result.get("id", ""))
@@ -296,14 +311,15 @@ def vision_row(result, entry, model, run_id, distance_tolerance=0.25,
         "image": result.get("image", ""),
     })
     row["trial_id"] = "%s-%s-%s" % (run_id, ask_id, row["model"])
-    for key in ("description", "target_visible", "position", "size",
-                "distance_m", "obstacle_ahead", "path_clear", "error"):
+    for key in ("description", "target_visible", "position",
+                "lateral_bearing_deg", "size", "distance_m", "obstacle_ahead",
+                "path_clear", "error"):
         if key in entry:
             row[key] = entry[key]
     if "seconds" in entry:
         row["latency_s"] = entry["seconds"]
     apply_ground_truth(row, ground_truth)
-    row.update(vision_metrics(row, distance_tolerance))
+    row.update(vision_metrics(row, distance_tolerance, bearing_tolerance))
     return row
 
 
@@ -375,12 +391,12 @@ def kind_of(rows, fieldnames=None):
     return KIND_VISION
 
 
-def score_rows(rows, distance_tolerance=0.25):
+def score_rows(rows, distance_tolerance=0.25, bearing_tolerance=5.0):
     """Fill and return the metric columns for every row in place."""
     kind = kind_of(rows)
     for row in rows:
         if kind == KIND_VISION:
-            row.update(vision_metrics(row, distance_tolerance))
+            row.update(vision_metrics(row, distance_tolerance, bearing_tolerance))
         else:
             row.update(planning_metrics(row))
     return rows
@@ -404,10 +420,10 @@ def _rate(values):
         if checks else None
 
 
-def aggregate(rows, distance_tolerance=0.25):
+def aggregate(rows, distance_tolerance=0.25, bearing_tolerance=5.0):
     """Return per-model aggregate metrics as a list of dicts."""
     kind = kind_of(rows)
-    score_rows(rows, distance_tolerance)
+    score_rows(rows, distance_tolerance, bearing_tolerance)
     models = {}
     for row in rows:
         models.setdefault(row.get("model", ""), []).append(row)
@@ -429,6 +445,10 @@ def aggregate(rows, distance_tolerance=0.25):
                     [r.get("size_correct") for r in model_rows]),
                 "distance_mae_m": _mean(
                     [r.get("distance_error_m") for r in model_rows]),
+                "bearing_mae_deg": _mean(
+                    [r.get("bearing_error_deg") for r in model_rows]),
+                "bearing_within_rate": _rate(
+                    [r.get("bearing_within_tolerance") for r in model_rows]),
                 "obstacle_accuracy": _rate(
                     [r.get("obstacle_correct") for r in model_rows]),
                 "mean_score": _mean([r.get("score") for r in model_rows]),
@@ -498,6 +518,8 @@ def _parser():
                        help="output CSV (default: <name>_scored.csv)")
     score.add_argument("--tolerance", type=float, default=0.25,
                        help="distance tolerance in metres (default: 0.25)")
+    score.add_argument("--bearing-tolerance", type=float, default=5.0,
+                       help="lateral bearing tolerance in degrees (default: 5)")
     score.add_argument("--json", action="store_true",
                        help="print the per-model summary as JSON")
 
@@ -506,6 +528,8 @@ def _parser():
     aggregate_parser.add_argument("csv", help="trial CSV")
     aggregate_parser.add_argument("--tolerance", type=float, default=0.25,
                                   help="distance tolerance in metres")
+    aggregate_parser.add_argument("--bearing-tolerance", type=float, default=5.0,
+                                  help="lateral bearing tolerance in degrees")
     aggregate_parser.add_argument("--json", action="store_true",
                                   help="print the summary as JSON")
 
@@ -520,6 +544,8 @@ def _parser():
                           help="confidence level for intervals (default: 0.95)")
     analysis.add_argument("--tolerance", type=float, default=0.25,
                           help="distance tolerance in metres when scoring")
+    analysis.add_argument("--bearing-tolerance", type=float, default=5.0,
+                          help="lateral bearing tolerance in degrees when scoring")
     analysis.add_argument("--pair-field", default=None,
                           help="comma-separated fields matching rows across "
                                "models (default: ask_id for vision, prompt "
@@ -563,7 +589,8 @@ def main(argv=None):
             return 1
         analysis = trial_stats.analyze(
             rows, confidence=args.confidence, pair_field=args.pair_field,
-            distance_tolerance=args.tolerance)
+            distance_tolerance=args.tolerance,
+            bearing_tolerance=args.bearing_tolerance)
         output = args.output
         if output is None:
             stem, extension = os.path.splitext(args.csv)
@@ -585,8 +612,8 @@ def main(argv=None):
         print("No rows in %s" % args.csv)
         return 1
     kind = kind_of(rows, fields)
-    score_rows(rows, args.tolerance)
-    summaries = aggregate(rows, args.tolerance)
+    score_rows(rows, args.tolerance, args.bearing_tolerance)
+    summaries = aggregate(rows, args.tolerance, args.bearing_tolerance)
     if args.command == "score":
         output = args.output
         if output is None:

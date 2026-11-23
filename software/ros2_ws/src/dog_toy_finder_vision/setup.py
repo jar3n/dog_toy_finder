@@ -26,6 +26,8 @@ setup(
         "console_scripts": [
             "stereo_camera_node = dog_toy_finder_vision.stereo_camera_node:main",
             "vision_node = dog_toy_finder_vision.vision_node:main",
+            "vision_capture = dog_toy_finder_vision.vision_capture:main",
+            "vision_eval = dog_toy_finder_vision.vision_eval:main",
         ],
     },
 )

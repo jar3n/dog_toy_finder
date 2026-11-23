@@ -42,12 +42,21 @@ ESP32-CAM left/right --HTTP--> stereo_camera_node -> image_proc
                                     -> stereo_image_proc -> /stereo/disparity, /stereo/points2
                                     -> rectified colour pair -> vision_node
                                         (classical detector + Ollama models) -> /vision/result
-                                    -> occupancy_mapper -> /map, /detected_toys
-                                    -> map_webserver -> browser
+                                             |                         |
+                                             |                         +-> occupancy_mapper
+                                             |                             -> /map, /detected_toys
+                                             |                             -> map_webserver -> browser
+                                             +-> vision_capture -> saved L/R JPEGs + meta.json
+                                                                  -> vision_eval (offline)
+                                                                      -> vision_eval_trials.csv
 ```
 
 The vision node is request-driven: planners and ROSA publish a JSON request on
-`/vision/ask` and read the matching answer on `/vision/result`.
+`/vision/ask` and read the matching answer on `/vision/result`. All answers use
+a numeric `lateral_bearing_deg` (positive = robot-left). For fair model
+comparison, capture rectified pairs once with `vision_capture` and replay them
+offline with `vision_eval`; no live pose or Ollama server is needed at capture
+time.
 
 ## Quick start
 

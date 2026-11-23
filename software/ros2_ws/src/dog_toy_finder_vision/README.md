@@ -15,6 +15,13 @@ Both paths subscribe only to `/stereo/{left,right}/image_rect_color`. Raw images
 still exist for rectification and the point-cloud pipeline, but detector inputs
 are rectified.
 
+Model comparison is **capture-first**. `vision_capture` saves a rectified
+left/right pair with operator-measured ground truth, and `vision_eval` later
+replays those saved pairs through both detector paths. Lateral position is a
+numeric `lateral_bearing_deg` (degrees from the optical axis, positive =
+robot-left / ROS `+y`); the legacy `left`/`center`/`right` label is derived from
+it for compatibility.
+
 ## Topics
 
 ### Stereo pipeline
@@ -56,13 +63,21 @@ measured camera and toy values there:
 - `camera.depth_min_m`, `depth_max_m` — valid metric depth range
 - `camera.{left,right}_rectified_topic` — detector image inputs
 - `target.known_width_m`, `known_height_m` — real toy measurements
-- `target.position_split_left/right` — image thirds used for left/center/right
+- `target.position_split_left/right` — image thirds used to derive the
+  compatibility `left`/`center`/`right` label
+- `target.position_bearing_deg` — fallback bearing (default `15°`) only for old
+  answers that have a label but no numeric `lateral_bearing_deg`
 - `color_ranges` — HSV limits per colour word in the ask target
 - `classical.*` — area, shape, edge, disparity search, and depth fusion limits
 
 The camera values should match the `CAMERA_*` and `STEREO_BASELINE` values in
 `full_system_eval.conf`. The defaults are placeholders until you calibrate the
 cameras and measure the toy.
+
+The bearing convention is `atan((cx - u) / fx)` in degrees, where `u` is the
+target's horizontal pixel centre. Positive values mean the target is left of
+the optical axis; zero means centred. This same field is used by live control,
+mapping, and offline scoring.
 
 ## Classical path
 
@@ -93,6 +108,7 @@ answer fields as before:
   "description": "...",
   "target_visible": true,
   "position": "left | center | right | none",
+  "lateral_bearing_deg": 12.0,
   "size": "small | medium | large | none",
   "distance_m": 0.0,
   "obstacle_ahead": "..."
@@ -112,7 +128,8 @@ classical answer gets `method: "classical"` and model name `classical`.
 | `model` | Ollama model name or `classical` |
 | `method` | `classical` or `ml` |
 | `target_visible` | whether the requested target was found |
-| `position` | target in the image: `left`, `center`, `right`, or `none` |
+| `lateral_bearing_deg` | numeric bearing from the optical axis; positive = robot-left |
+| `position` | derived compatibility label: `left`, `center`, `right`, or `none` |
 | `size` | `small`, `medium`, `large`, or `none` |
 | `distance_m` | distance to the target in metres, `0` if unknown/not visible |
 | `obstacle_ahead` | object blocking the centre of the path, or `none` |
@@ -122,9 +139,54 @@ classical answer gets `method: "classical"` and model name `classical`.
 | `distance_source` | how the metric distance was derived |
 | `confidence` | detector confidence (classical path) |
 
-The mapping node consumes all entries and fuses visible toy positions and
-distances. The trial collector writes one CSV row per entry, including a
-`method` column so classical and ML results can be compared directly.
+The mapping node consumes all entries and fuses visible toys by median bearing
+and distance. The trial collector writes one CSV row per entry, including a
+`method` column so classical and ML results can be compared directly. For
+fair offline comparison, prefer `vision_capture` + `vision_eval` below: every
+model sees the exact same saved images.
+
+## Capture-first model comparison
+
+With the rectified stereo pipeline running, save a labelled pair. No Ollama
+model or `/vision/ask` is involved:
+
+```bash
+cd /workspace
+source scripts/full_system_eval.conf
+
+ros2 run dog_toy_finder_vision vision_capture \
+    --target "$VISION_CAPTURE_TARGET" \
+    --depth-m 1.15 --bearing-deg +12 \
+    --run-id "$VISION_CAPTURE_RUN_ID" \
+    --capture-id ball_115m_left12 \
+    --output-dir "$VISION_CAPTURE_DIR"
+```
+
+Each capture writes `left.jpg`, `right.jpg`, and `meta.json` under
+`<output_dir>/<run_id>/<capture_id>/`. `meta.json` holds the operator's ground
+truth, including `lateral_bearing_deg`; use `--not-visible` for an empty frame.
+`vision_capture` waits for a fresh matched rectified pair, so it works with the
+non-hardware-synchronised ESP32-CAMs.
+
+After capturing all scenes, replay them offline:
+
+```bash
+ros2 run dog_toy_finder_vision vision_eval \
+    --captures-dir "$VISION_CAPTURE_DIR" \
+    --models "$VISION_EVAL_MODELS" \
+    --tolerance "$VISION_EVAL_TOLERANCE" \
+    --bearing-tolerance "$VISION_EVAL_BEARING_TOLERANCE" \
+    --output-csv "$VISION_EVAL_CSV" \
+    --results-json "$VISION_EVAL_JSONL" \
+    --summary-json "$VISION_EVAL_SUMMARY_JSON"
+```
+
+`vision_eval` needs no ROS graph. It writes one scored row per capture and
+detector/model, plus a per-model summary. Multiple models are unloaded after
+each answer; use `--compare-models` to force that for one model. Useful flags
+include `--no-ml`, `--no-classical`, `--run-id`, `--capture`, and `--limit`.
+See [`docs/setup/llm_comparison_guide.md`](../../../../docs/setup/llm_comparison_guide.md)
+for the full experiment workflow.
 
 ## Run
 

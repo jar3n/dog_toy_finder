@@ -23,46 +23,71 @@ ros2 run dog_toy_finder_data dataset_summary /tmp/dog_toy_dataset/run1
 
 Vision and planning comparisons share one CSV schema and one scoring tool, so
 the classical detector, vision models, and a planner can be judged with the
-same fields. The collector stores automated data first (including a `method`
-column: `classical` or `ml`), then blank `gt_*` ground-truth fields, then the
-metrics computed by `score`.
+same fields. Rows contain automated answers first (including a `method` column:
+`classical` or `ml`), then `gt_*` ground-truth fields, then metrics computed by
+`score`.
 
 Trial data lives in the repository's `data/` folder, next to `hardware/` and
-`software/`: `data/vision/<run_id>/` and `data/planning/<run_id>/`. Inside the
-ROS 2 container the same paths are `/workspace/data/vision` and
-`/workspace/data/planning`.
+`software/`: `data/vision/captures/`, `data/vision/vision_eval_*` files, and
+`data/planning/<run_id>/`. Inside the ROS 2 container the same paths are under
+`/workspace/data`.
 
-### Vision trials
+### Vision trials (capture-first)
 
-Start the collector next to the vision node. The deterministic path contributes
-one `classical` row per ask. Set `VISION_MODELS` to a comma-separated list so
-every ML model answers the same rectified stereo pair. The vision node loads
-and unloads one model at a time, so each model gets all the available VRAM:
+`dog_toy_finder_vision` owns the capture and replay commands; this package owns
+the shared CSV schema, scoring, and statistics. Save one fresh rectified
+left/right pair per scene with operator-entered ground truth, then replay all
+captures offline:
+
+```bash
+cd /workspace
+source scripts/full_system_eval.conf
+
+ros2 run dog_toy_finder_vision vision_capture \
+    --target "$VISION_CAPTURE_TARGET" --depth-m 1.15 --bearing-deg +12 \
+    --run-id "$VISION_CAPTURE_RUN_ID" --capture-id ball_115m_left12 \
+    --output-dir "$VISION_CAPTURE_DIR"
+
+ros2 run dog_toy_finder_vision vision_eval \
+    --captures-dir "$VISION_CAPTURE_DIR" --models "$VISION_EVAL_MODELS" \
+    --tolerance "$VISION_EVAL_TOLERANCE" \
+    --bearing-tolerance "$VISION_EVAL_BEARING_TOLERANCE" \
+    --output-csv "$VISION_EVAL_CSV" --results-json "$VISION_EVAL_JSONL" \
+    --summary-json "$VISION_EVAL_SUMMARY_JSON"
+```
+
+Each capture stores `left.jpg`, `right.jpg`, and `meta.json` under
+`$VISION_CAPTURE_DIR/<run_id>/<capture_id>/`. The `gt_*` columns in
+`$VISION_EVAL_CSV` are copied from `meta.json`, including
+`gt_lateral_bearing_deg`; no spreadsheet annotation is required. Lateral
+bearing is in degrees from the optical axis, positive to the robot's left. The
+legacy `position` label is derived from it.
+
+`vision_eval` writes one row per capture and detector/model with the scored
+columns already filled. Multiple models are unloaded between answers; use
+`--compare-models` for a single model to get the same cold-load policy.
+
+A live `/vision/ask` path is still available for robot control and optional
+live trials:
 
 ```bash
 ros2 launch dog_toy_finder_vision stereo_vision.launch.py \
     models:="gemma4,minicpm-v4.5"
 ros2 launch dog_toy_finder_data collect_llm_trials.launch.py \
-    output_dir:=/workspace/data/vision run_id:=vision1
-```
-
-It writes `vision_trials.csv` (one row per ask and detector/model) and `manifest.json`
-under `/workspace/data/vision/vision1/`. Supply ground truth in the ask JSON
-and the `gt_*` columns are filled immediately:
-
-```bash
+    output_dir:=/workspace/data/vision run_id:=vision1 \
+    bearing_tolerance:=$LLM_TRIAL_BEARING_TOLERANCE
 python3 /workspace/scripts/vision_test.py "red ball" --gt-json gt.json
 ```
 
 ```json
-{"target_visible": true, "position": "left", "size": "medium",
- "distance_m": [0.7, 0.72], "obstacle_ahead": "none"}
+{"target_visible": true, "position": "left", "lateral_bearing_deg": 12.0,
+ "size": "medium", "distance_m": [0.7, 0.72], "obstacle_ahead": "none"}
 ```
 
-`distance_m` also accepts a single number. A list stores repeated measurements
-of the same target in the CSV; scoring uses their mean as the ground truth.
-
-Without ground truth, fill the `gt_*` columns in a spreadsheet after the run.
+`distance_m` also accepts a single number; a list stores repeated measurements
+of the same target and scoring uses their mean. Without ground truth, fill the
+`gt_*` columns in a spreadsheet after the run. Capture-first is preferred for
+fair model comparison because every model sees the same saved image.
 
 ### Planning trials
 
@@ -96,11 +121,11 @@ ros2 run dog_toy_finder_data llm_trials template --kind planning \
     --output /workspace/data/planning/plan1/planning_trials.csv
 ```
 
-Score after entering the ground truth:
+Score after entering the ground truth (offline `vision_eval` output is already
+scored, but re-scoring is safe after manual annotation):
 
 ```bash
-ros2 run dog_toy_finder_data llm_trials score \
-    /workspace/data/vision/vision1/vision_trials.csv
+ros2 run dog_toy_finder_data llm_trials score "$VISION_EVAL_CSV"
 ros2 run dog_toy_finder_data llm_trials score \
     /workspace/data/planning/plan1/planning_trials.csv --tolerance 0.3
 ros2 run dog_toy_finder_data llm_trials aggregate \
@@ -108,25 +133,28 @@ ros2 run dog_toy_finder_data llm_trials aggregate \
 ```
 
 `score` writes `<name>_scored.csv` and prints a per-model summary: latency,
-errors, ground-truthed row count, accuracy for each field, distance mean
-absolute error, and a mean score. `aggregate` prints the summary without
+errors, ground-truthed row count, accuracy for each field, distance/bearing
+mean absolute error, and a mean score. `aggregate` prints the summary without
 writing a file.
 
 After collection and annotation, run statistical analysis:
 
 ```bash
-ros2 run dog_toy_finder_data llm_trials analyze \
-    /workspace/data/vision/vision1/vision_trials.csv \
-    --csv-output /workspace/data/vision/vision1/vision_analysis.csv
+ros2 run dog_toy_finder_data llm_trials analyze "$VISION_EVAL_CSV" \
+    --tolerance "$VISION_EVAL_TOLERANCE" \
+    --bearing-tolerance "$VISION_EVAL_BEARING_TOLERANCE" \
+    --output "$VISION_EVAL_ANALYSIS_JSON"
 ```
 
 This writes `<name>_analysis.json` with per-model mean/median/std/confidence
-intervals and paired model comparisons on matched `ask_id` (vision) or `prompt`
-(planning) values. Comparisons include a paired t-test, Holm-adjusted p-value,
-effect size, and win/tie/loss counts. Use `--confidence 0.99` to change the
-interval level or `--pair-field run_id,scene` to override matching.
+intervals and paired model comparisons on matched `ask_id` (the capture ID for
+`vision_eval`) or `prompt` (planning) values. Comparisons include a paired
+t-test, Holm-adjusted p-value, effect size, and win/tie/loss counts. Use
+`--confidence 0.99` to change the interval level or `--pair-field run_id,scene`
+to override matching.
 
-Vision metrics: `visible_correct`, `position_correct`, `size_correct`,
+Vision metrics: `visible_correct`, `position_correct`, `lateral_bearing_deg`,
+`bearing_error_deg`, `bearing_within_tolerance`, `size_correct`,
 `distance_error_m`, `distance_within_tolerance`, `obstacle_correct`, `score`.
 Planning metrics: `action_mentioned`, `args_mentioned`, and `score` (from
 `gt_success` when recorded).

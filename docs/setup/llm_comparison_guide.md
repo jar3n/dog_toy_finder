@@ -1,39 +1,46 @@
 # LLM comparison guide (vision and planning)
 
 This guide walks through comparing the deterministic vision detector, several
-vision models, and several planning models with `dog_toy_finder_data`. Both
-trial kinds share one CSV schema and one scoring tool
-(`dog_toy_finder_data.llm_trials`), so the automated columns are recorded in the
-same format and ground truth can be filled in as it becomes available.
+vision models, and several planning models. Vision comparison is **capture
+first**: save rectified left/right images with operator-entered ground truth,
+then replay every saved capture offline. Planning comparison still sends each
+prompt to every model live with ROSA. Both trial kinds share one CSV schema and
+one scoring tool (`dog_toy_finder_data.llm_trials`).
 
-The vision node now runs two paths over the same **rectified** stereo pair:
-
-- `method=classical`, `model=classical` — deterministic colour/edge/stereo
-  detector;
-- `method=ml`, `model=<ollama name>` — one or more Ollama vision models.
-
-Every ask produces one CSV row per path/model, so the classical result can be
-scored alongside the ML models.
+Vision answers use a numeric `lateral_bearing_deg` as the primary lateral
+measurement: degrees from the optical axis, positive to the robot's left. The
+legacy `left`/`center`/`right` label is derived from that number and kept only
+for older consumers. The same convention is used by live control, mapping, and
+the offline evaluator.
 
 | Tool | Purpose |
 |---|---|
-| `vision_trial_collector` | Subscribes to `/vision/ask` and `/vision/result`; writes one CSV row per detector/model per request, including a `method` column. |
+| `vision_capture` | Saves one fresh rectified stereo pair with operator-entered depth and bearing. |
+| `vision_eval` | Replays every saved capture through the classical detector and Ollama models, then writes a scored CSV. |
+| `vision_trial_collector` | Optional live-path collector: subscribes to `/vision/ask` and `/vision/result`; one CSV row per detector/model per request. |
 | ROSA planning logging | `rosa_agent --compare --output-csv` writes one row per prompt and model. |
 | `llm_trials` CLI | `template`, `score`, `aggregate`, and `analyze` for either CSV kind. |
 
-The collector fills the automated columns. The `gt_*` ground-truth columns are
-either supplied up front, or filled later in a spreadsheet. `score` computes the
-metric columns.
+The capture/eval commands write the automated columns and copy the ground truth
+from each capture's `meta.json` into the `gt_*` columns. `score` fills the metric
+columns when a CSV is annotated later.
 
 ## Where trial data lives
 
-Trials are written under the repository's `data/` folder, next to `hardware/`
+Generated data lives under the repository's `data/` folder, next to `hardware/`
 and `software/`:
 
 ```text
 data/
-  vision/<run_id>/vision_trials.csv
-  vision/<run_id>/manifest.json
+  vision/
+    captures/<run_id>/<capture_id>/left.jpg
+    captures/<run_id>/<capture_id>/right.jpg
+    captures/<run_id>/<capture_id>/meta.json
+    vision_eval_trials.csv
+    vision_eval_results.jsonl
+    vision_eval_summary.json
+    vision_eval_analysis.json
+    <live_run_id>/vision_trials.csv            # optional live-path collector
   planning/<run_id>/planning_trials.csv
 ```
 
@@ -72,10 +79,13 @@ ros2 run dog_toy_finder_data llm_trials --help
 
 ## Part A - Vision model comparison
 
-Vision comparison does not require the Pico or the motion stack. It needs the
-stereo vision node, the ESP32-CAM feeds, Ollama, and the trial collector.
+Vision comparison does not require the Pico or the motion stack. The only live
+component is the rectified stereo pipeline: `vision_capture` waits for a fresh
+left/right pair and saves it with the operator's measurements. No detector or
+Ollama model runs at capture time. Later, `vision_eval` replays every saved pair
+offline with no camera topics and no ROS graph.
 
-### A1. Set the physical measurements
+### A1. Set the physical measurements and bearing convention
 
 Edit
 `/workspace/software/ros2_ws/src/dog_toy_finder_vision/config/vision_detectors.yaml`
@@ -84,128 +94,192 @@ own copy). At minimum, set the calibrated `fx`, `fy`, `cx`, `cy`, `baseline_m`,
 and the measured `target.known_width_m`. Both detector paths use these values;
 the classical path needs them to turn disparity into metres.
 
-### A2. Start the vision node with a model list
+`lateral_bearing_deg` is measured from the camera's optical axis in degrees:
+
+```text
+bearing = atan((cx - u) / fx)
+```
+
+where `u` is the target's horizontal pixel centre. Positive means the toy is to
+the robot's **left** (image column less than `cx`, ROS `+y`), negative means
+right, and zero means centred. `target.position_bearing_deg` (default `15°`) is
+only a fallback for older results that contain a legacy `left`/`center`/`right`
+label but no numeric bearing.
+
+### A2. Start the rectified stereo pipeline
 
 ```bash
 ros2 launch dog_toy_finder_vision stereo_vision.launch.py \
     left_url:=http://esp32cam-left.local/capture \
     right_url:=http://esp32cam-right.local/capture \
     config_path:=/workspace/software/ros2_ws/src/dog_toy_finder_vision/config/vision_detectors.yaml \
-    models:="gemma4:latest,minicpm-v4.5:latest,qwen3.5:4b"
+    vision:=false
 ```
 
-The classical detector always contributes one answer unless `classical:=false`.
-Every model in `models` answers the same rectified stereo pair, and the node
-publishes all answers together in one `/vision/result` message. The node loads
-one model at a time and unloads it before starting the next, so each model gets
-all of the Ollama host's VRAM rather than sharing it with the others.
+`vision:=false` leaves `/stereo/{left,right}/image_rect_color` publishing but
+does not start the live detector node, so no VLM is loaded during capture. It is
+also fine to capture while the full stack is running; `vision_capture` never
+publishes a `/vision/ask`.
 
-### A3. Start the trial collector
-
-In a second terminal, same container and sourced workspace:
+### A3. Capture a labelled stereo pair
 
 ```bash
-ros2 launch dog_toy_finder_data collect_llm_trials.launch.py \
-    output_dir:=/workspace/data/vision \
-    run_id:=vision1 \
-    distance_tolerance:=0.25
+cd /workspace
+source scripts/full_system_eval.conf
+
+ros2 run dog_toy_finder_vision vision_capture \
+    --target "$VISION_CAPTURE_TARGET" \
+    --depth-m 1.15 \
+    --bearing-deg +12 \
+    --size medium \
+    --run-id "$VISION_CAPTURE_RUN_ID" \
+    --capture-id ball_115m_left12 \
+    --output-dir "$VISION_CAPTURE_DIR" \
+    --timeout "$VISION_CAPTURE_TIMEOUT"
+```
+
+Measure `depth-m` with a tape measure from the cameras and `bearing-deg` from
+the optical axis using the sign convention above. In an interactive terminal,
+`--depth-m` and `--bearing-deg` may be omitted and are prompted for; without a
+TTY they are required. For a frame where the target is absent, use `--not-visible`
+instead (depth and bearing are stored as `0`).
+
+Each invocation writes:
+
+```text
+$VISION_CAPTURE_DIR/<run_id>/<capture_id>/left.jpg
+$VISION_CAPTURE_DIR/<run_id>/<capture_id>/right.jpg
+$VISION_CAPTURE_DIR/<run_id>/<capture_id>/meta.json
+```
+
+`meta.json` records the target, the camera intrinsics, the image topics and
+timestamps, and the operator's ground truth:
+
+```json
+{
+  "target": "red ball",
+  "ground_truth": {
+    "target_visible": true,
+    "position": "left",
+    "lateral_bearing_deg": 12.0,
+    "distance_m": 1.15,
+    "size": "medium",
+    "obstacle_ahead": "none",
+    "notes": ""
+  }
+}
+```
+
+`position` is derived from `lateral_bearing_deg` for compatibility; the bearing
+is the value operators enter and evaluators score.
+
+### A4. Repeat across scene cases
+
+Move the toy or change the scene and capture again with a new `--capture-id`.
+Keep one `--run-id` for the experiment. A useful comparison covers:
+
+- toy visible / not visible (`--not-visible`)
+- left / centre / right (negative, zero, positive bearing)
+- near / medium / far depth
+- clear path / obstacle present (`--obstacle`)
+- more than one toy kind (`--target`)
+
+Use `--notes` for anything the numeric fields do not capture.
+
+### A5. Replay every capture offline
+
+```bash
+ros2 run dog_toy_finder_vision vision_eval \
+    --captures-dir "$VISION_CAPTURE_DIR" \
+    --models "$VISION_EVAL_MODELS" \
+    --tolerance "$VISION_EVAL_TOLERANCE" \
+    --bearing-tolerance "$VISION_EVAL_BEARING_TOLERANCE"
 ```
 
 This writes:
 
 ```text
-/workspace/data/vision/vision1/vision_trials.csv
-/workspace/data/vision/vision1/manifest.json
+/workspace/data/vision/vision_eval_trials.csv
+/workspace/data/vision/vision_eval_results.jsonl
+/workspace/data/vision/vision_eval_summary.json
 ```
 
-The manifest records the run ID, model list, detector method list, row count,
-and tolerance. The CSV has a `method` column (`classical` or `ml`) next to
-`model` so the two paths can be scored separately.
+One row is written per capture and detector/model. The classical row is
+`model=classical`, `method=classical`; ML rows use the Ollama model name and
+`method=ml`. Ground truth is copied from each `meta.json`, so no spreadsheet
+annotation is needed. When more than one model is listed, each model is unloaded
+after its answer (`--compare-models` forces this even for a single model), so
+every model runs without another model holding VRAM.
 
-### A4. Collect trials with ground truth
-
-Put the toy in a known position, then issue an ask with a ground-truth JSON
-file. Create `gt_vision.json`:
-
-```json
-{
-  "target_visible": true,
-  "position": "left",
-  "size": "medium",
-  "distance_m": [0.7, 0.72, 0.69],
-  "obstacle_ahead": "none",
-  "notes": "toy about 0.7 m ahead, left of centre"
-}
-```
-
-`distance_m` accepts a single number or a list of repeated measurements. The
-list is stored as JSON in the `gt_distance_m` CSV column, and scoring uses the
-mean as the ground-truth distance.
-
-Ask the vision node:
+Useful options:
 
 ```bash
+# one run or one capture only
+ros2 run dog_toy_finder_vision vision_eval \
+    --capture /workspace/data/vision/captures/capture_run1/ball_115m_left12
+
+# deterministic detector only (no Ollama server needed)
+ros2 run dog_toy_finder_vision vision_eval --captures-dir "$VISION_CAPTURE_DIR" \
+    --no-ml
+
+# ML only, a subset of models, and explicit output paths
+ros2 run dog_toy_finder_vision vision_eval --captures-dir "$VISION_CAPTURE_DIR" \
+    --no-classical --models gemma4,minicpm-v4.5 \
+    --output-csv "$VISION_EVAL_CSV" --limit 10
+```
+
+### A6. Score and analyse the replay
+
+`vision_eval` already writes scored columns and a per-model summary. For a
+machine-readable summary or paired statistics:
+
+```bash
+ros2 run dog_toy_finder_data llm_trials aggregate "$VISION_EVAL_CSV" --json
+
+ros2 run dog_toy_finder_data llm_trials analyze "$VISION_EVAL_CSV" \
+    --tolerance "$VISION_EVAL_TOLERANCE" \
+    --bearing-tolerance "$VISION_EVAL_BEARING_TOLERANCE" \
+    --confidence "$LLM_TRIAL_CONFIDENCE" \
+    --output "$VISION_EVAL_ANALYSIS_JSON"
+```
+
+Vision rows are paired by `run_id` + `ask_id`; for offline captures, `ask_id` is
+the capture ID, so each model's answer on the same saved pair is compared.
+
+### A7. Optional: live `/vision/ask` trials
+
+The live path remains available for robot control and for collecting trials
+without saving captures. It uses the same bearing field and answer schema:
+
+```bash
+ros2 launch dog_toy_finder_vision stereo_vision.launch.py \
+    models:="$VISION_MODELS"
+ros2 launch dog_toy_finder_data collect_llm_trials.launch.py \
+    output_dir:="$VISION_TRIAL_DIR" run_id:="$VISION_TRIAL_RUN_ID" \
+    distance_tolerance:="$LLM_TRIAL_DISTANCE_TOLERANCE" \
+    bearing_tolerance:="$LLM_TRIAL_BEARING_TOLERANCE"
+
+cat > gt_vision.json <<'EOF'
+{"target_visible": true, "position": "left", "lateral_bearing_deg": 12.0,
+ "size": "medium", "distance_m": [1.10, 1.15, 1.12],
+ "obstacle_ahead": "none"}
+EOF
+
 python3 /workspace/scripts/vision_test.py "red ball" --gt-json gt_vision.json
 ```
 
-Each invocation appends one row per detector/model (classical plus every Ollama
-model) to `vision_trials.csv`, with the `gt_*` columns already filled.
-
-Repeat this for each scene you want to evaluate. Move the toy, update
-`gt_vision.json`, and ask again. A useful comparison has several asks per model,
-ideally covering:
-
-- toy visible / not visible
-- left / centre / right
-- near / medium / far
-- clear path / obstacle present
-- more than one toy kind
-
-The collector keeps appending to the same CSV for the same `run_id`.
-
-### A5. Fill ground truth manually (optional)
-
-If you did not pass `--gt-json`, open `vision_trials.csv` in a spreadsheet and
-fill:
+Each ask appends one row per detector/model to
+`$VISION_TRIAL_DIR/$VISION_TRIAL_RUN_ID/vision_trials.csv`. `distance_m` may be
+a single number or repeated measurements; scoring uses the mean. If ground
+truth is not supplied, fill these columns later:
 
 ```text
-gt_target_visible, gt_position, gt_size, gt_distance_m,
-gt_obstacle_ahead, gt_notes
+gt_target_visible, gt_position, gt_lateral_bearing_deg, gt_size,
+gt_distance_m, gt_obstacle_ahead, gt_notes
 ```
 
-Leave a field blank when it does not apply. Blank ground truth means that row is
-skipped for that metric. For `gt_distance_m`, enter a single number, a JSON list
-such as `[0.7, 0.72]`, or comma-separated measurements such as `0.7, 0.72`.
-
-### A6. Score the vision trials
-
-```bash
-ros2 run dog_toy_finder_data llm_trials score \
-    /workspace/data/vision/vision1/vision_trials.csv \
-    --tolerance 0.25
-```
-
-This writes `vision_trials_scored.csv` and prints, per model:
-
-- `mean_latency_s`
-- `errors`
-- `gt_rows`
-- `visible_accuracy`
-- `position_accuracy`
-- `size_accuracy`
-- `distance_mae_m`
-- `obstacle_accuracy`
-- `mean_score`
-
-`mean_latency_s` includes each model's cold-load time, because the node unloads
-a model after its answer before starting the next one.
-
-For machine-readable output use `aggregate`:
-
-```bash
-ros2 run dog_toy_finder_data llm_trials aggregate \
-    /workspace/data/vision/vision1/vision_trials.csv --json
-```
+Capture-first is preferred for fair model comparisons: the same saved image is
+replayed for every model, and capture and evaluation are fully decoupled.
 
 ## Part B - Planning model comparison
 
@@ -357,15 +431,18 @@ ros2 run dog_toy_finder_data llm_trials aggregate \
 
 `analyze` scores the CSV in memory, then reports descriptive statistics for
 every model and paired comparisons between models on matched trials. Vision
-rows are matched by `run_id` + `ask_id`; planning rows are matched by
-`run_id` + `prompt`.
+rows are matched by `run_id` + `ask_id` (the capture ID for `vision_eval`);
+planning rows are matched by `run_id` + `prompt`.
 
 ```bash
-# Vision
-ros2 run dog_toy_finder_data llm_trials analyze \
-    /workspace/data/vision/vision1/vision_trials.csv \
-    --output /workspace/data/vision/vision1/vision_analysis.json \
-    --csv-output /workspace/data/vision/vision1/vision_analysis.csv
+# Vision replay (capture-first)
+source /workspace/scripts/full_system_eval.conf
+ros2 run dog_toy_finder_data llm_trials analyze "$VISION_EVAL_CSV" \
+    --tolerance "$VISION_EVAL_TOLERANCE" \
+    --bearing-tolerance "$VISION_EVAL_BEARING_TOLERANCE" \
+    --confidence "$LLM_TRIAL_CONFIDENCE" \
+    --output "$VISION_EVAL_ANALYSIS_JSON" \
+    --csv-output /workspace/data/vision/vision_eval_analysis.csv
 
 # Planning
 ros2 run dog_toy_finder_data llm_trials analyze \
@@ -384,7 +461,7 @@ Useful options:
 
 ```bash
 # 99% confidence intervals, and a different matching field
-ros2 run dog_toy_finder_data llm_trials analyze vision_trials.csv \
+ros2 run dog_toy_finder_data llm_trials analyze "$VISION_EVAL_CSV" \
     --confidence 0.99 --pair-field run_id,scene --json
 ```
 
@@ -415,8 +492,9 @@ ros2 run dog_toy_finder_data llm_trials template \
     --output /workspace/data/planning/plan1/planning_trials.csv
 ```
 
-Fill in the answer and ground-truth columns, then run `llm_trials score` exactly
-as above.
+Fill in the answer and ground-truth columns (including
+`gt_lateral_bearing_deg` for vision), then run `llm_trials score` exactly as
+above.
 
 ## Part E - How to read the results
 
@@ -425,16 +503,20 @@ as above.
 | Column | Meaning |
 |---|---|
 | `visible_correct` | Model's visible/not-visible answer matches ground truth. |
-| `position_correct` | left/centre/right matches. |
+| `position_correct` | Derived left/centre/right label matches (compatibility view of the bearing). |
+| `lateral_bearing_deg` | Model's numeric bearing in degrees, positive to the robot's left. |
+| `bearing_error_deg` | Absolute bearing error in degrees against the operator's measurement. |
+| `bearing_within_tolerance` | Error is within `--bearing-tolerance` (default `5°`). |
 | `size_correct` | size matches. |
 | `distance_error_m` | Absolute error in metres, against the mean when several ground-truth measurements are recorded. |
 | `distance_within_tolerance` | Error is within `--tolerance`. |
 | `obstacle_correct` | Obstacle description matches. |
 | `score` | Mean of the checks that apply to that row. |
 
-Rows where the toy is not visible only score visibility and obstacle checks.
-Blank ground-truth fields are ignored, so partial annotation still produces
-useful results.
+The per-model summary also reports `bearing_mae_deg` and
+`bearing_within_rate`. Rows where the toy is not visible only score visibility
+and obstacle checks. Blank ground-truth fields are ignored, so partial
+annotation still produces useful results.
 
 ### Planning metrics
 
@@ -452,13 +534,14 @@ authoritative outcome.
 
 1. Keep the model list identical across a comparison run.
 2. Use one `run_id` per experiment and a new run ID when the setup changes.
-3. For vision, always ask every model about the same photo; use the same toy
-   placement for the whole model list.
+3. For vision, save each scene once with `vision_capture` and replay that same
+   capture for every model; measure depth and bearing before running
+   `vision_eval`, and do not use a detector under test to create ground truth.
 4. For planning, use the same prompt, same starting pose, and same vision state
    for every model.
 5. Record the operator verdict in `gt_success` whenever a move actually
    executes.
-6. Keep both the raw CSV and the `*_scored.csv`; the raw file preserves what the
-   model actually said.
+6. Keep the captures, the raw CSV, and the `*_scored.csv`; the raw files
+   preserve what the robot saw and what each model actually said.
 7. Run `llm_trials analyze` on the completed CSV and keep the `*_analysis.json`
    report beside the trial data.

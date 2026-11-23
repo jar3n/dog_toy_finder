@@ -37,6 +37,7 @@ from rclpy.qos import qos_profile_sensor_data
 from rclpy.signals import SignalHandlerOptions
 from std_msgs.msg import String
 
+from dog_toy_finder_data import toy_geometry
 from dog_toy_finder_motion.mover import Mover
 from dog_toy_finder_planning.path_planner import expanding_square_waypoints
 
@@ -193,23 +194,21 @@ class AutonomousSearch(Mover):
     def _record_toy(self, result):
         """Estimate one found toy in the odom frame; True when it is new.
 
-        Uses the same placement as the occupancy mapper: the VLM distance (or
-        the forward fallback) ahead, offset sideways for left/right. Estimates
-        within toy_merge_radius of an already-recorded toy are the same toy.
+        Uses the same placement as the occupancy mapper: the reported distance
+        (or the forward fallback) and the numeric lateral bearing give the
+        forward and left offsets. Estimates within toy_merge_radius of an
+        already-recorded toy are the same toy.
         """
         entry = self._entry(result)
-        position = str(entry.get("position", "center")).strip().lower()
-        sides = {"left": 1.0, "center": 0.0, "right": -1.0}
-        if position not in sides:
+        if not isinstance(entry, dict) or not entry.get("target_visible"):
             return False
+        bearing = toy_geometry.bearing_deg(entry)
         x, y, yaw = self.current_pose()
         ahead = self._distance(entry)
         if ahead is None:
             ahead = self.toy_forward
-        side = sides[position] * self.toy_side
-        # ROS convention: +x forward, +y left, yaw counter-clockwise.
-        tx = x + ahead * math.cos(yaw) - side * math.sin(yaw)
-        ty = y + ahead * math.sin(yaw) + side * math.cos(yaw)
+        placement = toy_geometry.place(x, y, yaw, ahead, bearing)
+        tx, ty = placement["x"], placement["y"]
         for ox, oy, _label in self.toys:
             if (ox - tx) ** 2 + (oy - ty) ** 2 <= self.toy_merge ** 2:
                 return False
@@ -219,7 +218,9 @@ class AutonomousSearch(Mover):
             self.toys = self.toys[-self.toy_max_count:]
         self.get_logger().info(
             f"Toy #{len(self.toys)} ({label}) found at ({tx:.2f}, {ty:.2f})"
-            f" in odom [{ahead:.2f} m ahead, {side:+.2f} m lateral]")
+            f" in odom [bearing {bearing:+.1f} deg,"
+            f" {placement['ahead_m']:.2f} m ahead,"
+            f" {placement['side_m']:+.2f} m lateral]")
         return True
 
     def _note_found(self, result):
@@ -253,13 +254,16 @@ class AutonomousSearch(Mover):
         obstacle = "none"
         path_clear = True
         vision_seconds = None
+        bearing = 0.0
         if result is not None:
-            target_visible = bool(result.get("target_visible", False))
-            position = result.get("position", "none")
-            size = result.get("size", "none")
-            obstacle = result.get("obstacle_ahead", "none")
-            path_clear = bool(result.get("path_clear", True))
-            vision_seconds = result.get("seconds")
+            entry = self._entry(result)
+            target_visible = bool(entry.get("target_visible", False))
+            position = entry.get("position", "none")
+            bearing = toy_geometry.bearing_deg(entry) if target_visible else 0.0
+            size = entry.get("size", "none")
+            obstacle = entry.get("obstacle_ahead", "none")
+            path_clear = bool(entry.get("path_clear", True))
+            vision_seconds = entry.get("seconds", result.get("seconds"))
         self.rows.append({
             "run_id": self.run_id,
             "step": self.step,
@@ -270,6 +274,7 @@ class AutonomousSearch(Mover):
             "target": self.target,
             "target_visible": target_visible,
             "position": position,
+            "lateral_bearing_deg": round(bearing, 2),
             "size": size,
             "obstacle_ahead": obstacle,
             "path_clear": path_clear,
@@ -279,19 +284,16 @@ class AutonomousSearch(Mover):
         })
         self.get_logger().info(
             f"step {self.step} [{action}]: found={found_now} visible={target_visible} "
-            f"pos={position} size={size} obstacle={obstacle}")
+            f"pos={position} bearing={bearing:+.1f} size={size} obstacle={obstacle}")
 
     def home_on_target(self, result, t0):
         """Turn toward a visible target and drive a short step."""
         if not result or not self._entry(result).get("target_visible"):
             return False
         entry = self._entry(result)
-        pos = entry.get("position", "center")
-        turn_angle = 0.0
-        if pos == "left":
-            turn_angle = math.radians(15)
-        elif pos == "right":
-            turn_angle = math.radians(-15)
+        # The numeric bearing is the actual angle to the toy; the legacy label
+        # is only used as a fallback by toy_geometry.bearing_deg().
+        turn_angle = toy_geometry.home_turn_rad(entry)
         if turn_angle != 0.0:
             self.turn(turn_angle)
         # Drive a short step toward the target. Shrink the step as the VLM
@@ -382,8 +384,9 @@ class AutonomousSearch(Mover):
     def _write_csv(self):
         os.makedirs(os.path.dirname(os.path.abspath(self.output_csv)), exist_ok=True)
         fieldnames = ["run_id", "step", "t_sec", "x", "y", "theta_deg", "target",
-                      "target_visible", "position", "size", "obstacle_ahead",
-                      "path_clear", "vision_seconds", "found", "action"]
+                      "target_visible", "position", "lateral_bearing_deg",
+                      "size", "obstacle_ahead", "path_clear", "vision_seconds",
+                      "found", "action"]
         with open(self.output_csv, "w", newline="") as f:
             writer = csv.DictWriter(f, fieldnames=fieldnames)
             writer.writeheader()

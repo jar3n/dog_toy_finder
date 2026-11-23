@@ -7,7 +7,7 @@ import unittest
 import numpy as np
 
 sys.path.insert(
-    0, os.path.join(os.path.dirname(__file__), "..", "dog_toy_finder_vision"))
+    0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from dog_toy_finder_vision import classical_detector as detector  # noqa: E402
 from dog_toy_finder_vision import vision_config  # noqa: E402
@@ -80,6 +80,8 @@ class DetectorTests(unittest.TestCase):
         self.assertTrue(result["target_visible"])
         self.assertEqual(result["method"], "classical")
         self.assertEqual(result["position"], "left")
+        self.assertGreater(result["lateral_bearing_deg"], 0.0)
+        self.assertLess(result["lateral_bearing_deg"], 30.0)
         self.assertIn(result["size"], ("small", "medium", "large"))
         self.assertAlmostEqual(result["distance_m"], 1.0, delta=0.25)
         self.assertEqual(result["distance_source"], "fused_stereo_size")
@@ -87,6 +89,14 @@ class DetectorTests(unittest.TestCase):
         self.assertEqual(len(result["bbox_px"]), 4)
         self.assertEqual(result["obstacle_ahead"], "none")
         self.assertTrue(result["path_clear"])
+
+    def test_right_side_toy_has_negative_bearing(self):
+        config = vision_config.load_config()
+        left, right = self._synthetic_pair(config, center_x=230, disparity=20)
+        result = detector.detect(left, right, "red ball", config)
+        self.assertTrue(result["target_visible"])
+        self.assertEqual(result["position"], "right")
+        self.assertLess(result["lateral_bearing_deg"], 0.0)
 
     def test_no_toy_returns_not_visible(self):
         config = vision_config.load_config()

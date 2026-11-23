@@ -9,11 +9,11 @@ Colcon workspace for the computer-side ROS 2 packages.
 | `dog_toy_finder_bringup` | `ament_cmake` | launch files, EKF config, robot geometry, `cmd_vel_mux` start |
 | `dog_toy_finder_odometry` | `ament_python` | `/joint_states` -> `/wheel/odom` |
 | `dog_toy_finder_motion` | `ament_python` | closed-loop moves, `cmd_vel_mux`, manual keyboard drive, `mover_test` |
-| `dog_toy_finder_vision` | `ament_python` | stereo capture, rectification, disparity/point cloud, VLM |
+| `dog_toy_finder_vision` | `ament_python` | stereo rectification, live VLM node, capture-first `vision_capture`/`vision_eval` |
 | `dog_toy_finder_mapping` | `ament_python` | occupancy map, toy markers, browser map server |
 | `dog_toy_finder_planning` | `ament_python` | autonomous search planner and path utilities |
 | `dog_toy_finder_diagnostics` | `ament_python` | sensor and camera heartbeat monitor |
-| `dog_toy_finder_data` | `ament_python` | dataset collection, LLM trials, summary |
+| `dog_toy_finder_data` | `ament_python` | dataset collection, shared LLM trial schema/scoring, summary |
 | `dog_toy_finder_experiments` | `ament_python` | scripted search harness and run evaluation |
 
 ## Build

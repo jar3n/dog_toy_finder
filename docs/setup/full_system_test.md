@@ -150,7 +150,9 @@ source install/setup.bash
 # Terminal A: robot stack (odometry + EKF)
 ros2 launch dog_toy_finder_bringup robot.launch.py
 
-# Terminal B: stereo vision + both detectors (rectified pair, /vision/ask)
+# Terminal B: stereo vision + live detectors (rectified pair, /vision/ask)
+# For capture-only model comparison, add vision:=false; vision_capture needs
+# only /stereo/{left,right}/image_rect_color and waits for a fresh pair.
 ros2 launch dog_toy_finder_vision stereo_vision.launch.py \
     left_url:=http://esp32cam-left.local/capture \
     right_url:=http://esp32cam-right.local/capture \
@@ -297,7 +299,7 @@ ros2 launch dog_toy_finder_planning autonomous_search.launch.py \
     side_increment:=$AUTO_SIDE_INCREMENT loops:=$AUTO_LOOPS \
     max_time:=$AUTO_MAX_TIME output_csv:=$AUTO_OUTPUT_CSV \
     run_id:=$AUTO_RUN_ID found_distance:=$AUTO_FOUND_DISTANCE \
-    find_all:=$AUTO_FIND_ALL toy_side_offset:=$AUTO_TOY_SIDE_OFFSET \
+    find_all:=$AUTO_FIND_ALL \
     toy_forward_distance:=$AUTO_TOY_FORWARD_DISTANCE \
     toy_merge_radius:=$AUTO_TOY_MERGE_RADIUS \
     escape_distance:=$AUTO_ESCAPE_DISTANCE
@@ -311,7 +313,7 @@ ros2 launch dog_toy_finder_experiments toy_search.launch.py \
     side_increment:=$TOY_SIDE_INCREMENT loops:=$TOY_LOOPS \
     max_time:=$TOY_MAX_TIME output_csv:=$TOY_OUTPUT_CSV \
     run_id:=$TOY_RUN_ID found_distance:=$TOY_FOUND_DISTANCE \
-    find_all:=$TOY_FIND_ALL toy_side_offset:=$TOY_TOY_SIDE_OFFSET \
+    find_all:=$TOY_FIND_ALL \
     toy_forward_distance:=$TOY_TOY_FORWARD_DISTANCE \
     toy_merge_radius:=$TOY_TOY_MERGE_RADIUS \
     escape_distance:=$TOY_ESCAPE_DISTANCE
@@ -347,64 +349,88 @@ ros2 launch dog_toy_finder_data collect.launch.py \
 
 ### 5.5 LLM comparison trials
 
-Vision and planning comparisons use the same CSV schema and scoring tool, so
-the automated metrics are recorded in one place and ground truth can be added
-in a spreadsheet later. See
-[`llm_comparison_guide.md`](llm_comparison_guide.md) for the full step-by-step
-workflow.
+Vision and planning comparisons share the `dog_toy_finder_data.llm_trials` CSV
+schema and scoring tools. **Vision comparison is capture-first**: save each
+rectified left/right pair with operator-measured ground truth, then replay all
+captures offline. See [`llm_comparison_guide.md`](llm_comparison_guide.md) for
+the full step-by-step workflow.
 
 Trial data is stored in the repository's `data/` folder, next to `hardware/`
-and `software/`: `data/vision/<run_id>/` and `data/planning/<run_id>/`. Inside
-the ROS 2 container those paths are `/workspace/data/vision` and
-`/workspace/data/planning`.
+and `software/`: `data/vision/captures/`, `data/vision/vision_eval_*.csv/json`
+and `data/planning/<run_id>/`. Inside the ROS 2 container those paths are under
+`/workspace/data`.
 
-For vision, set `VISION_DETECTOR_CONFIG` to your measured camera/toy YAML,
-optionally set `CLASSICAL_VISION_ENABLED` / `ML_VISION_ENABLED`, and set
-`VISION_MODELS` to compare several models on the same rectified stereo pair.
-`LLM_TRIALS=true ./scripts/launch_all.sh` adds the collector pane automatically:
-
-```bash
-# either let launch_all.sh start it, or run it by hand:
-ros2 launch dog_toy_finder_data collect_llm_trials.launch.py \
-    output_dir:=$VISION_TRIAL_DIR run_id:=$VISION_TRIAL_RUN_ID \
-    distance_tolerance:=$LLM_TRIAL_DISTANCE_TOLERANCE
-```
-
-Every `/vision/ask` adds one row per detector/model to
-`$VISION_TRIAL_DIR/$VISION_TRIAL_RUN_ID/vision_trials.csv`. The `method` column
-distinguishes `classical` from `ml` results. The vision node loads and unloads
-one ML model at a time so each model gets all the available VRAM. Attach ground
-truth to a request with the vision test script:
+For vision, set `VISION_DETECTOR_CONFIG` to your measured camera/toy YAML. The
+live vision node is not needed for capture; terminate it (or launch
+`stereo_vision.launch.py` with `vision:=false`) and leave the rectified stereo
+pipeline running. Then save a labelled pair:
 
 ```bash
-python3 /workspace/scripts/vision_test.py "red ball" --gt-json /tmp/gt_vision.json
+cd /workspace
+source scripts/full_system_eval.conf
+
+ros2 run dog_toy_finder_vision vision_capture \
+    --target "$VISION_CAPTURE_TARGET" \
+    --depth-m 1.15 \
+    --bearing-deg +12 \
+    --size medium \
+    --run-id "$VISION_CAPTURE_RUN_ID" \
+    --capture-id ball_115m_left12 \
+    --output-dir "$VISION_CAPTURE_DIR" \
+    --timeout "$VISION_CAPTURE_TIMEOUT"
 ```
 
-```json
-{"target_visible": true, "position": "left", "size": "medium",
- "distance_m": [0.7, 0.72], "obstacle_ahead": "none"}
+`vision_capture` waits for a fresh matched `/stereo/{left,right}/image_rect_color`
+pair. Measure depth from the cameras with a tape measure and lateral bearing
+from the optical axis; positive bearing means robot-left (ROS `+y`). In a TTY,
+`--depth-m` and `--bearing-deg` are prompted for if omitted. Use
+`--not-visible` for an empty frame, plus `--obstacle` and `--notes` where
+needed. Each call writes:
+
+```text
+$VISION_CAPTURE_DIR/<run_id>/<capture_id>/left.jpg
+$VISION_CAPTURE_DIR/<run_id>/<capture_id>/right.jpg
+$VISION_CAPTURE_DIR/<run_id>/<capture_id>/meta.json
 ```
 
-`distance_m` may be a single number or a list of repeated measurements; the
-mean of the list is used when scoring distance error.
+`meta.json` contains the operator's ground truth, including
+`lateral_bearing_deg`; the legacy `position` label is derived from it. Repeat
+with a new `--capture-id` for each scene. After the capture phase, replay every
+saved pair with no camera topics or ROS graph:
+
+```bash
+ros2 run dog_toy_finder_vision vision_eval \
+    --captures-dir "$VISION_CAPTURE_DIR" \
+    --models "$VISION_EVAL_MODELS" \
+    --tolerance "$VISION_EVAL_TOLERANCE" \
+    --bearing-tolerance "$VISION_EVAL_BEARING_TOLERANCE" \
+    --output-csv "$VISION_EVAL_CSV" \
+    --results-json "$VISION_EVAL_JSONL" \
+    --summary-json "$VISION_EVAL_SUMMARY_JSON"
+```
+
+One row is written per capture and detector/model, with `method=classical` for
+the deterministic detector and `method=ml` for each Ollama model. Ground truth
+is copied from `meta.json`, and scored columns are written immediately. With
+several models configured, each model is unloaded after its answer; use
+`--compare-models` to force that behaviour for a single model.
 
 Planning rows are written by ROSA (section 5.1) to `$ROSA_OUTPUT_CSV`. The
 `gt_*` columns stay blank unless `ROSA_GT_JSON` points at a JSON file. A flat
 object applies to every model; the per-model/prompt form is documented in
 `software/rosa_agent/README.md`.
 
-Score a trial CSV after the ground truth is entered:
+Score a trial CSV after any manual ground-truth annotation:
 
 ```bash
-ros2 run dog_toy_finder_data llm_trials score \
-    "$VISION_TRIAL_DIR/$VISION_TRIAL_RUN_ID/vision_trials.csv"
+ros2 run dog_toy_finder_data llm_trials score "$VISION_EVAL_CSV"
 ros2 run dog_toy_finder_data llm_trials score "$ROSA_OUTPUT_CSV"
 ros2 run dog_toy_finder_data llm_trials aggregate "$ROSA_OUTPUT_CSV" --json
 ```
 
 `score` writes `<name>_scored.csv` and prints per-model latency, error count,
-ground-truthed row count, per-field accuracy, distance error, and mean score.
-Create an empty template for data collected another way with
+ground-truthed row count, per-field accuracy, distance/bearing error, and mean
+score. Create an empty template for data collected another way with
 `llm_trials template --kind vision|planning --models ... --output ...`.
 
 ## 6. Reset and run again
@@ -435,23 +461,24 @@ To run the test again from the same starting spot:
 ros2 run dog_toy_finder_experiments evaluate_runs "$TOY_OUTPUT_CSV" "$AUTO_OUTPUT_CSV"
 ros2 run dog_toy_finder_data dataset_summary "$COLLECT_OUTPUT_DIR/$COLLECT_RUN_ID"
 ros2 run dog_toy_finder_data llm_trials score "$ROSA_OUTPUT_CSV"
-ros2 run dog_toy_finder_data llm_trials score \
-    "$VISION_TRIAL_DIR/$VISION_TRIAL_RUN_ID/vision_trials.csv"
+ros2 run dog_toy_finder_data llm_trials score "$VISION_EVAL_CSV"
 
 # Post-collection statistics (paired comparisons across models)
 ros2 run dog_toy_finder_data llm_trials analyze "$ROSA_OUTPUT_CSV" \
     --confidence "$LLM_TRIAL_CONFIDENCE" --output "$PLANNING_ANALYSIS_JSON"
-ros2 run dog_toy_finder_data llm_trials analyze \
-    "$VISION_TRIAL_DIR/$VISION_TRIAL_RUN_ID/vision_trials.csv" \
-    --confidence "$LLM_TRIAL_CONFIDENCE" --output "$VISION_ANALYSIS_JSON"
+ros2 run dog_toy_finder_data llm_trials analyze "$VISION_EVAL_CSV" \
+    --tolerance "$VISION_EVAL_TOLERANCE" \
+    --bearing-tolerance "$VISION_EVAL_BEARING_TOLERANCE" \
+    --confidence "$LLM_TRIAL_CONFIDENCE" --output "$VISION_EVAL_ANALYSIS_JSON"
 ```
 
 Metrics reported: success, time/steps to find, path length, vision call count
 and average latency, target-visible rate, final pose. The LLM trial tool reports
-per-model vision accuracy, distance error, planning action/argument matches,
-latency, errors, and a mean score. `llm_trials analyze` adds confidence
+per-model vision accuracy, distance/bearing error, planning action/argument
+matches, latency, errors, and a mean score. `llm_trials analyze` adds confidence
 intervals and paired model comparisons so differences can be judged after all
-trials are collected.
+trials are collected. For captured trials, `ask_id` is the capture ID, so each
+model is compared on the same saved image.
 
 ## 8. Viewing the map
 
@@ -483,16 +510,18 @@ Vision obstacles expire after `vision_timeout` (default 5 s), so blue/orange
 blocks reflect recent detector results rather than old ones. Toy cells are a
 separate occupied value (`60`) so they stay visually distinct from obstacles
 and are never mistaken for an IR or vision detection. Toy spheres use the
-fused detector `distance_m` as the distance ahead and `toy_side_offset` metres to the
-left or right (default 0.25 m); if `distance_m` is missing or zero, the
-fallback `toy_forward_distance` (default 0.6 m) is used. Markers are merged
+fused detectors' median `distance_m` as the distance ahead and the median
+`lateral_bearing_deg` for the lateral angle (degrees from the optical axis,
+positive = robot-left); the legacy `left`/`center`/`right` label is only a
+fallback for old results with no bearing. If `distance_m` is missing or zero,
+the fallback `toy_forward_distance` (default 0.6 m) is used. Markers are merged
 within `toy_merge_radius` (default 0.15 m), and each toy marks a
 `(2 * toy_occupancy_radius + 1)` square of cells (default radius `1`, a 3x3
 patch). Tune these with:
 
 ```bash
 ros2 launch dog_toy_finder_mapping mapping.launch.py \
-    toy_side_offset:=0.2 toy_forward_distance:=0.4 \
+    toy_forward_distance:=0.4 toy_merge_radius:=0.2 \
     toy_occupancy_radius:=2 vision_timeout:=3.0
 ```
 
@@ -503,6 +532,7 @@ cd /workspace/software/rosa_agent && python3 -m unittest discover -s tests
 cd /workspace/software/ros2_ws/src/dog_toy_finder_planning && python3 -m unittest discover -s tests
 cd /workspace/software/ros2_ws/src/dog_toy_finder_motion && python3 -m unittest discover -s tests
 cd /workspace/software/ros2_ws/src/dog_toy_finder_data && python3 -m unittest discover -s tests
+cd /workspace/software/ros2_ws/src/dog_toy_finder_vision && python3 -m unittest discover -s tests
 ```
 
 End-to-end search workflow tests (fake robot + scripted vision, no hardware

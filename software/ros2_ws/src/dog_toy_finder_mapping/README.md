@@ -39,14 +39,15 @@ report an obstacle at the same time, the near and far regions are both marked
 disabled with `use_vision:=false`.
 
 `/detected_toys` is a separate `geometry_msgs/PoseArray` layer. When a classical
-or ML detector result has `target_visible: true` and a `position` of `left`,
-`center`, or `right`, the mapper places the toy `distance_m` metres ahead along
-the robot's heading, offset `toy_side_offset` metres to that side (default
-0.25 m). If several answers arrive in one `/vision/result`, positions are fused
-by majority and distances by median. If no detector provides a usable
-`distance_m`, the fallback `toy_forward_distance`
-(default 0.6 m) is used; estimates are clamped to `toy_max_distance` (default
-5 m). Markers closer than `toy_merge_radius` (default 0.15 m) are merged.
+or ML detector result has `target_visible: true`, the mapper uses its numeric
+`lateral_bearing_deg` (degrees from the optical axis, positive = robot-left)
+and `distance_m` to place the toy in the robot's frame. If several answers
+arrive in one `/vision/result`, bearings and distances are fused by median.
+Older results with only a `left`/`center`/`right` label are still accepted via a
+small fallback bearing. If no detector provides a usable `distance_m`, the
+fallback `toy_forward_distance` (default 0.6 m) is used; estimates are clamped
+to `toy_max_distance` (default 5 m). Markers closer than `toy_merge_radius`
+(default 0.15 m) are merged.
 
 Each toy also marks a `(2 * toy_occupancy_radius + 1)` square of cells as
 occupied with value `60`, so the toy appears as occupied space in `/map`
@@ -69,7 +70,7 @@ memory.
 | `ir_topic` | `/ir_obstacle/detected` | IR obstacle Bool topic |
 | `publish_period` | `1.0` | seconds between `/map` publishes |
 | `toy_forward_distance` | `0.6` | fallback toy distance ahead when no detector gives one (m) |
-| `toy_side_offset` | `0.25` | left/right lateral offset from the heading (m) |
+| `toy_side_offset` | `0.25` | deprecated compatibility parameter; placement now uses `lateral_bearing_deg` |
 | `toy_max_distance` | `5.0` | clamp for vision detector distance estimates (m) |
 | `toy_merge_radius` | `0.15` | toys within this distance are treated as the same toy (m) |
 | `toy_occupancy_radius` | `1` | cells marked around each toy (1 = 3x3) |

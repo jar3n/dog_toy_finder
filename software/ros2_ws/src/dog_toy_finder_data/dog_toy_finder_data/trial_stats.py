@@ -27,7 +27,7 @@ except ImportError:  # direct import from the package directory in tests
 VISION_METRICS = [
     "latency_s", "score", "visible_correct", "position_correct",
     "size_correct", "distance_within_tolerance", "distance_error_m",
-    "obstacle_correct",
+    "bearing_within_tolerance", "bearing_error_deg", "obstacle_correct",
 ]
 PLANNING_METRICS = [
     "elapsed_s", "score", "reply_chars", "action_mentioned", "args_mentioned",
@@ -271,7 +271,8 @@ def _pair_key(row, fields):
     return tuple(str(row.get(field, "") or "").strip() for field in fields)
 
 
-def analyze(rows, confidence=0.95, pair_field=None, distance_tolerance=0.25):
+def analyze(rows, confidence=0.95, pair_field=None, distance_tolerance=0.25,
+            bearing_tolerance=5.0):
     """Build descriptive statistics and paired comparisons for trial rows.
 
     Rows are scored in place so analysis works on raw or already-scored CSVs.
@@ -289,7 +290,7 @@ def analyze(rows, confidence=0.95, pair_field=None, distance_tolerance=0.25):
         }
 
     kind = llm_trials.kind_of(rows)
-    llm_trials.score_rows(rows, distance_tolerance)
+    llm_trials.score_rows(rows, distance_tolerance, bearing_tolerance)
     metrics = VISION_METRICS if kind == llm_trials.KIND_VISION \
         else PLANNING_METRICS
     fields = _pair_fields(kind, pair_field)
@@ -413,12 +414,16 @@ def main(argv=None):
                         help="optional tidy CSV output path")
     parser.add_argument("--confidence", type=float, default=0.95)
     parser.add_argument("--pair-field", default=None)
+    parser.add_argument("--tolerance", type=float, default=0.25)
+    parser.add_argument("--bearing-tolerance", type=float, default=5.0)
     args = parser.parse_args(argv)
 
     with open(args.csv, newline="") as handle:
         rows = list(csv.DictReader(handle))
     analysis = analyze(rows, confidence=args.confidence,
-                       pair_field=args.pair_field)
+                       pair_field=args.pair_field,
+                       distance_tolerance=args.tolerance,
+                       bearing_tolerance=args.bearing_tolerance)
     with open(args.output, "w") as handle:
         json.dump(analysis, handle, indent=2)
     if args.csv_output:

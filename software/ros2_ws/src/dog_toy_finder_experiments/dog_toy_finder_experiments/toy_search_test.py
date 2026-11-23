@@ -41,6 +41,7 @@ from rclpy.qos import qos_profile_sensor_data
 from rclpy.signals import SignalHandlerOptions
 from std_msgs.msg import String
 
+from dog_toy_finder_data import toy_geometry
 from dog_toy_finder_motion.mover import Mover, yaw_from_quaternion
 
 
@@ -191,10 +192,9 @@ class ToySearchTest(Mover):
         within toy_merge_radius of an already-recorded toy are the same toy.
         """
         entry = self._entry(result)
-        position = str(entry.get("position", "center")).strip().lower()
-        sides = {"left": 1.0, "center": 0.0, "right": -1.0}
-        if position not in sides:
+        if not entry.get("target_visible"):
             return False
+        bearing = toy_geometry.bearing_deg(entry)
         x, y, yaw = self.current_pose()
         try:
             ahead = float(entry.get("distance_m") or 0.0)
@@ -202,10 +202,8 @@ class ToySearchTest(Mover):
             ahead = 0.0
         if ahead <= 0.0:
             ahead = self.toy_forward
-        side = sides[position] * self.toy_side
-        # ROS convention: +x forward, +y left, yaw counter-clockwise.
-        tx = x + ahead * math.cos(yaw) - side * math.sin(yaw)
-        ty = y + ahead * math.sin(yaw) + side * math.cos(yaw)
+        placement = toy_geometry.place(x, y, yaw, ahead, bearing)
+        tx, ty = placement["x"], placement["y"]
         for ox, oy, _label in self.toys:
             if (ox - tx) ** 2 + (oy - ty) ** 2 <= self.toy_merge ** 2:
                 return False
@@ -215,7 +213,9 @@ class ToySearchTest(Mover):
             self.toys = self.toys[-self.toy_max_count:]
         self.get_logger().info(
             f"Toy #{len(self.toys)} ({label}) found at ({tx:.2f}, {ty:.2f})"
-            f" in odom [{ahead:.2f} m ahead, {side:+.2f} m lateral]")
+            f" in odom [bearing {bearing:+.1f} deg,"
+            f" {placement['ahead_m']:.2f} m ahead,"
+            f" {placement['side_m']:+.2f} m lateral]")
         return True
 
     def _note_found(self, result):

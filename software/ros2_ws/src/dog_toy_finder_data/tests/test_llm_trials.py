@@ -315,5 +315,61 @@ class AggregateTests(unittest.TestCase):
         self.assertAlmostEqual(summaries["b"]["distance_mae_m"], 0.1)
 
 
+class BearingScoringTests(unittest.TestCase):
+    def test_bearing_aliases_map_to_gt_column(self):
+        mapped = llm_trials.merged_ground_truth({
+            "lateral_bearing_deg": 12.5,
+            "bearing_deg": -4.0,
+        })
+        # Both aliases feed the same column; the later key wins.
+        self.assertEqual(mapped["gt_lateral_bearing_deg"], -4.0)
+
+    def test_vision_metrics_score_bearing_tolerance(self):
+        row = {
+            "gt_target_visible": True,
+            "target_visible": True,
+            "position": "center",
+            "size": "small",
+            "distance_m": 1.0,
+            "gt_distance_m": 1.0,
+            "lateral_bearing_deg": 12.0,
+            "gt_lateral_bearing_deg": 8.0,
+            "obstacle_ahead": "none",
+            "gt_obstacle_ahead": "none",
+        }
+        metrics = llm_trials.vision_metrics(row, bearing_tolerance=5.0)
+        self.assertAlmostEqual(metrics["bearing_error_deg"], 4.0)
+        self.assertTrue(metrics["bearing_within_tolerance"])
+        strict = llm_trials.vision_metrics(row, bearing_tolerance=2.0)
+        self.assertFalse(strict["bearing_within_tolerance"])
+        self.assertLess(strict["score"], metrics["score"])
+
+    def test_vision_row_copies_bearing_and_ground_truth(self):
+        row = llm_trials.vision_row(
+            {"id": "cap1", "target": "red ball", "image": "run1/cap1/left.jpg"},
+            {"model": "classical", "method": "classical",
+             "target_visible": True, "lateral_bearing_deg": -9.5,
+             "position": "right", "distance_m": 1.1},
+            "classical", "run1",
+            ground_truth={"target_visible": True,
+                          "lateral_bearing_deg": -10.0, "distance_m": 1.0},
+            bearing_tolerance=3.0)
+        self.assertEqual(row["lateral_bearing_deg"], -9.5)
+        self.assertEqual(row["gt_lateral_bearing_deg"], -10.0)
+        self.assertTrue(row["bearing_within_tolerance"])
+        self.assertAlmostEqual(row["bearing_error_deg"], 0.5)
+
+    def test_aggregate_reports_bearing_summary(self):
+        rows = [{
+            "kind": "vision", "model": "m", "gt_target_visible": True,
+            "target_visible": True, "lateral_bearing_deg": 11.0,
+            "gt_lateral_bearing_deg": 10.0,
+            "distance_m": 1.0, "gt_distance_m": 1.0,
+        }]
+        summary = llm_trials.aggregate(rows, bearing_tolerance=2.0)[0]
+        self.assertAlmostEqual(summary["bearing_mae_deg"], 1.0)
+        self.assertEqual(summary["bearing_within_rate"], 1.0)
+
+
 if __name__ == "__main__":
     unittest.main()

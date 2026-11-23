@@ -34,6 +34,7 @@ Parameters
 output_dir          : str   trial root directory
 run_id              : str   label for this comparison run
 distance_tolerance  : float metres, used when scoring a distance ground truth
+bearing_tolerance   : float degrees, used when scoring a lateral bearing truth
 """
 
 import json
@@ -66,11 +67,14 @@ class VisionTrialCollector(Node):
             os.environ.get("VISION_TRIAL_DIR", "/workspace/data/vision"))
         self.declare_parameter("run_id", "vision1")
         self.declare_parameter("distance_tolerance", 0.25)
+        self.declare_parameter("bearing_tolerance", 5.0)
 
         self.output_dir = self.get_parameter("output_dir").value
         self.run_id = self.get_parameter("run_id").value
         self.distance_tolerance = float(
             self.get_parameter("distance_tolerance").value)
+        self.bearing_tolerance = float(
+            self.get_parameter("bearing_tolerance").value)
 
         self.run_dir = os.path.join(self.output_dir, self.run_id)
         os.makedirs(self.run_dir, exist_ok=True)
@@ -98,6 +102,7 @@ class VisionTrialCollector(Node):
             "run_id": self.run_id,
             "csv": self.csv_path,
             "distance_tolerance": self.distance_tolerance,
+            "bearing_tolerance": self.bearing_tolerance,
             "rows": self._rows,
             "models": sorted(self._models),
             "methods": sorted(self._methods),
@@ -153,8 +158,8 @@ class VisionTrialCollector(Node):
             entries = [{
                 key: result.get(key)
                 for key in ("description", "target_visible", "position",
-                            "size", "distance_m", "obstacle_ahead",
-                            "path_clear", "seconds", "error")
+                            "lateral_bearing_deg", "size", "distance_m",
+                            "obstacle_ahead", "path_clear", "seconds", "error")
                 if key in result
             }]
 
@@ -166,7 +171,8 @@ class VisionTrialCollector(Node):
                 model = models[index] if index < len(models) else (
                     models[0] if models else "unknown")
             row = vision_row(result, entry, model, self.run_id,
-                             self.distance_tolerance, ground_truth)
+                             self.distance_tolerance, ground_truth,
+                             self.bearing_tolerance)
             append_csv(self.csv_path, row, VISION_FIELDS)
             self._rows += 1
             self._models.add(str(model))

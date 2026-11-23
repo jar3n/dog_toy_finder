@@ -47,7 +47,7 @@ pair and a vision-language model (VLM).
 | `dog_toy_finder_bringup` | Launch files, EKF config, robot geometry, `cmd_vel_mux` start | [README](software/ros2_ws/src/dog_toy_finder_bringup/README.md) |
 | `dog_toy_finder_odometry` | `/joint_states` -> `/wheel/odom` | [README](software/ros2_ws/src/dog_toy_finder_odometry/README.md) |
 | `dog_toy_finder_motion` | Closed-loop moves, `cmd_vel_mux`, manual keyboard drive, `mover_test` | [README](software/ros2_ws/src/dog_toy_finder_motion/README.md) |
-| `dog_toy_finder_vision` | Stereo capture, rectification, disparity/point cloud, VLM `/vision/ask` | [README](software/ros2_ws/src/dog_toy_finder_vision/README.md) |
+| `dog_toy_finder_vision` | Stereo rectification, live `/vision/ask`, capture-first `vision_capture`/`vision_eval` | [README](software/ros2_ws/src/dog_toy_finder_vision/README.md) |
 | `dog_toy_finder_mapping` | Occupancy map, toy markers, browser map server | [README](software/ros2_ws/src/dog_toy_finder_mapping/README.md) |
 | `dog_toy_finder_planning` | Autonomous search planner + path utilities | [README](software/ros2_ws/src/dog_toy_finder_planning/README.md) |
 | `dog_toy_finder_diagnostics` | Sensor/camera heartbeat monitor with logged failures | [README](software/ros2_ws/src/dog_toy_finder_diagnostics/README.md) |
@@ -90,7 +90,11 @@ ROS 2 nodes / ROSA (computer)
 Vision runs on the computer: the two ESP32-CAMs serve still frames over HTTP,
 `stereo_vision.launch.py` turns them into images, disparity and a point cloud,
 and `vision_node` answers `/vision/ask` requests from the planner, the search
-harness, or ROSA.
+harness, or ROSA. Vision answers report a numeric `lateral_bearing_deg`
+(positive = robot-left) rather than only a coarse side label. For model
+comparison, `vision_capture` saves rectified pairs with operator-measured ground
+truth and `vision_eval` replays them offline against the classical detector and
+configured Ollama models.
 
 ## Running the full system
 

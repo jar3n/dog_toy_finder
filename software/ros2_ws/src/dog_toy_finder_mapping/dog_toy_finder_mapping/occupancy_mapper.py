@@ -18,11 +18,12 @@ colour them separately:
 
 When both sensors agree, both the near (IR) and far (vision) obstacle regions
 are marked as "both". The toy location is estimated from each detector's
-``target_visible``/``position`` fields plus its ``distance_m`` estimate: the
-distance gives the forward offset and the position gives the lateral offset to
-the left or right. Classical and ML answers in one /vision/result message are
-fused by majority position and median distance. When no detector has a usable
-distance, ``toy_forward_distance`` is used. Each toy also marks a small occupied
+``target_visible``/``lateral_bearing_deg`` fields plus its ``distance_m``
+estimate: distance cos(bearing) gives the forward offset and distance
+sin(bearing) gives the lateral offset (positive left). Classical and ML answers
+in one /vision/result message are fused by median bearing and median distance.
+When no detector has a usable distance, ``toy_forward_distance`` is used. Each
+toy also marks a small occupied
 patch in the grid (value 60) so it is treated as occupied space, in addition to
 being published on /detected_toys.
 """
@@ -30,9 +31,9 @@ being published on /detected_toys.
 import json
 import math
 import time
-from collections import Counter
 
 import numpy as np
+from dog_toy_finder_data import toy_geometry
 import rclpy
 from geometry_msgs.msg import Pose, PoseArray, PoseStamped
 from nav_msgs.msg import OccupancyGrid, Odometry, Path
@@ -49,7 +50,6 @@ BOTH = 85
 IR_ONLY = 100
 
 NO_OBSTACLE_LABELS = ("", "none", "nothing", "no", "n/a")
-TOY_SIDES = {"left": 1.0, "center": 0.0, "right": -1.0}
 
 
 class OccupancyMapper(Node):
@@ -248,7 +248,7 @@ class OccupancyMapper(Node):
             results = [data]
 
         labels = []
-        toys = []  # [(position, distance_m or None), ...]
+        toys = []  # [(bearing_deg, distance_m or None), ...]
         for result in results:
             if not isinstance(result, dict):
                 continue
@@ -256,18 +256,17 @@ class OccupancyMapper(Node):
             if isinstance(obs, str) and obs.strip().lower() not in NO_OBSTACLE_LABELS:
                 labels.append(obs)
             if result.get("target_visible") is True:
-                position = str(result.get("position", "none")).strip().lower()
-                if position in TOY_SIDES:
-                    toys.append((position, self._toy_distance(result)))
+                toys.append((toy_geometry.bearing_deg(result),
+                             self._toy_distance(result)))
 
         self.vision_obstacle = labels[0] if labels else None
         self.vision_stamp = time.monotonic()
 
         if toys:
-            position = Counter(p for p, _ in toys).most_common(1)[0][0]
-            distances = [d for p, d in toys if p == position and d is not None]
+            bearing = float(np.median([b for b, _ in toys]))
+            distances = [d for _, d in toys if d is not None]
             distance = float(np.median(distances)) if distances else None
-            self.record_toy(position, distance)
+            self.record_toy(bearing, distance)
 
     def _toy_distance(self, result):
         """Return a sane VLM distance in metres, or None to use the fallback."""
@@ -280,16 +279,14 @@ class OccupancyMapper(Node):
             return None
         return min(distance, self.toy_max_distance)
 
-    def record_toy(self, position, distance=None):
-        """Add one toy marker ahead and to the side, deduplicated."""
+    def record_toy(self, bearing=0.0, distance=None):
+        """Add one toy marker from its bearing and distance, deduplicated."""
         if self.last_pose is None:
             return
         x, y, yaw = self.last_pose
         ahead = self.toy_forward if distance is None else distance
-        side = TOY_SIDES[position] * self.toy_side
-        # ROS convention: +x forward, +y left, yaw counter-clockwise.
-        tx = x + ahead * math.cos(yaw) - side * math.sin(yaw)
-        ty = y + ahead * math.sin(yaw) + side * math.cos(yaw)
+        placement = toy_geometry.place(x, y, yaw, ahead, bearing)
+        tx, ty = placement["x"], placement["y"]
         if self.world_to_cell(tx, ty) is None:
             return
 
@@ -302,8 +299,10 @@ class OccupancyMapper(Node):
         if len(self.toys) > self.toy_max_count:
             self.toys = self.toys[-self.toy_max_count:]
         self.get_logger().info(
-            f"Toy detected ({position}) at ({tx:.2f}, {ty:.2f}) in odom"
-            f" [{ahead:.2f} m ahead, {side:+.2f} m lateral]")
+            f"Toy detected (bearing {bearing:+.1f} deg) at "
+            f"({tx:.2f}, {ty:.2f}) in odom"
+            f" [{placement['ahead_m']:.2f} m ahead, "
+            f"{placement['side_m']:+.2f} m lateral]")
 
     def publish(self):
         data = self.free_grid.copy()

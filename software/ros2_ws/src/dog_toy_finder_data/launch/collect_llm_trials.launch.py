@@ -33,6 +33,8 @@ def generate_launch_description():
                               description="label for this comparison run"),
         DeclareLaunchArgument("distance_tolerance", default_value="0.25",
                               description="distance tolerance in metres"),
+        DeclareLaunchArgument("bearing_tolerance", default_value="5.0",
+                              description="lateral bearing tolerance in degrees"),
 
         Node(
             package="dog_toy_finder_data",
@@ -42,6 +44,7 @@ def generate_launch_description():
                 "output_dir": arg("output_dir"),
                 "run_id": arg("run_id"),
                 "distance_tolerance": arg("distance_tolerance"),
+                "bearing_tolerance": arg("bearing_tolerance"),
             }],
         ),
     ])

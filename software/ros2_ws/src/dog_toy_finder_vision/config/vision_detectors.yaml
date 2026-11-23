@@ -29,6 +29,9 @@ target:
   apparent_width_large_fraction: 0.25
   position_split_left: 0.333
   position_split_right: 0.667
+  # Fallback bearing (degrees) when an older VLM answer has only the legacy
+  # left/center/right label and no lateral_bearing_deg field.
+  position_bearing_deg: 15.0
 
 # HSV ranges. Hue is 0..179, saturation and value are 0..255. The classical
 # detector combines every range whose colour word appears in the ask target.

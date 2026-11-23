@@ -25,14 +25,12 @@ models           : str   comma-separated list of Ollama vision models
 ollama_url       : str   Ollama endpoint
 """
 
-import base64
 import io
 import json
 import os
 import queue
 import threading
 import time
-import urllib.request
 
 import rclpy
 from PIL import Image as PilImage
@@ -42,90 +40,11 @@ from rclpy.time import Time
 from sensor_msgs.msg import Image
 from std_msgs.msg import String
 
-from . import classical_detector, vision_config
+from . import classical_detector, ollama_vlm, vision_answer, vision_config
+from .vision_answer import tidy
 
 RESULTS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "results", "images")
 FRESH_PHOTO_TIMEOUT = 5.0
-
-ANSWER_SCHEMA = {
-    "type": "object",
-    "properties": {
-        "description": {"type": "string"},
-        "target_visible": {"type": "boolean"},
-        "position": {"type": "string", "enum": ["left", "center", "right", "none"]},
-        "size": {"type": "string", "enum": ["small", "medium", "large", "none"]},
-        "distance_m": {"type": "number", "minimum": 0},
-        "obstacle_ahead": {"type": "string"},
-    },
-    "required": ["description", "target_visible", "position", "size",
-                 "distance_m", "obstacle_ahead"],
-}
-
-COMMON = (
-    "You are the forward-facing stereo camera of a small robot car that drives on the "
-    "floor. You are given TWO RECTIFIED images: the first is the LEFT eye, the second "
-    "is the RIGHT eye, captured together. Rectification means matching rows have the "
-    "same y coordinate, so horizontal image shift is disparity. Use the pair, the "
-    "camera measurements below, and the toy's real size to judge distance in metres, "
-    "not just appearance. Answer in this order. "
-    "description: {description} "
-)
-
-TARGET_DESC = ("one or two sentences naming every object you see, its color, and "
-               "whether it is on the left, in the center, or on the right of the image.")
-SCENE_DESC = ("two or three sentences naming every object you see, its color, and "
-              "whether it is on the left, in the center, or on the right of the image.")
-
-TARGET_PROMPT = COMMON.format(description=TARGET_DESC) + (
-    "target_visible: true only if the target ({target}) appears in your description. "
-    "position: which third of the image the target's center is in: left, center, or right "
-    "(none if not visible). "
-    "size: how wide the target looks compared with the image width: small (less than one "
-    "tenth), medium, or large (more than one quarter); none if not visible. "
-    "distance_m: your best estimate of the target's distance from the camera in metres; "
-    "0 if not visible or unknown. "
-    "obstacle_ahead: the name of the object, other than the target, that stands in the "
-    "center third of the image where the robot would drive into it if it drove straight "
-    "ahead; write none if there is no such object. Walls do not count."
-)
-
-SCENE_PROMPT = COMMON.format(description=SCENE_DESC) + (
-    "There is no target: set target_visible false, position none, size none, "
-    "distance_m 0. "
-    "obstacle_ahead: the name of the object that stands in the center third of the image "
-    "where the robot would drive into it if it drove straight ahead; write none if "
-    "there is no such object. Walls do not count."
-)
-
-
-def _as_bool(value, default=False):
-    if isinstance(value, bool):
-        return value
-    if isinstance(value, str):
-        return value.strip().lower() in ("true", "1", "yes", "y", "on")
-    return bool(value) if value is not None else default
-
-
-def tidy(answer):
-    """Normalise an answer while preserving detector-specific extra fields."""
-    result = dict(answer)
-    obstacle = str(result.get("obstacle_ahead") or "").strip().strip(".")
-    if obstacle.lower() in ("", "none", "nothing", "no", "n/a"):
-        obstacle = "none"
-    result["obstacle_ahead"] = obstacle
-    result["path_clear"] = obstacle == "none"
-    result["target_visible"] = _as_bool(result.get("target_visible"), False)
-    try:
-        distance = float(result.get("distance_m") or 0.0)
-    except (TypeError, ValueError):
-        distance = 0.0
-    result["distance_m"] = max(0.0, distance)
-    if not result["target_visible"]:
-        result["position"] = "none"
-        result["size"] = "none"
-        result["distance_m"] = 0.0
-    return result
-
 
 class VisionNode(Node):
     def __init__(self):
@@ -231,9 +150,7 @@ class VisionNode(Node):
         return buf.getvalue()
 
     def prompt(self, target):
-        base = TARGET_PROMPT.format(target=target) if target else SCENE_PROMPT
-        summary = vision_config.physical_summary(self.config)
-        return base + (" " + summary if summary else "")
+        return vision_answer.prompt_for(target, self.config)
 
     def worker(self):
         while rclpy.ok():
@@ -264,7 +181,7 @@ class VisionNode(Node):
                             request["target"], self.config)
                         detection["model"] = "classical"
                         detection["seconds"] = round(time.time() - start, 3)
-                        entries.append(tidy(detection))
+                        entries.append(tidy(detection, self.config))
 
                     if self.ml_enabled:
                         # Load and unload one model at a time. Ollama would
@@ -284,9 +201,9 @@ class VisionNode(Node):
                     if len(entries) == 1:
                         single = entries[0]
                         for key in ("description", "target_visible", "position",
-                                    "size", "distance_m", "obstacle_ahead",
-                                    "path_clear", "seconds", "method",
-                                    "distance_source", "confidence"):
+                                    "lateral_bearing_deg", "size", "distance_m",
+                                    "obstacle_ahead", "path_clear", "seconds",
+                                    "method", "distance_source", "confidence"):
                             if key in single:
                                 result[key] = single[key]
             except Exception as error:
@@ -305,46 +222,13 @@ class VisionNode(Node):
 
     def unload_model(self, model):
         """Ask Ollama to evict a model so the next one gets all the VRAM."""
-        body = {"model": model, "keep_alive": 0}
-        try:
-            req = urllib.request.Request(
-                self.generate_url, data=json.dumps(body).encode(),
-                headers={"Content-Type": "application/json"})
-            with urllib.request.urlopen(req, timeout=15) as reply:
-                reply.read()
-        except Exception as error:
-            self.get_logger().warn(
-                f"Could not unload {model}; it may still hold VRAM: {error}")
+        return ollama_vlm.unload_model(model, self.generate_url,
+                                       logger=self.get_logger())
 
     def ask_model(self, model, jpegs, target):
-        images_b64 = [base64.b64encode(j).decode() for j in jpegs]
-        body = {
-            "model": model,
-            "stream": False,
-            "think": False,
-            "format": ANSWER_SCHEMA,
-            "keep_alive": 0 if self.compare_models else "30m",
-            "options": {"temperature": 0, "num_ctx": 8192},
-            "messages": [{"role": "user", "content": self.prompt(target),
-                          "images": images_b64}],
-        }
-        start = time.time()
-        try:
-            req = urllib.request.Request(self.chat_url, data=json.dumps(body).encode(),
-                                         headers={"Content-Type": "application/json"})
-            with urllib.request.urlopen(req, timeout=180) as reply:
-                answer = json.loads(json.load(reply)["message"]["content"])
-            answer = tidy({key: answer[key] for key in ANSWER_SCHEMA["required"]
-                           if key in answer})
-        except Exception as error:
-            return {"model": model, "method": "ml", "error":
-                    f"Vision model failed: {error}",
-                    "seconds": round(time.time() - start, 2)}
-        answer["model"] = model
-        answer["method"] = "ml"
-        answer["distance_source"] = "vlm_estimate"
-        answer["seconds"] = round(time.time() - start, 2)
-        return answer
+        return ollama_vlm.ask_model(
+            model, jpegs, target, self.prompt(target), self.chat_url,
+            compare_models=self.compare_models, config=self.config)
 
 
 def main():
