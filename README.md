@@ -106,7 +106,8 @@ detection plus dense-stereo depth so the two approaches can be compared. Vision
 answers report a numeric `lateral_bearing_deg` = `atan((cx - u) / fx)` in degrees
 (positive = robot-left) rather than only a coarse side label. For comparison,
 `vision_capture` saves rectified pairs with operator-measured ground truth and
-`vision_eval` replays them offline through the configured pipeline.
+`vision_eval` replays them offline through the configured pipeline in a shuffled,
+seed-recorded order.
 
 ## Running the full system
 

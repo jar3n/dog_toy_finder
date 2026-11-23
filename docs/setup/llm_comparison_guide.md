@@ -239,7 +239,9 @@ Use `--notes` for anything the numeric fields do not capture.
 Run **one pipeline per invocation**. `--pipeline` (or `$VISION_PIPELINE`, then
 the YAML `pipeline` key when the flag is omitted) selects exactly one pipeline
 for the whole run; the other is not touched. To compare both, replay the same
-captures twice with different output paths so the first run is not overwritten:
+captures twice with different output paths so the first run is not overwritten.
+Captures are shuffled before replay so directory names do not determine the
+processing order; `--limit` is applied after the shuffle.
 
 ```bash
 ros2 run dog_toy_finder_vision vision_eval \
@@ -279,7 +281,12 @@ answers carry `method=second` and `detector_model` for the one-eye detector, and
 use `distance_source=dense_stereo_depth` plus `depth_sample_*` fields. Legacy
 rows from the retired path use `method=ml`. Ground truth is copied from each
 `meta.json`, so no spreadsheet annotation is needed. The summary manifest
-(`vision_eval_summary.json`) records the pipeline that produced the rows.
+(`vision_eval_summary.json`) records the pipeline that produced the rows, the
+`shuffle_seed` used for capture order, and the resulting `capture_order` (paths
+relative to `--captures-dir`). When `--seed` is omitted, a random seed is
+generated and printed, then recorded in that manifest; pass the same seed to
+another invocation to replay the exact order. Use the same seed for both
+pipelines when comparing them on identical capture order.
 
 Useful options:
 
@@ -288,9 +295,13 @@ Useful options:
 ros2 run dog_toy_finder_vision vision_eval \
     --capture /workspace/data/vision/captures/capture_run1/ball_115m_left12
 
-# explicit pipeline and output paths
+# explicit pipeline and output paths; --limit applies after the shuffle
 ros2 run dog_toy_finder_vision vision_eval --captures-dir "$VISION_CAPTURE_DIR" \
     --pipeline open_vocab --output-csv "$VISION_EVAL_CSV" --limit 10
+
+# replay the exact order recorded in a previous summary
+ros2 run dog_toy_finder_vision vision_eval --captures-dir "$VISION_CAPTURE_DIR" \
+    --pipeline open_vocab --seed 1234 --output-csv "$VISION_EVAL_CSV"
 ```
 
 ### A6. Score and analyse the replay

@@ -14,16 +14,22 @@ Usage inside the ROS 2 container::
         --captures-dir /workspace/data/vision/captures \
         --pipeline open_vocab
 
+Captures are processed in shuffled order. Use ``--seed`` to reproduce an
+order; the generated seed and the resulting capture order are recorded in the
+summary manifest.
+
 Outputs (defaults next to the captures directory)::
 
     vision_eval_trials.csv     one scored row per capture and model name
     vision_eval_results.jsonl  full /vision/result-style entries for inspection
-    vision_eval_summary.json   aggregate metrics and the selected pipeline
+    vision_eval_summary.json   aggregate metrics, pipeline, shuffle seed/order
 """
 
 import argparse
 import json
 import os
+import random
+import secrets
 import sys
 from datetime import datetime
 
@@ -46,8 +52,14 @@ except ImportError:  # pragma: no cover - only used outside an installed workspa
         import llm_trials
 
 
-def iter_captures(root, run_id=None, capture=None):
-    """Yield capture directories that contain left.jpg, right.jpg, meta.json."""
+def iter_captures(root, run_id=None, capture=None, rng=None):
+    """Yield complete capture directories, optionally shuffled by ``rng``.
+
+    Discovery is sorted so the set of captures is deterministic; ``main``
+    supplies a seeded random generator so the *processing order* is random but
+    reproducible. Callers that omit ``rng`` keep the sorted order (useful for
+    tests and tooling that needs a stable listing).
+    """
     if capture:
         paths = [os.path.abspath(os.path.expanduser(capture))]
     else:
@@ -56,7 +68,10 @@ def iter_captures(root, run_id=None, capture=None):
             directories.sort()
             if "meta.json" in files:
                 paths.append(current)
-    for path in sorted(paths):
+    paths = sorted(paths)
+    if rng is not None and len(paths) > 1:
+        rng.shuffle(paths)
+    for path in paths:
         if not all(os.path.isfile(os.path.join(path, name))
                    for name in ("left.jpg", "right.jpg", "meta.json")):
             continue
@@ -124,6 +139,9 @@ def _build_parser():
                         help="lateral bearing tolerance in degrees")
     parser.add_argument("--limit", type=int, default=0,
                         help="stop after this many captures (0 = all)")
+    parser.add_argument("--seed", type=int, default=None,
+                        help="capture shuffle seed (default: random; recorded "
+                             "in the summary manifest)")
     parser.add_argument("--output-csv", default=None, help="trial CSV path")
     parser.add_argument("--results-json", default=None, help="full results JSONL")
     parser.add_argument("--summary-json", default=None, help="aggregate JSON path")
@@ -152,12 +170,17 @@ def main(argv=None):
     summary_json = args.summary_json or _default_output(
         output_root, "vision_eval_summary.json")
 
-    captures = list(iter_captures(root, args.run_id, args.capture))
+    seed = args.seed if args.seed is not None else secrets.randbelow(2 ** 32)
+    rng = random.Random(seed)
+    captures = list(iter_captures(root, args.run_id, args.capture, rng=rng))
     if args.limit:
         captures = captures[:args.limit]
     if not captures:
         print("No captures found under %s" % root, file=sys.stderr)
         return 1
+    capture_order = [os.path.relpath(path, root) for path in captures]
+    print("Processing %d capture(s) in shuffled order (seed %d)"
+          % (len(captures), seed))
 
     rows = []
     results = []
@@ -192,6 +215,8 @@ def main(argv=None):
         "created_at": datetime.now().isoformat(timespec="seconds"),
         "captures_dir": root,
         "captures": len(captures),
+        "capture_order": capture_order,
+        "shuffle_seed": seed,
         "rows": len(rows),
         "pipeline": pipeline,
         "models": sorted({row["model"] for row in rows}),

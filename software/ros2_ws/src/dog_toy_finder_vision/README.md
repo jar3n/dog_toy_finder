@@ -298,8 +298,12 @@ ros2 run dog_toy_finder_vision vision_eval \
 `vision_eval` needs no ROS graph. It writes one scored row per capture using the
 model name produced by the selected pipeline (detector name for `open_vocab`,
 dense depth model name for `second`) and records the chosen pipeline in the
-summary manifest. Useful flags include `--run-id`, `--capture`, and `--limit`.
-See [`docs/setup/llm_comparison_guide.md`](../../../../docs/setup/llm_comparison_guide.md)
+summary manifest. Captures are processed in shuffled order (`--limit` applies
+after the shuffle); a random `shuffle_seed` is generated unless `--seed` is
+given, and both the seed and `capture_order` are saved in the summary manifest
+so the order can be reproduced. Useful flags include `--run-id`, `--capture`,
+`--limit`, and `--seed`. See
+[`docs/setup/llm_comparison_guide.md`](../../../../docs/setup/llm_comparison_guide.md)
 for the full experiment workflow.
 
 ## Run

@@ -4,6 +4,8 @@ import contextlib
 import io
 import json
 import os
+import random
+import shutil
 import sys
 import tempfile
 import unittest
@@ -98,12 +100,53 @@ class OfflineEvalTests(unittest.TestCase):
         with open(os.path.join(self.capture_dir, "meta.json"), "w") as handle:
             json.dump(meta, handle)
 
+    def _add_capture(self, capture_id, run_id="run1"):
+        """Copy the synthetic pair into another complete capture directory."""
+        destination = os.path.join(self.root, run_id, capture_id)
+        os.makedirs(destination, exist_ok=True)
+        for name in ("left.jpg", "right.jpg", "meta.json"):
+            shutil.copyfile(os.path.join(self.capture_dir, name),
+                            os.path.join(destination, name))
+        meta_path = os.path.join(destination, "meta.json")
+        with open(meta_path) as handle:
+            meta = json.load(handle)
+        meta["capture_id"] = capture_id
+        meta["run_id"] = run_id
+        with open(meta_path, "w") as handle:
+            json.dump(meta, handle)
+        return destination
+
     def test_iter_captures_finds_complete_directories(self):
         self._write_synthetic_pair()
         incomplete = os.path.join(self.root, "run1", "bad")
         os.makedirs(incomplete)
         found = list(vision_eval.iter_captures(self.root))
         self.assertEqual(found, [self.capture_dir])
+
+    def test_iter_captures_shuffles_with_seeded_rng(self):
+        self._write_synthetic_pair()
+        expected = [self.capture_dir] + [
+            self._add_capture("cap%d" % index) for index in range(2, 6)]
+        for seed in (7, 42):
+            with self.subTest(seed=seed):
+                found = list(vision_eval.iter_captures(
+                    self.root, rng=random.Random(seed)))
+                self.assertCountEqual(found, expected)
+                self.assertNotEqual(found, expected,
+                                    "seeded RNG must change processing order")
+
+    def test_capture_order_repeatable_by_seed_and_changes_with_seed(self):
+        self._write_synthetic_pair()
+        for index in range(2, 6):
+            self._add_capture("cap%d" % index)
+        first = list(vision_eval.iter_captures(
+            self.root, rng=random.Random(1234)))
+        repeated = list(vision_eval.iter_captures(
+            self.root, rng=random.Random(1234)))
+        changed = list(vision_eval.iter_captures(
+            self.root, rng=random.Random(1235)))
+        self.assertEqual(first, repeated)
+        self.assertNotEqual(first, changed)
 
     def test_replay_pipeline_answer_uses_ground_truth(self):
         self._write_synthetic_pair()
@@ -206,6 +249,69 @@ class OfflineEvalTests(unittest.TestCase):
         self.assertIn("method", fields)
         self.assertTrue(os.path.isfile(results_path))
 
+    def test_main_records_seed_and_shuffled_capture_order(self):
+        self._write_synthetic_pair()
+        for index in range(2, 6):
+            self._add_capture("cap%d" % index)
+        seen = []
+        original = vision_eval.evaluate_capture
+
+        def evaluate_with_fake_client(path, config, pipeline=None, client=None,
+                                      depth_client=None):
+            seen.append(path)
+            return original(path, config, pipeline, FakeClient())
+
+        output = io.StringIO()
+        csv_path = os.path.join(self.temp.name, "shuffled.csv")
+        results_path = os.path.join(self.temp.name, "shuffled.jsonl")
+        summary_path = os.path.join(self.temp.name, "shuffled_summary.json")
+        with mock.patch.object(vision_eval, "evaluate_capture",
+                               evaluate_with_fake_client), \
+             contextlib.redirect_stdout(output):
+            code = vision_eval.main([
+                "--captures-dir", self.root, "--pipeline", "open_vocab",
+                "--seed", "42", "--limit", "2",
+                "--output-csv", csv_path, "--results-json", results_path,
+                "--summary-json", summary_path])
+        self.assertEqual(code, 0)
+        self.assertIn("seed 42", output.getvalue())
+        with open(summary_path) as handle:
+            summary = json.load(handle)
+        self.assertEqual(summary["shuffle_seed"], 42)
+        self.assertEqual(summary["captures"], 2)
+        self.assertEqual(len(summary["capture_order"]), 2)
+        self.assertEqual(
+            [os.path.join(self.root, relative)
+             for relative in summary["capture_order"]], seen)
+        expected = list(vision_eval.iter_captures(
+            self.root, rng=random.Random(42)))[:2]
+        self.assertEqual(seen, expected)
+        self.assertNotEqual(summary["capture_order"], sorted(
+            os.path.relpath(path, self.root) for path in expected))
+
+    def test_main_generates_and_records_seed_when_omitted(self):
+        self._write_synthetic_pair()
+
+        def detect_both(left_jpeg, right_jpeg, classes, config):
+            return FakeClient()(left_jpeg, right_jpeg, classes, config)
+
+        summary_path = os.path.join(self.temp.name, "generated_summary.json")
+        with mock.patch.object(vision_eval.secrets, "randbelow",
+                               return_value=777), \
+             mock.patch.object(yolo_client, "detect", detect_both), \
+             contextlib.redirect_stdout(io.StringIO()):
+            code = vision_eval.main([
+                "--captures-dir", self.root, "--pipeline", "open_vocab",
+                "--output-csv", os.path.join(self.temp.name, "generated.csv"),
+                "--results-json", os.path.join(self.temp.name,
+                                               "generated.jsonl"),
+                "--summary-json", summary_path])
+        self.assertEqual(code, 0)
+        with open(summary_path) as handle:
+            summary = json.load(handle)
+        self.assertEqual(summary["shuffle_seed"], 777)
+        self.assertEqual(summary["capture_order"], [os.path.join(
+            "run1", "cap1")])
 
     def test_main_selects_each_pipeline_one_at_a_time(self):
         """`--pipeline` chooses exactly one pipeline per evaluation run."""
