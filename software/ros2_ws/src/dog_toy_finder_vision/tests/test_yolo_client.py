@@ -1,4 +1,4 @@
-"""Tests for the container-side HTTP client to the host YOLO service."""
+"""Tests for the container-side HTTP client to the host detector service."""
 
 import json
 import os

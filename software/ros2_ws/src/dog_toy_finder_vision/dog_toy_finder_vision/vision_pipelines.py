@@ -32,7 +32,7 @@ def run_pipeline(name, target, left_jpeg, right_jpeg, config, client=None):
     """Run one pipeline and return a list of answer entries.
 
     ``client`` is the detector callable injected by tests; production uses the
-    HTTP client to the host-side YOLO service.
+    HTTP client to the host-side detector service.
     """
     name = pipeline_name(name, config)
     if name == OPEN_VOCAB:

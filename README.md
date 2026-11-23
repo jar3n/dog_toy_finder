@@ -13,10 +13,10 @@ second pipeline is reserved for later).
 ## What it does
 
 - Captures a stereo pair, rectifies it, computes disparity and a point cloud,
-  then runs a vision pipeline on both rectified images. `open_vocab` uses a
-  YOLO-world style open-vocabulary detector, matches detections between the
-  eyes, and triangulates the target's location from disparity using `fx` and
-  the stereo baseline.
+  then runs a vision pipeline on both rectified images. `open_vocab` uses one
+  host-side open-vocabulary detector (YOLO-World, YOLOE-26, or Grounding DINO),
+  matches detections between the eyes, and triangulates the target's location
+  from disparity using `fx` and the stereo baseline.
 - Runs either a deterministic expanding-square search or a ROSA/LLM-driven
   search, for one toy or a comma-separated list of toy kinds.
 - Records poses/vision results to CSV and evaluates success, time, path length,
@@ -117,11 +117,13 @@ docker compose up -d micro_ros_agent
 docker compose run --rm ros2
 ```
 
-The `ros2` image has only Pillow (to convert ROS images to JPEG); YOLO-world
+The `ros2` image has only Pillow (to convert ROS images to JPEG); detector
 inference runs on the computer, not in Docker. Before starting the vision node,
 run `./scripts/start_yolo_service.sh` in another host terminal once (it creates
-a local venv, installs CPU torch/ultralytics, and downloads the weights). No
-vision Ollama server is needed; Ollama is used separately by the ROSA planner.
+a local venv, installs CPU torch/ultralytics/transformers, and downloads the
+weights). Select the detector with `DETECTOR_MODEL=yolo_world|yoloe_26|
+grounding_dino`. No vision Ollama server is needed; Ollama is used separately
+by the ROSA planner.
 
 Inside the container:
 

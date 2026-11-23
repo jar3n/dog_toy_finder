@@ -1,16 +1,21 @@
-"""Tests for the host-side YOLO HTTP service's detection core.
+"""Tests for the host-side open-vocabulary HTTP service.
 
-No ultralytics weights are needed: a fake detector returns a box around the red
-disc in each synthetic image through the same interface as the real model.
+No model weights are needed: a fake detector finds the red disc in each
+synthetic image. The tests cover backend selection on the host, the unchanged
+HTTP contract used by the container, and the Grounding DINO call conversion.
 """
 
 import base64
+import contextlib
 import importlib.util
 import io
+import json
 import os
 import sys
 import threading
+import types
 import unittest
+import urllib.request
 from http.server import ThreadingHTTPServer
 from pathlib import Path
 from unittest import mock
@@ -24,11 +29,14 @@ from dog_toy_finder_vision import vision_config  # noqa: E402
 from dog_toy_finder_vision import yolo_client  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parents[5]
-SERVICE_PATH = REPO_ROOT / "software" / "host_vision" / "yolo_service.py"
+HOST_VISION = REPO_ROOT / "software" / "host_vision"
+sys.path.insert(0, str(HOST_VISION))
+import detectors  # noqa: E402
 
-spec = importlib.util.spec_from_file_location("dtf_yolo_service", SERVICE_PATH)
-yolo_service = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(yolo_service)
+spec = importlib.util.spec_from_file_location(
+    "dtf_detector_service", HOST_VISION / "yolo_service.py")
+service = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(service)
 
 
 class _Boxes:
@@ -65,6 +73,29 @@ class RedDotModel:
         return [_Result(xyxy)]
 
 
+class _FakeBatch(dict):
+    input_ids = ["input-ids"]
+
+    def to(self, device):
+        return self
+
+
+class _FakeDinoProcessor:
+    def __call__(self, images, text, return_tensors):
+        return _FakeBatch()
+
+    def post_process_grounded_object_detection(self, outputs, input_ids,
+                                               box_threshold, text_threshold,
+                                               target_sizes):
+        return [{"boxes": [[80.0, 110.0, 100.0, 130.0]],
+                 "scores": [0.9], "labels": ["red ball"]}]
+
+
+class _FakeDinoNetwork:
+    def __call__(self, **inputs):
+        return "outputs"
+
+
 def _jpeg(center_x):
     image = np.full((240, 320, 3), 210, dtype=np.uint8)
     yy, xx = np.ogrid[:240, :320]
@@ -74,26 +105,80 @@ def _jpeg(center_x):
     return base64.b64encode(buffer.getvalue()).decode("ascii")
 
 
+def _args(detector="yolo_world", model="/tmp/weights.pt"):
+    class Args:
+        pass
+    args = Args()
+    args.detector = detector
+    args.model = model
+    args.name = "custom"
+    args.device = "cpu"
+    args.confidence = 0.4
+    args.text_threshold = 0.3
+    args.max_detections = 7
+    return args
+
+
+class ServiceConfigTests(unittest.TestCase):
+    def test_build_config_includes_backend_and_thresholds(self):
+        config = service.build_config(_args(detector="grounding_dino"))
+        self.assertEqual(config["detector"], "grounding_dino")
+        self.assertEqual(config["model_path"], "/tmp/weights.pt")
+        self.assertEqual(config["confidence_threshold"], 0.4)
+        self.assertEqual(config["text_threshold"], 0.3)
+        self.assertEqual(config["max_detections"], 7)
+
+    def test_default_weights_follow_selected_detector(self):
+        self.assertTrue(service.default_weights("yolo_world").endswith(
+            "models/yolov8s-world.pt"))
+        self.assertTrue(service.default_weights("yoloe_26").endswith(
+            "models/yoloe-26s-seg.pt"))
+        self.assertEqual(service.default_weights("grounding_dino"),
+                         "IDEA-Research/grounding-dino-tiny")
+
+    def test_per_detector_env_overrides_weights(self):
+        with mock.patch.dict(os.environ, {"YOLOE_MODEL_PATH": "/tmp/custom.pt"}):
+            self.assertEqual(service.default_weights("yoloe_26"), "/tmp/custom.pt")
+
+    def test_parse_args_selects_detector_and_derives_name(self):
+        with mock.patch.dict(os.environ, {}, clear=True):
+            args = service.parse_args([])
+        self.assertEqual(args.detector, "yolo_world")
+        self.assertTrue(args.model.endswith("yolov8s-world.pt"))
+        self.assertEqual(args.name, "yolov8s-world")
+
+        args = service.parse_args(["--detector", "grounding_dino"])
+        self.assertEqual(args.model, "IDEA-Research/grounding-dino-tiny")
+        self.assertEqual(args.name, "grounding-dino-tiny")
+
+        with mock.patch.dict(os.environ, {
+                "DETECTOR_MODEL": "yoloe_26",
+                "YOLOE_MODEL_PATH": "/opt/yoloe-26s-seg.pt"}):
+            args = service.parse_args([])
+        self.assertEqual(args.detector, "yoloe_26")
+        self.assertEqual(args.model, "/opt/yoloe-26s-seg.pt")
+        self.assertEqual(args.name, "yoloe-26s-seg")
+
+
 class HostServiceTests(unittest.TestCase):
     def setUp(self):
-        yolo_service._CONFIG = {
-            "open_vocab": {"name": "fake-world", "model_path": "fake.pt",
-                           "device": "", "confidence_threshold": 0.25,
-                           "max_detections": 10}}
-        yolo_service._MODEL_NAME = "fake-world"
-        yolo_service._MODEL = None
-
-    def test_build_config_uses_cli_values(self):
-        args = argparse_namespace()
-        config = yolo_service.build_config(args)
-        self.assertEqual(config["open_vocab"]["model_path"], "/tmp/weights.pt")
-        self.assertEqual(config["open_vocab"]["name"], "custom")
-        self.assertEqual(config["open_vocab"]["max_detections"], 7)
+        service._CONFIG = {
+            "detector": "yolo_world",
+            "model_path": "fake.pt",
+            "device": "",
+            "confidence_threshold": 0.25,
+            "text_threshold": 0.25,
+            "max_detections": 10,
+        }
+        service._MODEL_NAME = "fake-world"
+        service._WEIGHTS = "fake.pt"
+        service._DETECTOR = "yolo_world"
+        service._MODEL = None
 
     def test_detect_returns_one_detection_list_per_eye(self):
-        with mock.patch.object(yolo_service.yolo_detector, "load_model",
-                               return_value=RedDotModel()):
-            name, detections = yolo_service.detect({
+        with mock.patch.object(service.detectors, "load_detector",
+                               return_value=("yolo_world", RedDotModel())):
+            name, detections = service.detect({
                 "images": [_jpeg(90), _jpeg(70)],
                 "classes": ["red ball"],
             })
@@ -104,32 +189,51 @@ class HostServiceTests(unittest.TestCase):
         self.assertEqual(detections[0][0]["label"], "red ball")
 
     def test_request_threshold_overrides_are_applied(self):
-        model = RedDotModel()
         seen = {}
 
         def capture_config(config):
-            seen.update(config["open_vocab"])
-            return model
+            seen.update(config)
+            return "yolo_world", RedDotModel()
 
-        with mock.patch.object(yolo_service.yolo_detector, "load_model",
+        with mock.patch.object(service.detectors, "load_detector",
                                side_effect=capture_config):
-            yolo_service.detect({"images": [_jpeg(90), _jpeg(70)],
-                                 "target": "red ball",
-                                 "confidence_threshold": 0.7,
-                                 "max_detections": 3})
+            service.detect({"images": [_jpeg(90), _jpeg(70)],
+                            "target": "red ball",
+                            "confidence_threshold": 0.7,
+                            "max_detections": 3})
         self.assertEqual(seen["confidence_threshold"], 0.7)
         self.assertEqual(seen["max_detections"], 3)
 
+    def test_grounding_dino_backend_is_used_when_selected(self):
+        service._CONFIG["detector"] = "grounding_dino"
+        seen = {}
+
+        def capture_config(config):
+            seen.update(config)
+            return "grounding_dino", (_FakeDinoProcessor(), _FakeDinoNetwork())
+
+        fake_torch = types.SimpleNamespace(no_grad=contextlib.nullcontext)
+        with mock.patch.dict(sys.modules, {"torch": fake_torch}), \
+                mock.patch.object(service.detectors, "load_detector",
+                                  side_effect=capture_config):
+            service.detect({"images": [_jpeg(90), _jpeg(70)],
+                            "classes": ["red ball"]})
+        self.assertEqual(seen["detector"], "grounding_dino")
+        self.assertIn("text_threshold", seen)
+
     def test_http_round_trip_with_container_client(self):
         """The real HTTP path works without a model install or ROS graph."""
-        with mock.patch.object(yolo_service.yolo_detector, "load_model",
-                               return_value=RedDotModel()):
-            server = ThreadingHTTPServer(("127.0.0.1", 0), yolo_service.Handler)
+        with mock.patch.object(service.detectors, "load_detector",
+                               return_value=("yolo_world", RedDotModel())):
+            server = ThreadingHTTPServer(("127.0.0.1", 0), service.Handler)
             thread = threading.Thread(target=server.serve_forever, daemon=True)
             thread.start()
             self.addCleanup(server.server_close)
             self.addCleanup(server.shutdown)
             url = "http://127.0.0.1:%d" % server.server_port
+            with urllib.request.urlopen(url + "/health") as response:
+                health = json.load(response)
+            self.assertEqual(health["detector"], "yolo_world")
             config = vision_config.load_config()
             with mock.patch.dict(os.environ, {"YOLO_SERVICE_URL": url}):
                 left, right, name = yolo_client.detect(
@@ -142,19 +246,9 @@ class HostServiceTests(unittest.TestCase):
 
     def test_invalid_requests_are_rejected(self):
         with self.assertRaises(ValueError):
-            yolo_service.detect({"images": ["only-one"]})
+            service.detect({"images": ["only-one"]})
         with self.assertRaises(ValueError):
-            yolo_service.detect({"images": [_jpeg(90), _jpeg(70)]})
-
-
-def argparse_namespace():
-    class Args:
-        name = "custom"
-        model = "/tmp/weights.pt"
-        device = "cpu"
-        confidence = 0.4
-        max_detections = 7
-    return Args()
+            service.detect({"images": [_jpeg(90), _jpeg(70)]})
 
 
 if __name__ == "__main__":

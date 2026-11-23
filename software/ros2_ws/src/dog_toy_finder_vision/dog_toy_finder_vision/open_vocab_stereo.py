@@ -1,6 +1,6 @@
 """Open-vocabulary stereo detection and triangulation.
 
-The YOLO-world inference runs in a separate HTTP service on the computer (see
+Open-vocabulary inference runs in a separate HTTP service on the computer (see
 ``software/host_vision/yolo_service.py``). This container-side module decodes
 only enough JPEG metadata to know the image width, asks the service to detect
 the requested text target independently in the rectified left and right eyes,

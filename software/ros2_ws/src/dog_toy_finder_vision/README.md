@@ -2,11 +2,12 @@
 
 `dog_toy_finder_vision` turns the two ESP32-CAM eyes into a ROS 2 stereo
 pipeline and runs a **selectable vision pipeline on the same rectified colour
-pair**. `open_vocab` is implemented: a YOLO-world style open-vocabulary detector
+pair**. `open_vocab` is implemented: one host-side open-vocabulary detector
 runs on both rectified images, detections are matched between the eyes, and the
 target location is triangulated from disparity using `fx` and the stereo
-baseline. `second` is a reserved placeholder that is not configured yet;
-selecting it reports a clear error.
+baseline. The detector runs on the computer (YOLO-World, YOLOE-26, or Grounding
+DINO); `second` is a reserved placeholder that is not configured yet.
+Selecting it reports a clear error.
 
 The pipeline is chosen by the launch arg `pipeline:=open_vocab|second`, the
 `VISION_PIPELINE` environment variable, or the top-level `pipeline` key in
@@ -61,15 +62,17 @@ The path is set once in `scripts/full_system_eval.conf` as
 measured camera and toy values there:
 
 - `pipeline` — `open_vocab` (default) or the reserved `second`
-- `open_vocab.service_url` — host YOLO service URL (default
+- `open_vocab.service_url` — host detector service URL (default
   `http://localhost:5006`; `YOLO_SERVICE_URL` overrides it)
 - `open_vocab.timeout_s` — HTTP timeout in seconds
 - `open_vocab.name` — fallback model name recorded in results and trial CSVs
   (the host service may report its own name)
 - `open_vocab.confidence_threshold`, `max_detections`, `min_disparity`,
   `max_disparity`, `max_vertical_delta_px` — detector and stereo-matching limits
-- Weights and torch device are **not** in the YAML: configure them on the host
-  service with `YOLO_MODEL_PATH` / `YOLO_DEVICE` (see below)
+- The detector backend, weights, and torch device are **not** in the YAML:
+  configure them on the host service with `DETECTOR_MODEL`,
+  `YOLO_MODEL_PATH` / `YOLOE_MODEL_PATH` / `GROUNDING_DINO_MODEL`, and
+  `YOLO_DEVICE` (see below)
 - `camera.fx`, `fy`, `cx`, `cy` — calibrated intrinsics in pixels
 - `camera.baseline_m` — spacing between the two optical centres
 - `camera.depth_min_m`, `depth_max_m` — valid metric depth range
@@ -92,19 +95,23 @@ mapping, and offline scoring.
 
 ## Open-vocabulary pipeline
 
-`open_vocab` sends both rectified JPEGs and the text target to a YOLO-world
+`open_vocab` sends both rectified JPEGs and the text target to a detector
 service running **on the computer**, not in the ROS container. Start it once
 from the repository root:
 
 ```bash
-./scripts/start_yolo_service.sh
+./scripts/start_yolo_service.sh                        # YOLO-World
+DETECTOR_MODEL=yoloe_26 ./scripts/start_yolo_service.sh
+DETECTOR_MODEL=grounding_dino ./scripts/start_yolo_service.sh
 ```
 
-The script creates `software/host_vision/.venv`, installs CPU torch and
-ultralytics, downloads `software/host_vision/models/yolov8s-world.pt`, and serves
-`POST /detect` on `http://localhost:5006` (host networking lets the container
-reach it). Set `YOLO_MODEL_PATH` or pass `--device` to change weights/device;
-`GET /health` reports the loaded model name.
+One detector runs at a time. The script creates `software/host_vision/.venv`,
+installs CPU torch/ultralytics/transformers, downloads the selected weights
+(`yolov8s-world.pt`, `yoloe-26s-seg.pt`, or `IDEA-Research/grounding-dino-tiny`),
+and serves `POST /detect` on `http://localhost:5006` (host networking lets the
+container reach it). Override weights with `YOLO_MODEL_PATH`, `YOLOE_MODEL_PATH`,
+or `GROUNDING_DINO_MODEL`; pass `--device` to change the torch device.
+`GET /health` reports the selected detector and model name.
 
 The service detects the text target independently in each eye. The container
 pairs detections by label, image row, and horizontal disparity; distance is

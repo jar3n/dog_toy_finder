@@ -10,11 +10,11 @@ one scoring tool (`dog_toy_finder_data.llm_trials`).
 The vision pipeline is selected with `pipeline:=open_vocab|second` on the launch
 command, `VISION_PIPELINE` in `scripts/full_system_eval.conf`, the top-level
 `pipeline` key in `vision_detectors.yaml`, or `vision_eval --pipeline` (explicit
-selections win). `open_vocab` is implemented: a YOLO-world style
-open-vocabulary detector runs on both rectified images, matching detections are
-paired, and distance comes from stereo triangulation using `fx` and the stereo
-baseline. `second` is a reserved placeholder that is not configured yet;
-selecting it reports a clear error.
+selections win). `open_vocab` is implemented: one host-side open-vocabulary
+detector (YOLO-World, YOLOE-26, or Grounding DINO) runs on both rectified
+images, matching detections are paired, and distance comes from stereo
+triangulation using `fx` and the stereo baseline. `second` is a reserved
+placeholder that is not configured yet; selecting it reports a clear error.
 
 Vision answers use a numeric `lateral_bearing_deg` as the primary lateral
 measurement: degrees from the optical axis, positive to the robot's left. The
@@ -69,15 +69,17 @@ source /opt/ros/humble/setup.bash
 source install/setup.bash
 ```
 
-The `ros2` image ships Pillow for JPEG conversion. YOLO-world itself runs on
-the computer: start `./scripts/start_yolo_service.sh` once, which creates a
-host venv with CPU torch/ultralytics and downloads weights to
-`software/host_vision/models/yolov8s-world.pt`. The container sends rectified
-JPEGs to that service at `YOLO_SERVICE_URL` (default `http://localhost:5006`).
-No vision Ollama server is needed. Ollama is only used by the ROSA planning
-comparison in Part B; see
-[`software/rosa_agent/README.md`](../../software/rosa_agent/README.md) for its
-setup.
+The `ros2` image ships Pillow for JPEG conversion. Open-vocabulary detection
+itself runs on the computer: start `./scripts/start_yolo_service.sh` once, which
+creates a host venv with CPU torch/ultralytics/transformers and downloads the
+selected weights to `software/host_vision/models/`. One detector runs at a
+time; choose it with `DETECTOR_MODEL=yolo_world|yoloe_26|grounding_dino`
+(defaults: `yolov8s-world.pt`, `yoloe-26s-seg.pt`, and
+`IDEA-Research/grounding-dino-tiny`). The container sends rectified JPEGs to
+that service at `YOLO_SERVICE_URL` (default `http://localhost:5006`). No vision
+Ollama server is needed. Ollama is only used by the ROSA planning comparison in
+Part B; see [`software/rosa_agent/README.md`](../../software/rosa_agent/README.md)
+for its setup.
 
 Confirm the data package is available:
 
@@ -101,11 +103,12 @@ Edit
 own copy). At minimum, set the calibrated `fx`, `fy`, `cx`, `cy`, `baseline_m`,
 and the valid `camera.depth_min_m`/`depth_max_m`. The top-level `pipeline` key
 selects the vision pipeline (`open_vocab` by default); `open_vocab.service_url`
-points at the host YOLO service and `open_vocab.name` is the fallback model name
-recorded in results and trial CSVs. Weights and torch device are configured on
-the host service via `YOLO_MODEL_PATH` / `YOLO_DEVICE`. `fx` and `baseline_m`
-drive stereo triangulation (`distance = fx * baseline / disparity`), and
-`cx`/`fx` set the bearing.
+points at the host detector service and `open_vocab.name` is the fallback model
+name recorded in results and trial CSVs. The detector backend, weights, and
+torch device are configured on the host service via `DETECTOR_MODEL`,
+`YOLO_MODEL_PATH` / `YOLOE_MODEL_PATH` / `GROUNDING_DINO_MODEL`, and
+`YOLO_DEVICE`. `fx` and `baseline_m` drive stereo triangulation
+(`distance = fx * baseline / disparity`), and `cx`/`fx` set the bearing.
 
 `lateral_bearing_deg` is measured from the camera's optical axis in degrees:
 

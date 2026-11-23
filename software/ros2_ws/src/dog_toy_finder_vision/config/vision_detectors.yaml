@@ -37,10 +37,12 @@ target:
   # left/center/right label and no lateral_bearing_deg field.
   position_bearing_deg: 15.0
 
-# open_vocab: the YOLO-world detector runs on the computer as an HTTP service
-# (scripts/start_yolo_service.sh); this container only sends JPEGs and matches
-# the returned detections. Weight path and torch device are configured on the
-# host service via YOLO_MODEL_PATH / --device, not here.
+# open_vocab: an open-vocabulary detector runs on the computer as an HTTP
+# service (scripts/start_yolo_service.sh); this container only sends JPEGs and
+# matches the returned detections. One detector runs at a time: yolo_world,
+# yoloe_26, or grounding_dino. The backend and weights are configured on the
+# host via DETECTOR_MODEL and YOLO_MODEL_PATH / YOLOE_MODEL_PATH /
+# GROUNDING_DINO_MODEL (plus YOLO_DEVICE), not here.
 open_vocab:
   name: yolov8s-world            # fallback model name; the service may report its own
   service_url: http://localhost:5006

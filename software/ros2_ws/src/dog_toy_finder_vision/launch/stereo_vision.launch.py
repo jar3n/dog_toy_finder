@@ -29,8 +29,8 @@ Run inside the ROS 2 container:
 ``pipeline`` falls back to ``$VISION_PIPELINE``, then the detector YAML's
 ``pipeline`` key, then ``open_vocab``. ``second`` is reserved for a pipeline
 that has not been described yet. ``open_vocab`` sends rectified JPEGs to the
-host-side YOLO service (``scripts/start_yolo_service.sh``); torch and weights
-are not installed in this container.
+host-side detector service (``scripts/start_yolo_service.sh``); torch and
+weights are not installed in this container.
 
 The default capture size is 320x240. At 640x480 each colour frame is ~900 KB
 and the host's DDS socket buffers drop a large fraction of them, which makes

@@ -20,20 +20,25 @@ cd docker
 docker compose build
 ```
 
-The image includes Pillow for JPEG conversion, but YOLO-world inference runs on
-the computer, not in Docker. Start the host detector service once before the
-vision node:
+The image includes Pillow for JPEG conversion, but open-vocabulary inference
+runs on the computer, not in Docker. Start the host detector service once
+before the vision node:
 
 ```bash
 cd /workspace   # or the repository root on the host
-./scripts/start_yolo_service.sh
+./scripts/start_yolo_service.sh                        # YOLO-World (default)
+DETECTOR_MODEL=yoloe_26 ./scripts/start_yolo_service.sh
+DETECTOR_MODEL=grounding_dino ./scripts/start_yolo_service.sh
 ```
 
-It creates `software/host_vision/.venv`, installs CPU torch and ultralytics,
-downloads `software/host_vision/models/yolov8s-world.pt`, and serves HTTP on
-`YOLO_SERVICE_URL` (default `http://localhost:5006`). Set `YOLO_MODEL_PATH` or
-`YOLO_DEVICE` to change the weights or torch device. Ollama is only needed for
-the ROSA/planning comparisons; vision does not use it.
+One detector runs at a time. The defaults are `yolov8s-world.pt`,
+`yoloe-26s-seg.pt`, and `IDEA-Research/grounding-dino-tiny`; override them with
+`YOLO_MODEL_PATH`, `YOLOE_MODEL_PATH`, or `GROUNDING_DINO_MODEL`. The script
+creates `software/host_vision/.venv`, installs CPU torch/ultralytics/
+transformers, downloads the selected weights, and serves HTTP on
+`YOLO_SERVICE_URL` (default `http://localhost:5006`). `YOLO_DEVICE` selects the
+torch device; `GROUNDING_DINO_TEXT_THRESHOLD` sets its text threshold. Ollama is
+only needed for the ROSA/planning comparisons; vision does not use it.
 
 ## 2. Flash the Pico firmware
 

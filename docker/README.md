@@ -18,11 +18,13 @@ docker compose build ros2
 ```
 
 The `ros2` image installs Pillow so vision nodes can convert ROS images to JPEG.
-YOLO-world inference for the `open_vocab` pipeline runs on the computer via
-`./scripts/start_yolo_service.sh` (host venv with CPU torch, ultralytics, and
-weights in `software/host_vision/models/`); the container only talks to it over
-HTTP at `YOLO_SERVICE_URL` (default `http://localhost:5006`). Vision does not
-need an Ollama server; Ollama is used separately for ROSA planning.
+Open-vocabulary inference for the `open_vocab` pipeline runs on the computer via
+`./scripts/start_yolo_service.sh` (host venv with CPU torch, ultralytics,
+transformers, and weights in `software/host_vision/models/`). One detector runs
+at a time, selected with `DETECTOR_MODEL` (`yolo_world`, `yoloe_26`, or
+`grounding_dino`). The container only talks to it over HTTP at
+`YOLO_SERVICE_URL` (default `http://localhost:5006`). Vision does not need an
+Ollama server; Ollama is used separately for ROSA planning.
 
 ## micro-ROS agent
 

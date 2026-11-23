@@ -1,8 +1,12 @@
-# Host-only dependencies for the YOLO-world detector service.
+# Host-only dependencies for the open_vocab detector service.
 # Install CPU torch first so pip does not pull a large CUDA runtime:
 #   pip install torch --index-url https://download.pytorch.org/whl/cpu
 #   pip install -r software/host_vision/requirements.txt
-ultralytics>=8.3,<9
+# YOLOE-26 requires ultralytics >= 8.4; Grounding DINO uses transformers/timm.
+ultralytics>=8.4,<9
+transformers>=4.45
+timm
+accelerate
 pillow
 numpy
 pyyaml

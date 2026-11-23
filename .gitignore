@@ -52,5 +52,7 @@ software/build/
 software/install/
 software/log/
 
-# Host-side YOLO weights (downloaded locally)
+# Host-side detector weights/caches (downloaded locally)
 software/host_vision/models/*.pt
+software/host_vision/models/*.ts
+software/host_vision/models/hf/
