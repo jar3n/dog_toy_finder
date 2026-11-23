@@ -1,7 +1,7 @@
 """Launch the LLM vision-trial collector.
 
-Records one row per model for every /vision/ask, so several VLMs can be
-compared on the same rectified stereo pair.
+Records one row per pipeline answer for every /vision/ask, so the selected
+vision pipeline can be evaluated on the same rectified stereo pair.
 Run it alongside the vision node:
 
     ros2 launch dog_toy_finder_data collect_llm_trials.launch.py \\

@@ -1,6 +1,6 @@
 # Evaluation data
 
-Generated vision and planning comparison trials live here. The directory is
+Generated vision-pipeline and planning comparison trials live here. The directory is
 next to `hardware/` and `software/` in the repository and is mounted at
 `/workspace/data` inside the ROS 2 container.
 
@@ -33,17 +33,20 @@ data/
   `meta.json` records the target, intrinsics, image timestamps, and
   `ground_truth` (including `lateral_bearing_deg`).
 - `vision_eval_*` files are written by `dog_toy_finder_vision vision_eval`,
-  which replays every capture through the configured Ollama models.
-  `vision_eval_trials.csv` has one row per capture and model, with ground truth
-  and scored columns already filled.
+  which replays every capture through the configured vision pipeline.
+  `vision_eval_trials.csv` has one scored row per capture per configured model
+  name produced by the pipeline, with ground truth and scored columns already
+  filled. `vision_eval_summary.json` records the selected pipeline as well as
+  the per-name summary. The trial CSV schema is unchanged: new vision rows use
+  `method=open_vocab`, while `method=ml` only appears on legacy rows.
 - `vision/<live_run_id>/` is the optional live `/vision/ask` collector
-  (`collect_llm_trials.launch.py`), one row per model per request.
+  (`collect_llm_trials.launch.py`), one row per answer entry per request.
 - `planning/` is written by `rosa_agent --compare --output-csv` (and the
   interactive session when `--output-csv` is set), one row per prompt and model.
 - `*_scored.csv` is created by `ros2 run dog_toy_finder_data llm_trials score`
   next to the source CSV.
-- `manifest.json` is collector metadata: run ID, models, row count, and the
-  distance/bearing tolerances.
+- `manifest.json` is collector metadata: run ID, pipeline, model names, row
+  count, and the distance/bearing tolerances.
 
 The `vision/` and `planning/` directories are tracked so the layout exists
 after a clone; generated contents are ignored by git. Use a new `run_id` for

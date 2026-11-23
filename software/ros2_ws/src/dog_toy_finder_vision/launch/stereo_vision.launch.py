@@ -13,19 +13,24 @@ This single entry point replaces the old ``stereo.launch.py`` and
      synchronised and frames arrive in bursts.
   3. ``stereo_image_proc`` -- disparity and point cloud from the rectified
      pair, using approximate sync.
-  4. ``vision_node`` -- answers ``/vision/ask`` with one or more Ollama vision
-     models over the same rectified colour pair.
+  4. ``vision_node`` -- answers ``/vision/ask`` with the selected vision
+     pipeline over the same rectified colour pair.
 
-Every stage can be switched off independently (``stereo``, ``stereo_proc``,
-``vision``, ``ml``) so the same launch file serves depth-only debugging, model
-comparison runs, and the full dog-toy-finder stack.
+The stereo stages and the vision node can be switched off independently
+(``stereo``, ``stereo_proc``, ``vision``) so the same launch file serves
+depth-only debugging and the full dog-toy-finder stack.
 
 Run inside the ROS 2 container:
     ros2 launch dog_toy_finder_vision stereo_vision.launch.py
     ros2 launch dog_toy_finder_vision stereo_vision.launch.py \\
-        models:="gemma4,minicpm-v4.5"
-    ros2 launch dog_toy_finder_vision stereo_vision.launch.py ml:=false
+        pipeline:=open_vocab
     ros2 launch dog_toy_finder_vision stereo_vision.launch.py vision:=false
+
+``pipeline`` falls back to ``$VISION_PIPELINE``, then the detector YAML's
+``pipeline`` key, then ``open_vocab``. ``second`` is reserved for a pipeline
+that has not been described yet. ``open_vocab`` sends rectified JPEGs to the
+host-side YOLO service (``scripts/start_yolo_service.sh``); torch and weights
+are not installed in this container.
 
 The default capture size is 320x240. At 640x480 each colour frame is ~900 KB
 and the host's DDS socket buffers drop a large fraction of them, which makes
@@ -57,7 +62,6 @@ def generate_launch_description():
     stereo_enabled = LaunchConfiguration("stereo")
     stereo_proc_enabled = LaunchConfiguration("stereo_proc")
     vision_enabled = LaunchConfiguration("vision")
-    ml_enabled = LaunchConfiguration("ml")
 
     stereo_camera = Node(
         package="dog_toy_finder_vision",
@@ -172,10 +176,8 @@ def generate_launch_description():
         condition=IfCondition(vision_enabled),
         parameters=[{
             "config_path": LaunchConfiguration("config_path"),
-            "ml_enabled": ml_enabled,
-            "model": LaunchConfiguration("model"),
-            "models": LaunchConfiguration("models"),
-            "ollama_url": LaunchConfiguration("ollama_url"),
+            "pipeline": LaunchConfiguration("pipeline"),
+            "yolo_service_url": LaunchConfiguration("yolo_service_url"),
         }],
     )
 
@@ -207,11 +209,15 @@ def generate_launch_description():
                               description="Start disparity + point cloud (needs stereo:=true)"),
         DeclareLaunchArgument("vision", default_value="true",
                               description="Start the vision_node detector server"),
-        DeclareLaunchArgument("ml", default_value="true",
-                              description="Run the Ollama vision model(s)"),
         DeclareLaunchArgument("config_path",
                               default_value=DEFAULT_DETECTOR_CONFIG,
-                              description="YAML with physical measurements and detector thresholds"),
+                              description="YAML with stereo geometry and pipeline settings"),
+        DeclareLaunchArgument("pipeline", default_value="",
+                              description="Vision pipeline: open_vocab|second "
+                                          "(default: $VISION_PIPELINE / YAML / open_vocab)"),
+        DeclareLaunchArgument("yolo_service_url", default_value="",
+                              description="Host YOLO detector service URL "
+                                          "(default: $YOLO_SERVICE_URL / YAML / http://localhost:5006)"),
 
         # --- stereo_image_proc tuning ---
         DeclareLaunchArgument("approximate_sync", default_value="true",
@@ -224,14 +230,6 @@ def generate_launch_description():
                               description="Disparity to begin searching at (px)"),
         DeclareLaunchArgument("disparity_range", default_value="64",
                               description="Number of disparities to search (multiple of 16)"),
-
-        # --- VLM ---
-        DeclareLaunchArgument("model", default_value="gemma4",
-                              description="single VLM (used when `models` is empty)"),
-        DeclareLaunchArgument("models", default_value="",
-                              description="comma list of VLMs to compare, e.g. gemma4,minicpm-v4.5"),
-        DeclareLaunchArgument("ollama_url", default_value="http://localhost:11434",
-                              description="Ollama endpoint"),
 
         stereo_group,
         vision_node,

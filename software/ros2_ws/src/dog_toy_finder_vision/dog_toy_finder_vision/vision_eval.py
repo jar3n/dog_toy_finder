@@ -1,23 +1,23 @@
 """Offline batch evaluation of saved rectified stereo captures.
 
 Captures are written first by ``vision_capture``; this tool replays every saved
-pair through the configured Ollama vision models, then writes a trial CSV that
-already contains the operator's ground truth.
+pair through the selected vision pipeline, then writes a trial CSV that already
+contains the operator's ground truth.
 
 No live camera topics and no ROS graph are needed. Only the shared detector
-config, the saved JPEGs, and a reachable Ollama server are used.
+config, the saved JPEGs, and the host YOLO detector service are used.
 
 Usage inside the ROS 2 container::
 
     ros2 run dog_toy_finder_vision vision_eval \
         --captures-dir /workspace/data/vision/captures \
-        --models gemma4,minicpm-v4.5
+        --pipeline open_vocab
 
 Outputs (defaults next to the captures directory)::
 
-    vision_eval_trials.csv     one scored row per capture and model
+    vision_eval_trials.csv     one scored row per capture and model name
     vision_eval_results.jsonl  full /vision/result-style entries for inspection
-    vision_eval_summary.json   per-model aggregate metrics
+    vision_eval_summary.json   aggregate metrics and the selected pipeline
 """
 
 import argparse
@@ -26,7 +26,7 @@ import os
 import sys
 from datetime import datetime
 
-from . import ollama_vlm, vision_answer, vision_config
+from . import vision_config, vision_pipelines
 
 # Both packages are installed together in the ROS workspace. The fallback lets
 # the tool run from a source checkout in a plain Python environment, where the
@@ -75,37 +75,26 @@ def load_capture(path):
     return meta, images
 
 
-def evaluate_capture(path, config, models, chat_url, compare_models, timeout,
-                     generate_url=None):
+def evaluate_capture(path, config, pipeline=None, client=None):
     """Replay one capture and return a /vision/result-style dict."""
     meta, images = load_capture(path)
+    name = vision_pipelines.pipeline_name(pipeline, config)
     run_id = str(meta.get("run_id") or "captures")
     capture_id = str(meta.get("capture_id") or os.path.basename(path))
     target = str(meta.get("target") or "")
     result = {
         "id": capture_id,
         "target": target,
+        "pipeline": name,
         "models": [],
         "stereo": True,
         "image_source": "rectified_color",
         "image": os.path.join(run_id, capture_id, "left.jpg"),
         "capture_dir": path,
     }
-    entries = []
-    prompt = vision_answer.prompt_for(target, config)
-    jpegs = [images["left_jpeg"], images["right_jpeg"]]
-    for model in models:
-        try:
-            entries.append(ollama_vlm.ask_model(
-                model, jpegs, target, prompt, chat_url,
-                compare_models=compare_models, timeout=timeout,
-                config=config))
-        finally:
-            if compare_models:
-                ollama_vlm.unload_model(
-                    model, generate_url or (
-                        chat_url.rstrip("/").rsplit("/", 1)[0]
-                        + "/api/generate"), timeout=15)
+    entries = vision_pipelines.run_pipeline(
+        name, target, images["left_jpeg"], images["right_jpeg"],
+        config, client=client)
     result["results"] = entries
     result["models"] = [entry.get("model", "unknown") for entry in entries]
     return result, meta
@@ -124,15 +113,9 @@ def _build_parser():
     parser.add_argument("--run-id", default=None,
                         help="only evaluate captures from this run id")
     parser.add_argument("--config", default=None, help="detector YAML path")
-    parser.add_argument("--models", default=None,
-                        help="comma-separated Ollama models (default: "
-                             "$VISION_MODELS / $VISION_MODEL / gemma4)")
-    parser.add_argument("--ollama-url", default=None,
-                        help="Ollama endpoint (default: $OLLAMA_URL or localhost)")
-    parser.add_argument("--compare-models", action="store_true",
-                        help="unload each model between requests, as live compare mode")
-    parser.add_argument("--timeout", type=float, default=180.0,
-                        help="Ollama request timeout in seconds")
+    parser.add_argument("--pipeline", default=None,
+                        help="vision pipeline: open_vocab|second (default: "
+                             "$VISION_PIPELINE / detector YAML / open_vocab)")
     parser.add_argument("--tolerance", type=float, default=0.25,
                         help="distance tolerance in metres")
     parser.add_argument("--bearing-tolerance", type=float, default=5.0,
@@ -151,6 +134,7 @@ def main(argv=None):
     """Replay all saved captures and write scored comparison trials."""
     args = _build_parser().parse_args(argv)
     config = vision_config.load_config(args.config)
+    pipeline = vision_pipelines.pipeline_name(args.pipeline, config)
     if args.captures_dir:
         root = os.path.abspath(os.path.expanduser(args.captures_dir))
     elif args.capture:
@@ -166,22 +150,6 @@ def main(argv=None):
     summary_json = args.summary_json or _default_output(
         output_root, "vision_eval_summary.json")
 
-    if args.models is None:
-        models_text = os.environ.get("VISION_MODELS") \
-            or os.environ.get("VISION_MODEL") or "gemma4"
-    else:
-        models_text = args.models
-    models = [m.strip() for m in models_text.split(",") if m.strip()]
-    if not models:
-        print("No models configured; set --models or VISION_MODELS", file=sys.stderr)
-        return 1
-    base_url = (args.ollama_url or os.environ.get(
-        "OLLAMA_URL", "http://localhost:11434")).rstrip("/")
-
-    # Multi-model comparisons unload each model after its answer, matching the
-    # live node's cold-load policy; a single model stays warm unless forced.
-    compare_models = args.compare_models or len(models) > 1
-
     captures = list(iter_captures(root, args.run_id, args.capture))
     if args.limit:
         captures = captures[:args.limit]
@@ -193,10 +161,7 @@ def main(argv=None):
     results = []
     for path in captures:
         try:
-            result, meta = evaluate_capture(
-                path, config, models, base_url + "/api/chat",
-                compare_models, args.timeout,
-                generate_url=base_url + "/api/generate")
+            result, meta = evaluate_capture(path, config, pipeline)
         except Exception as error:
             print("Failed to replay %s: %s" % (path, error), file=sys.stderr)
             continue
@@ -226,8 +191,8 @@ def main(argv=None):
         "captures_dir": root,
         "captures": len(captures),
         "rows": len(rows),
-        "models": models,
-        "compare_models": compare_models,
+        "pipeline": pipeline,
+        "models": sorted({row["model"] for row in rows}),
         "distance_tolerance": args.tolerance,
         "bearing_tolerance": args.bearing_tolerance,
         "config_path": config.get("config_path"),
@@ -239,8 +204,8 @@ def main(argv=None):
     with open(summary_json, "w") as handle:
         json.dump(manifest, handle, indent=2)
 
-    print("Evaluated %d capture(s), wrote %d row(s) to %s"
-          % (len(captures), len(rows), output_csv))
+    print("Evaluated %d capture(s) with %s, wrote %d row(s) to %s"
+          % (len(captures), pipeline, len(rows), output_csv))
     llm_trials.print_summaries(summaries, as_json=args.json)
     return 0
 

@@ -2,7 +2,7 @@
 
 These run the real search nodes (`autonomous_search`, `toy_search`)
 and the ROSA `run_search` tool against a **fake robot** and **scripted fake
-vision**, so no hardware, cameras, or VLMs are needed. The fake robot
+vision**, so no hardware, cameras, or vision pipeline are needed. The fake robot
 integrates `/cmd_vel_auto` (the Mover input) into `/odometry/filtered`; the
 fake vision answers `/vision/ask` from a script.
 
@@ -39,7 +39,7 @@ docker run --rm --network host -v "$PWD":/workspace \
 |---|---|
 | `note_found` | Fast unit checks: single-target latching, find-all counting, position dedupe, invisible case (both nodes) |
 | `size` | Search homes on a `small` toy and stops when it looks `medium` |
-| `distance` | Search stops on VLM `distance_m` within `found_distance` |
+| `distance` | Search stops on vision `distance_m` within `found_distance` |
 | `notfound` | Toy never appears: full 4-side coverage, `found=False` |
 | `findall` | Two distinct toys found; keeps sweeping (no early exit); exactly two CSV found rows |
 | `multitarget` | `target="red ball,blue bone"`: only the visible kind is found, labelled correctly |

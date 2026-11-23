@@ -1,12 +1,9 @@
-"""Vision node answering ``/vision/ask`` with Ollama vision models.
+"""Vision node answering ``/vision/ask`` with a selectable pipeline.
 
-The same rectified stereo pair is sent to one or more Ollama vision models.
-Models are loaded and unloaded one at a time, even when ``models`` lists
-several, so each model gets all of the Ollama host's VRAM.
-
-The node reads ``vision_detectors.yaml`` for camera intrinsics, baseline, valid
-depth range, and the toy's real-world measurements; those numbers are included
-in the model prompt.
+Both pipelines take the operator's text target and the rectified left/right
+JPEGs, then return one answer entry with the object's location. The node reads
+``vision_detectors.yaml`` for the camera intrinsics, baseline, valid depth
+range, and open-vocabulary detector settings.
 
 Subscribes  /stereo/{left,right}/image_rect_color  sensor_msgs/Image
              /vision/ask                         std_msgs/String
@@ -15,10 +12,10 @@ Publishes   /vision/result                       std_msgs/String (JSON)
 Parameters
 ----------
 config_path      : str   detector YAML path (from full_system_eval.conf)
-ml_enabled       : bool  run the Ollama model(s)
-model            : str   fallback single model when `models` is empty
-models           : str   comma-separated list of Ollama vision models
-ollama_url       : str   Ollama endpoint
+pipeline         : str   open_vocab|second (empty = VISION_PIPELINE / YAML)
+yolo_service_url : str   host YOLO detector service (empty = env / YAML / default)
+left_rect_topic  : str   override the left rectified-color topic
+right_rect_topic : str   override the right rectified-color topic
 """
 
 import io
@@ -36,47 +33,42 @@ from rclpy.time import Time
 from sensor_msgs.msg import Image
 from std_msgs.msg import String
 
-from . import ollama_vlm, vision_answer, vision_config
+from . import vision_config, vision_pipelines
 
 RESULTS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "results", "images")
 FRESH_PHOTO_TIMEOUT = 5.0
+
+# Copied from a single pipeline answer to the top level of /vision/result for
+# the mapping, planning, and trial collector consumers that expect them there.
+TOP_LEVEL_KEYS = (
+    "description", "target_visible", "position", "lateral_bearing_deg",
+    "size", "distance_m", "obstacle_ahead", "path_clear", "seconds",
+    "method", "distance_source", "model", "bbox_px", "bbox_right_px",
+    "disparity_px",
+)
+
 
 class VisionNode(Node):
     def __init__(self):
         super().__init__("vision_node")
         self.declare_parameter("config_path", "")
-        self.declare_parameter("ml_enabled", True)
+        self.declare_parameter("pipeline", "")
+        self.declare_parameter("yolo_service_url", "")
         self.declare_parameter("left_rect_topic", "")
         self.declare_parameter("right_rect_topic", "")
-        self.declare_parameter("model", os.environ.get("VISION_MODEL", "gemma4"))
-        self.declare_parameter("models", "")
-        self.declare_parameter("ollama_url", os.environ.get(
-            "OLLAMA_URL", "http://localhost:11434"))
 
         self.config = vision_config.load_config(
             self.get_parameter("config_path").value or None)
-        self.ml_enabled = (
-            bool(self.get_parameter("ml_enabled").value)
-            and bool(vision_config.get(self.config, "ml", "enabled", default=True)))
-        if not self.ml_enabled:
-            raise ValueError("Vision ML path is disabled; check the detector config")
+        service_url = self.get_parameter("yolo_service_url").value
+        if service_url:
+            self.config.setdefault("open_vocab", {})["service_url"] = service_url
+        self.pipeline = vision_pipelines.pipeline_name(
+            self.get_parameter("pipeline").value, self.config)
 
         left_topic = self.get_parameter("left_rect_topic").value or \
             vision_config.get(self.config, "camera", "left_rectified_topic")
         right_topic = self.get_parameter("right_rect_topic").value or \
             vision_config.get(self.config, "camera", "right_rectified_topic")
-
-        self.base_url = self.get_parameter("ollama_url").value.rstrip("/")
-        self.chat_url = self.base_url + "/api/chat"
-        self.generate_url = self.base_url + "/api/generate"
-        models_param = self.get_parameter("models").value.strip()
-        if models_param:
-            self.models = [m.strip() for m in models_param.split(",") if m.strip()]
-        else:
-            self.models = [self.get_parameter("model").value]
-        # A single model is normal robot operation: keep it warm. Multiple
-        # models are a comparison run: unload each one before loading the next.
-        self.compare_models = len(self.models) > 1
 
         self.lock = threading.Lock()
         self.latest = None          # (left_msg, right_msg)
@@ -91,9 +83,8 @@ class VisionNode(Node):
         threading.Thread(target=self.worker, daemon=True).start()
         os.makedirs(RESULTS, exist_ok=True)
         self.get_logger().info(
-            "Vision node ready: rectified stereo %s + %s, ML models=%s at %s"
-            % (left_topic, right_topic,
-               self.models if self.ml_enabled else "disabled", self.chat_url))
+            "Vision node ready: pipeline=%s, rectified stereo %s + %s"
+            % (self.pipeline, left_topic, right_topic))
 
     def on_left(self, msg):
         with self.lock:
@@ -138,15 +129,13 @@ class VisionNode(Node):
         img.save(buf, format="JPEG", quality=85)
         return buf.getvalue()
 
-    def prompt(self, target):
-        return vision_answer.prompt_for(target, self.config)
-
     def worker(self):
         while rclpy.ok():
             request, asked_at = self.questions.get()
             result = {
                 "id": request["id"],
                 "target": request["target"],
+                "pipeline": self.pipeline,
                 "models": [],
                 "stereo": True,
                 "image_source": "rectified_color",
@@ -160,37 +149,24 @@ class VisionNode(Node):
                     left_msg, right_msg = photo
                     jpegs = [self._to_jpeg(left_msg), self._to_jpeg(right_msg)]
                     result["image"] = self.save(left_msg, request["id"])
-
-                    entries = []
-                    if self.ml_enabled:
-                        # Load and unload one model at a time. Ollama would
-                        # otherwise keep several models resident, and the later
-                        # ones could run with less VRAM than the first.
-                        for model in self.models:
-                            try:
-                                entries.append(self.ask_model(
-                                    model, jpegs, request["target"]))
-                            finally:
-                                if self.compare_models:
-                                    self.unload_model(model)
-
+                    entries = vision_pipelines.run_pipeline(
+                        self.pipeline, request["target"],
+                        jpegs[0], jpegs[1], self.config)
                     result["results"] = entries
                     result["models"] = [entry.get("model", "unknown")
                                         for entry in entries]
                     if len(entries) == 1:
                         single = entries[0]
-                        for key in ("description", "target_visible", "position",
-                                    "lateral_bearing_deg", "size", "distance_m",
-                                    "obstacle_ahead", "path_clear", "seconds",
-                                    "method", "distance_source"):
+                        for key in TOP_LEVEL_KEYS:
                             if key in single:
                                 result[key] = single[key]
             except Exception as error:
                 result["error"] = f"Vision node error: {error}"
             self.result_pub.publish(String(data=json.dumps(result)))
             self.get_logger().info(
-                "[%s] %d model answer(s) done"
-                % (request["target"] or "scene", len(result.get("results", []))))
+                "[%s] %s produced %d answer(s)"
+                % (request["target"] or "scene", self.pipeline,
+                   len(result.get("results", []))))
 
     def save(self, msg, request_id):
         os.makedirs(RESULTS, exist_ok=True)
@@ -198,16 +174,6 @@ class VisionNode(Node):
         with open(os.path.join(RESULTS, name), "wb") as f:
             f.write(self._to_jpeg(msg))
         return os.path.join("vision", "results", "images", name)
-
-    def unload_model(self, model):
-        """Ask Ollama to evict a model so the next one gets all the VRAM."""
-        return ollama_vlm.unload_model(model, self.generate_url,
-                                       logger=self.get_logger())
-
-    def ask_model(self, model, jpegs, target):
-        return ollama_vlm.ask_model(
-            model, jpegs, target, self.prompt(target), self.chat_url,
-            compare_models=self.compare_models, config=self.config)
 
 
 def main():

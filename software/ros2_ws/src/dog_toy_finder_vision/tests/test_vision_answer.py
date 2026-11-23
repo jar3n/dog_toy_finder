@@ -42,14 +42,20 @@ class AnswerTests(unittest.TestCase):
     def setUp(self):
         self.config = vision_config.load_config()
 
-    def test_schema_requires_bearing(self):
-        self.assertIn("lateral_bearing_deg",
-                      vision_answer.ANSWER_SCHEMA["required"])
-
-    def test_prompt_mentions_bearing_convention(self):
-        prompt = vision_answer.prompt_for("red ball", self.config)
-        self.assertIn("lateral_bearing_deg", prompt)
-        self.assertIn("positive", prompt)
+    def test_tidy_preserves_pipeline_specific_fields(self):
+        answer = vision_answer.tidy({
+            "target_visible": True,
+            "lateral_bearing_deg": 4.0,
+            "distance_m": 1.0,
+            "method": "open_vocab",
+            "distance_source": "stereo_triangulation",
+            "disparity_px": 20.0,
+            "bbox_px": [10, 20, 30, 40],
+        }, self.config)
+        self.assertEqual(answer["method"], "open_vocab")
+        self.assertEqual(answer["distance_source"], "stereo_triangulation")
+        self.assertEqual(answer["disparity_px"], 20.0)
+        self.assertEqual(answer["bbox_px"], [10, 20, 30, 40])
 
     def test_tidy_derives_position_from_bearing(self):
         answer = vision_answer.tidy({

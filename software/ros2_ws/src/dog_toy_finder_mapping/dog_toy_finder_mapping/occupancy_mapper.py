@@ -62,7 +62,7 @@ class OccupancyMapper(Node):
         self.declare_parameter("origin_x", -5.0)        # m
         self.declare_parameter("origin_y", -5.0)        # m
         self.declare_parameter("obstacle_range", 0.25)  # m ahead when IR fires
-        self.declare_parameter("vision_obstacle_range", 0.8)  # m ahead for VLM obstacles
+        self.declare_parameter("vision_obstacle_range", 0.8)  # m ahead for vision pipeline obstacles
         self.declare_parameter("vision_timeout", 5.0)   # s a vision result stays fresh
         self.declare_parameter("publish_period", 1.0)   # s
         self.declare_parameter("ir_topic", "/ir_obstacle/detected")
@@ -71,7 +71,7 @@ class OccupancyMapper(Node):
         # Toy marker estimate.
         self.declare_parameter("toy_forward_distance", 0.6)  # fallback m ahead
         self.declare_parameter("toy_side_offset", 0.25)      # m left/right
-        self.declare_parameter("toy_max_distance", 5.0)      # clamp VLM estimates
+        self.declare_parameter("toy_max_distance", 5.0)      # clamp vision pipeline estimates
         self.declare_parameter("toy_merge_radius", 0.15)    # m
         self.declare_parameter("toy_occupancy_radius", 1)    # cells around toy
         self.declare_parameter("toy_max_count", 500)
@@ -102,7 +102,7 @@ class OccupancyMapper(Node):
         self.toy_mask = np.zeros((self.h, self.w), dtype=bool)
 
         self.obstacle_ahead = False
-        self.vision_obstacle = None   # obstacle label from the VLM, or None
+        self.vision_obstacle = None   # obstacle label from the vision pipeline, or None
         self.vision_stamp = None      # time.monotonic() of the last vision result
         self.toys = []                # [(x, y), ...] in the odom frame
 
@@ -269,7 +269,7 @@ class OccupancyMapper(Node):
             self.record_toy(bearing, distance)
 
     def _toy_distance(self, result):
-        """Return a sane VLM distance in metres, or None to use the fallback."""
+        """Return a sane vision pipeline distance in metres, or None to use the fallback."""
         value = result.get("distance_m", result.get("distance"))
         try:
             distance = float(value)

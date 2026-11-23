@@ -1,11 +1,20 @@
 # LLM comparison guide (vision and planning)
 
-This guide walks through comparing several vision models and several planning
+This guide walks through comparing vision-pipeline results and several planning
 models. Vision comparison is **capture first**: save rectified left/right
 images with operator-entered ground truth, then replay every saved capture
-offline. Planning comparison still sends each
+offline through the configured pipeline. Planning comparison still sends each
 prompt to every model live with ROSA. Both trial kinds share one CSV schema and
 one scoring tool (`dog_toy_finder_data.llm_trials`).
+
+The vision pipeline is selected with `pipeline:=open_vocab|second` on the launch
+command, `VISION_PIPELINE` in `scripts/full_system_eval.conf`, the top-level
+`pipeline` key in `vision_detectors.yaml`, or `vision_eval --pipeline` (explicit
+selections win). `open_vocab` is implemented: a YOLO-world style
+open-vocabulary detector runs on both rectified images, matching detections are
+paired, and distance comes from stereo triangulation using `fx` and the stereo
+baseline. `second` is a reserved placeholder that is not configured yet;
+selecting it reports a clear error.
 
 Vision answers use a numeric `lateral_bearing_deg` as the primary lateral
 measurement: degrees from the optical axis, positive to the robot's left. The
@@ -16,8 +25,8 @@ the offline evaluator.
 | Tool | Purpose |
 |---|---|
 | `vision_capture` | Saves one fresh rectified stereo pair with operator-entered depth and bearing. |
-| `vision_eval` | Replays every saved capture through the configured Ollama models, then writes a scored CSV. |
-| `vision_trial_collector` | Optional live-path collector: subscribes to `/vision/ask` and `/vision/result`; one CSV row per model per request. |
+| `vision_eval` | Replays every saved capture through the configured vision pipeline, then writes a scored CSV. |
+| `vision_trial_collector` | Optional live-path collector: subscribes to `/vision/ask` and `/vision/result`; one CSV row per answer entry per request. |
 | ROSA planning logging | `rosa_agent --compare --output-csv` writes one row per prompt and model. |
 | `llm_trials` CLI | `template`, `score`, `aggregate`, and `analyze` for either CSV kind. |
 
@@ -60,16 +69,15 @@ source /opt/ros/humble/setup.bash
 source install/setup.bash
 ```
 
-On the computer running Ollama, pull every model you intend to compare:
-
-```bash
-ollama pull gemma4
-ollama pull minicpm-v4.5
-ollama pull llama3.2
-ollama pull mistral
-ollama pull qwen2.5
-ollama serve
-```
+The `ros2` image ships Pillow for JPEG conversion. YOLO-world itself runs on
+the computer: start `./scripts/start_yolo_service.sh` once, which creates a
+host venv with CPU torch/ultralytics and downloads weights to
+`software/host_vision/models/yolov8s-world.pt`. The container sends rectified
+JPEGs to that service at `YOLO_SERVICE_URL` (default `http://localhost:5006`).
+No vision Ollama server is needed. Ollama is only used by the ROSA planning
+comparison in Part B; see
+[`software/rosa_agent/README.md`](../../software/rosa_agent/README.md) for its
+setup.
 
 Confirm the data package is available:
 
@@ -77,13 +85,13 @@ Confirm the data package is available:
 ros2 run dog_toy_finder_data llm_trials --help
 ```
 
-## Part A - Vision model comparison
+## Part A - Vision pipeline comparison
 
 Vision comparison does not require the Pico or the motion stack. The only live
 component is the rectified stereo pipeline: `vision_capture` waits for a fresh
-left/right pair and saves it with the operator's measurements. No detector or
-Ollama model runs at capture time. Later, `vision_eval` replays every saved pair
-offline with no camera topics and no ROS graph.
+left/right pair and saves it with the operator's measurements. No detector runs
+at capture time. Later, `vision_eval` replays every saved pair offline with no
+camera topics and no ROS graph.
 
 ### A1. Set the physical measurements and bearing convention
 
@@ -91,8 +99,13 @@ Edit
 `/workspace/software/ros2_ws/src/dog_toy_finder_vision/config/vision_detectors.yaml`
 (or point `VISION_DETECTOR_CONFIG` in `scripts/full_system_eval.conf` at your
 own copy). At minimum, set the calibrated `fx`, `fy`, `cx`, `cy`, `baseline_m`,
-and the measured `target.known_width_m`. These values are included in the model
-prompt so the VLM can judge depth and bearing from the rectified pair.
+and the valid `camera.depth_min_m`/`depth_max_m`. The top-level `pipeline` key
+selects the vision pipeline (`open_vocab` by default); `open_vocab.service_url`
+points at the host YOLO service and `open_vocab.name` is the fallback model name
+recorded in results and trial CSVs. Weights and torch device are configured on
+the host service via `YOLO_MODEL_PATH` / `YOLO_DEVICE`. `fx` and `baseline_m`
+drive stereo triangulation (`distance = fx * baseline / disparity`), and
+`cx`/`fx` set the bearing.
 
 `lateral_bearing_deg` is measured from the camera's optical axis in degrees:
 
@@ -117,9 +130,11 @@ ros2 launch dog_toy_finder_vision stereo_vision.launch.py \
 ```
 
 `vision:=false` leaves `/stereo/{left,right}/image_rect_color` publishing but
-does not start the live detector node, so no VLM is loaded during capture. It is
-also fine to capture while the full stack is running; `vision_capture` never
-publishes a `/vision/ask`.
+does not start the live detector node, so no detector is loaded during capture.
+Add `pipeline:=open_vocab` if you want the live node running on a known
+pipeline; `second` is reserved and not configured yet. It is also fine to
+capture while the full stack is running; `vision_capture` never publishes a
+`/vision/ask`.
 
 ### A3. Capture a labelled stereo pair
 
@@ -191,7 +206,7 @@ Use `--notes` for anything the numeric fields do not capture.
 ```bash
 ros2 run dog_toy_finder_vision vision_eval \
     --captures-dir "$VISION_CAPTURE_DIR" \
-    --models "$VISION_EVAL_MODELS" \
+    --pipeline "$VISION_PIPELINE" \
     --tolerance "$VISION_EVAL_TOLERANCE" \
     --bearing-tolerance "$VISION_EVAL_BEARING_TOLERANCE"
 ```
@@ -204,11 +219,14 @@ This writes:
 /workspace/data/vision/vision_eval_summary.json
 ```
 
-One row is written per capture and model, using the Ollama model name and
+One scored row is written per capture per model name produced by the pipeline.
+For `open_vocab` the name is reported by the host detector service (falling back
+to `open_vocab.name` in the detector YAML), and answers carry
+`method=open_vocab`; matched detections report
+`distance_source=stereo_triangulation`. Legacy rows from the retired path use
 `method=ml`. Ground truth is copied from each `meta.json`, so no spreadsheet
-annotation is needed. When more than one model is listed, each model is unloaded
-after its answer (`--compare-models` forces this even for a single model), so
-every model runs without another model holding VRAM.
+annotation is needed. The summary manifest (`vision_eval_summary.json`) records
+the pipeline that produced the rows.
 
 Useful options:
 
@@ -217,15 +235,14 @@ Useful options:
 ros2 run dog_toy_finder_vision vision_eval \
     --capture /workspace/data/vision/captures/capture_run1/ball_115m_left12
 
-# a subset of models with explicit output paths
+# explicit pipeline and output paths
 ros2 run dog_toy_finder_vision vision_eval --captures-dir "$VISION_CAPTURE_DIR" \
-    --models gemma4,minicpm-v4.5 \
-    --output-csv "$VISION_EVAL_CSV" --limit 10
+    --pipeline open_vocab --output-csv "$VISION_EVAL_CSV" --limit 10
 ```
 
 ### A6. Score and analyse the replay
 
-`vision_eval` already writes scored columns and a per-model summary. For a
+`vision_eval` already writes scored columns and a per-name summary. For a
 machine-readable summary or paired statistics:
 
 ```bash
@@ -239,7 +256,8 @@ ros2 run dog_toy_finder_data llm_trials analyze "$VISION_EVAL_CSV" \
 ```
 
 Vision rows are paired by `run_id` + `ask_id`; for offline captures, `ask_id` is
-the capture ID, so each model's answer on the same saved pair is compared.
+the capture ID, so each configured model name's answer on the same saved pair is
+compared.
 
 ### A7. Optional: live `/vision/ask` trials
 
@@ -248,7 +266,7 @@ without saving captures. It uses the same bearing field and answer schema:
 
 ```bash
 ros2 launch dog_toy_finder_vision stereo_vision.launch.py \
-    models:="$VISION_MODELS"
+    pipeline:="$VISION_PIPELINE"
 ros2 launch dog_toy_finder_data collect_llm_trials.launch.py \
     output_dir:="$VISION_TRIAL_DIR" run_id:="$VISION_TRIAL_RUN_ID" \
     distance_tolerance:="$LLM_TRIAL_DISTANCE_TOLERANCE" \
@@ -263,7 +281,7 @@ EOF
 python3 /workspace/scripts/vision_test.py "red ball" --gt-json gt_vision.json
 ```
 
-Each ask appends one row per model to
+Each ask appends one row per answer entry (one per configured detector name) to
 `$VISION_TRIAL_DIR/$VISION_TRIAL_RUN_ID/vision_trials.csv`. `distance_m` may be
 a single number or repeated measurements; scoring uses the mean. If ground
 truth is not supplied, fill these columns later:
@@ -273,8 +291,9 @@ gt_target_visible, gt_position, gt_lateral_bearing_deg, gt_size,
 gt_distance_m, gt_obstacle_ahead, gt_notes
 ```
 
-Capture-first is preferred for fair model comparisons: the same saved image is
-replayed for every model, and capture and evaluation are fully decoupled.
+Capture-first is preferred for fair comparisons: the same saved image is
+replayed for every configured model name, and capture and evaluation are fully
+decoupled.
 
 ## Part B - Planning model comparison
 
@@ -291,7 +310,7 @@ cd /workspace/docker
 docker compose up -d micro_ros_agent
 # then, in the ROS 2 container:
 ros2 launch dog_toy_finder_bringup robot.launch.py
-ros2 launch dog_toy_finder_vision stereo_vision.launch.py models:="gemma4"
+ros2 launch dog_toy_finder_vision stereo_vision.launch.py pipeline:="open_vocab"
 ```
 
 If the Pico is intentionally off, you can still capture replies and tool calls,
@@ -466,14 +485,15 @@ p-value; rows with different `ask_id`/`prompt` values are never compared.
 
 ## Part D - Collecting with a template instead
 
-If another process produces the model answers, create an empty CSV with the
-correct columns and ground-truth fields:
+If another process produces the answers, create an empty CSV with the
+correct columns and ground-truth fields. For vision, use the detector name
+configured for the pipeline in the `model` column:
 
 ```bash
 # Vision
 ros2 run dog_toy_finder_data llm_trials template \
     --kind vision \
-    --models "gemma4,minicpm-v4.5" \
+    --models "yolov8s-world" \
     --target "red ball" \
     --run-id vision1 \
     --output /workspace/data/vision/vision1/vision_trials.csv
@@ -497,9 +517,9 @@ above.
 
 | Column | Meaning |
 |---|---|
-| `visible_correct` | Model's visible/not-visible answer matches ground truth. |
+| `visible_correct` | Detector's visible/not-visible answer matches ground truth. |
 | `position_correct` | Derived left/centre/right label matches (compatibility view of the bearing). |
-| `lateral_bearing_deg` | Model's numeric bearing in degrees, positive to the robot's left. |
+| `lateral_bearing_deg` | Detector's numeric bearing in degrees, positive to the robot's left. |
 | `bearing_error_deg` | Absolute bearing error in degrees against the operator's measurement. |
 | `bearing_within_tolerance` | Error is within `--bearing-tolerance` (default `5°`). |
 | `size_correct` | size matches. |
@@ -508,10 +528,10 @@ above.
 | `obstacle_correct` | Obstacle description matches. |
 | `score` | Mean of the checks that apply to that row. |
 
-The per-model summary also reports `bearing_mae_deg` and
-`bearing_within_rate`. Rows where the toy is not visible only score visibility
-and obstacle checks. Blank ground-truth fields are ignored, so partial
-annotation still produces useful results.
+The summary manifest also reports `bearing_mae_deg` and
+`bearing_within_rate` for each configured model name. Rows where the toy is not
+visible only score visibility and obstacle checks. Blank ground-truth fields are
+ignored, so partial annotation still produces useful results.
 
 ### Planning metrics
 
@@ -527,16 +547,17 @@ authoritative outcome.
 
 ## Recommended experiment discipline
 
-1. Keep the model list identical across a comparison run.
+1. Keep the pipeline and its configured model names identical across a
+   comparison run.
 2. Use one `run_id` per experiment and a new run ID when the setup changes.
 3. For vision, save each scene once with `vision_capture` and replay that same
-   capture for every model; measure depth and bearing before running
+   capture for every configured name; measure depth and bearing before running
    `vision_eval`, and do not use a detector under test to create ground truth.
 4. For planning, use the same prompt, same starting pose, and same vision state
    for every model.
 5. Record the operator verdict in `gt_success` whenever a move actually
    executes.
-6. Keep the captures, the raw CSV, and the `*_scored.csv`; the raw files
-   preserve what the robot saw and what each model actually said.
+6. Keep the captures, the raw CSV, the summary manifest, and the `*_scored.csv`;
+   the raw files preserve what the robot saw and what each pipeline produced.
 7. Run `llm_trials analyze` on the completed CSV and keep the `*_analysis.json`
    report beside the trial data.

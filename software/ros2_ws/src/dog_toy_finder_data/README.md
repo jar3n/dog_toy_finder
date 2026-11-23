@@ -1,7 +1,7 @@
 # Data collection
 
 `dog_toy_finder_data` records a structured dataset during a test run for offline
-analysis and VLM benchmarking.
+analysis and vision-pipeline benchmarking.
 
 ## Record
 
@@ -22,9 +22,10 @@ ros2 run dog_toy_finder_data dataset_summary /tmp/dog_toy_dataset/run1
 ## LLM comparison trials
 
 Vision and planning comparisons share one CSV schema and one scoring tool, so
-vision models and a planner can be judged with the same fields. Vision rows
-contain automated answers first (including a `method` column, always `ml`),
-then `gt_*` ground-truth fields, then metrics computed by `score`.
+vision-pipeline answers and a planner can be judged with the same fields. Vision
+rows contain automated answers first (including a `method` column: `open_vocab`
+for new vision rows, `ml` only for legacy rows), then `gt_*` ground-truth
+fields, then metrics computed by `score`.
 
 Trial data lives in the repository's `data/` folder, next to `hardware/` and
 `software/`: `data/vision/captures/`, `data/vision/vision_eval_*` files, and
@@ -48,7 +49,7 @@ ros2 run dog_toy_finder_vision vision_capture \
     --output-dir "$VISION_CAPTURE_DIR"
 
 ros2 run dog_toy_finder_vision vision_eval \
-    --captures-dir "$VISION_CAPTURE_DIR" --models "$VISION_EVAL_MODELS" \
+    --captures-dir "$VISION_CAPTURE_DIR" --pipeline "$VISION_PIPELINE" \
     --tolerance "$VISION_EVAL_TOLERANCE" \
     --bearing-tolerance "$VISION_EVAL_BEARING_TOLERANCE" \
     --output-csv "$VISION_EVAL_CSV" --results-json "$VISION_EVAL_JSONL" \
@@ -62,16 +63,16 @@ Each capture stores `left.jpg`, `right.jpg`, and `meta.json` under
 bearing is in degrees from the optical axis, positive to the robot's left. The
 legacy `position` label is derived from it.
 
-`vision_eval` writes one row per capture and model with the scored
-columns already filled. Multiple models are unloaded between answers; use
-`--compare-models` for a single model to get the same cold-load policy.
+`vision_eval` writes one scored row per capture per configured model name
+produced by the pipeline, with the columns already filled. Its summary manifest
+records the selected pipeline.
 
 A live `/vision/ask` path is still available for robot control and optional
 live trials:
 
 ```bash
 ros2 launch dog_toy_finder_vision stereo_vision.launch.py \
-    models:="gemma4,minicpm-v4.5"
+    pipeline:="$VISION_PIPELINE"
 ros2 launch dog_toy_finder_data collect_llm_trials.launch.py \
     output_dir:=/workspace/data/vision run_id:=vision1 \
     bearing_tolerance:=$LLM_TRIAL_BEARING_TOLERANCE
@@ -86,7 +87,7 @@ python3 /workspace/scripts/vision_test.py "red ball" --gt-json gt.json
 `distance_m` also accepts a single number; a list stores repeated measurements
 of the same target and scoring uses their mean. Without ground truth, fill the
 `gt_*` columns in a spreadsheet after the run. Capture-first is preferred for
-fair model comparison because every model sees the same saved image.
+fair comparison because every configured name sees the same saved image.
 
 ### Planning trials
 
@@ -112,7 +113,7 @@ Create an empty template when the automated data is collected another way:
 
 ```bash
 ros2 run dog_toy_finder_data llm_trials template --kind vision \
-    --models gemma4,minicpm-v4.5 --target "red ball" --run-id vision1 \
+    --models yolov8s-world --target "red ball" --run-id vision1 \
     --output /workspace/data/vision/vision1/vision_trials.csv
 ros2 run dog_toy_finder_data llm_trials template --kind planning \
     --models llama3.2,mistral --prompt "Drive forward 1 meter." \

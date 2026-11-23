@@ -10,7 +10,7 @@ Strategy ("smart search"):
 With find_all=true (the demo mode), a found toy is recorded and the robot
 backs away and keeps searching instead of stopping, until the planned
 coverage is complete. Found toys are estimated in the odom frame from the
-robot pose plus the VLM position/distance, and deduplicated within
+robot pose plus the vision pipeline position/distance, and deduplicated within
 toy_merge_radius metres, so the summary reports every distinct toy found.
 
 This deterministic planner is the baseline against which the LLM planner
@@ -170,7 +170,7 @@ class AutonomousSearch(Mover):
         return result
 
     def _distance(self, entry):
-        """Return a sane VLM distance in metres, or None when unknown."""
+        """Return a sane vision pipeline distance in metres, or None when unknown."""
         try:
             distance = float(entry.get("distance_m") or 0.0)
         except (TypeError, ValueError):
@@ -181,7 +181,7 @@ class AutonomousSearch(Mover):
         """Decide whether the target counts as found.
 
         Found when the target is visible and either looks medium/large in the
-        image or the VLM estimates it within found_distance metres.
+        image or the vision pipeline estimates it within found_distance metres.
         """
         entry = self._entry(result)
         if not entry.get("target_visible"):
@@ -296,7 +296,7 @@ class AutonomousSearch(Mover):
         turn_angle = toy_geometry.home_turn_rad(entry)
         if turn_angle != 0.0:
             self.turn(turn_angle)
-        # Drive a short step toward the target. Shrink the step as the VLM
+        # Drive a short step toward the target. Shrink the step as the vision pipeline
         # distance shrinks so homing slows down near the toy.
         distance = self._distance(entry)
         size = entry.get("size", "none")

@@ -17,7 +17,7 @@ max_time        : float abort after this many seconds
 vision_timeout  : float seconds to wait for a /vision/result
 output_csv      : str   path of the CSV log to write
 run_id          : str   label stored in the log
-found_distance  : float stop when the VLM estimates the target within (m)
+found_distance  : float stop when the vision pipeline estimates the target within (m)
 find_all        : bool  demo mode: record each new toy and keep searching
                     instead of stopping at the first one
 toy_side_offset / toy_forward_distance / toy_merge_radius : toy placement
@@ -171,7 +171,7 @@ class ToySearchTest(Mover):
         """Decide whether the target counts as found.
 
         Found when the target is visible and either looks medium/large in the
-        image or the VLM estimates it within found_distance metres.
+        image or the vision pipeline estimates it within found_distance metres.
         """
         entry = self._entry(result)
         if not entry.get("target_visible"):
@@ -187,7 +187,7 @@ class ToySearchTest(Mover):
     def _record_toy(self, result):
         """Estimate one found toy in the odom frame; True when it is new.
 
-        Uses the same placement as the occupancy mapper: the VLM distance (or
+        Uses the same placement as the occupancy mapper: the vision pipeline distance (or
         the forward fallback) ahead, offset sideways for left/right. Estimates
         within toy_merge_radius of an already-recorded toy are the same toy.
         """

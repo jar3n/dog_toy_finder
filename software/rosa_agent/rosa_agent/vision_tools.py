@@ -1,7 +1,7 @@
 """ROSA tools that use the stereo vision node.
 
 These tools ask the vision node (/vision/ask -> /vision/result) and report what
-the VLMs saw. They work whether one model or several are configured, and
+the vision pipelines saw. They work whether one model or several are configured, and
 summarise the first model's answer for the planner.
 """
 

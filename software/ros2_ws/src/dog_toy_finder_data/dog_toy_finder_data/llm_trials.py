@@ -2,9 +2,9 @@
 
 Two kinds of trial are compared with the same tooling:
 
-- ``vision``: one row per vision request and model. The
-  ``vision_trial_collector`` node writes these while ``VISION_MODELS`` holds
-  a comma-separated list, so every model sees the same stereo photo.
+- ``vision``: one row per vision request and model name produced by the
+  selected pipeline. The ``vision_trial_collector`` node writes these for live
+  runs; ``vision_eval`` writes them when replaying saved stereo captures.
 - ``planning``: one row per prompt and model. ``rosa_agent --compare`` writes
   these, including the reply and the tools the model called.
 
@@ -305,7 +305,9 @@ def vision_row(result, entry, model, run_id, distance_tolerance=0.25,
         "ask_id": ask_id,
         "target": result.get("target", ""),
         "model": entry.get("model") or model or "",
-        "method": "ml",
+        # Older vision rows were produced by an ML/VLM estimator. New pipelines
+        # label themselves (e.g. open_vocab); keep `ml` as the fallback.
+        "method": entry.get("method") or "ml",
         "image": result.get("image", ""),
     })
     row["trial_id"] = "%s-%s-%s" % (run_id, ask_id, row["model"])

@@ -1,7 +1,8 @@
 # Dog Toy Finder Robot
 
 A differential-drive ROS 2 robot that searches for dog toys with a stereo camera
-pair and a vision-language model (VLM).
+pair and a selectable vision pipeline (an open-vocabulary detector today; a
+second pipeline is reserved for later).
 
 - **Local brain:** Raspberry Pi Pico 2 W running micro-ROS
 - **Link:** Wi-Fi (UDP) to a computer running the micro-ROS agent
@@ -12,12 +13,14 @@ pair and a vision-language model (VLM).
 ## What it does
 
 - Captures a stereo pair, rectifies it, computes disparity and a point cloud,
-  and asks a VLM (via Ollama) whether the target toy is visible, where it is,
-  and how far away it is.
+  then runs a vision pipeline on both rectified images. `open_vocab` uses a
+  YOLO-world style open-vocabulary detector, matches detections between the
+  eyes, and triangulates the target's location from disparity using `fx` and
+  the stereo baseline.
 - Runs either a deterministic expanding-square search or a ROSA/LLM-driven
   search, for one toy or a comma-separated list of toy kinds.
 - Records poses/vision results to CSV and evaluates success, time, path length,
-  and vision latency. A shared trial schema scores several VLMs and planners
+  and vision latency. A shared trial schema scores vision and planning runs
   side by side against ground truth.
 - Serves a live 3D map in any browser on the network, with **Save PNG** writing
   the image to the browser's computer.
@@ -37,7 +40,7 @@ pair and a vision-language model (VLM).
 | `docker/` | Containers: `ros2`, `microros_builder`, and the micro-ROS agent | [README](docker/README.md) |
 | `scripts/` | Setup, launcher, manual drive, vision test, E2E runner | |
 | `docs/` | Install and full-system test/evaluation guides | [README](docs/README.md) |
-| `data/` | Generated vision and planning LLM comparison trials | [README](data/README.md) |
+| `data/` | Generated vision and planning comparison trials | [README](data/README.md) |
 | `hardware/` | Text wiring reference and pin summary | [Wiring](hardware/wiring.md) |
 
 ### ROS 2 packages (`software/ros2_ws/src/`)
@@ -47,7 +50,7 @@ pair and a vision-language model (VLM).
 | `dog_toy_finder_bringup` | Launch files, EKF config, robot geometry, `cmd_vel_mux` start | [README](software/ros2_ws/src/dog_toy_finder_bringup/README.md) |
 | `dog_toy_finder_odometry` | `/joint_states` -> `/wheel/odom` | [README](software/ros2_ws/src/dog_toy_finder_odometry/README.md) |
 | `dog_toy_finder_motion` | Closed-loop moves, `cmd_vel_mux`, manual keyboard drive, `mover_test` | [README](software/ros2_ws/src/dog_toy_finder_motion/README.md) |
-| `dog_toy_finder_vision` | Stereo rectification, live `/vision/ask`, capture-first `vision_capture`/`vision_eval` | [README](software/ros2_ws/src/dog_toy_finder_vision/README.md) |
+| `dog_toy_finder_vision` | Stereo rectification, selectable vision pipeline behind `/vision/ask`, capture-first `vision_capture`/`vision_eval` | [README](software/ros2_ws/src/dog_toy_finder_vision/README.md) |
 | `dog_toy_finder_mapping` | Occupancy map, toy markers, browser map server | [README](software/ros2_ws/src/dog_toy_finder_mapping/README.md) |
 | `dog_toy_finder_planning` | Autonomous search planner + path utilities | [README](software/ros2_ws/src/dog_toy_finder_planning/README.md) |
 | `dog_toy_finder_diagnostics` | Sensor/camera heartbeat monitor with logged failures | [README](software/ros2_ws/src/dog_toy_finder_diagnostics/README.md) |
@@ -90,11 +93,15 @@ ROS 2 nodes / ROSA (computer)
 Vision runs on the computer: the two ESP32-CAMs serve still frames over HTTP,
 `stereo_vision.launch.py` turns them into images, disparity and a point cloud,
 and `vision_node` answers `/vision/ask` requests from the planner, the search
-harness, or ROSA. Vision answers report a numeric `lateral_bearing_deg`
-(positive = robot-left) rather than only a coarse side label. For model
-comparison, `vision_capture` saves rectified pairs with operator-measured ground
-truth and `vision_eval` replays them offline against the configured Ollama
-models.
+harness, or ROSA using the selected vision pipeline. Choose it with the launch
+arg `pipeline:=open_vocab|second`, the `VISION_PIPELINE` environment variable,
+or the top-level `pipeline` key in `vision_detectors.yaml` (`vision_eval` also
+has `--pipeline`). `open_vocab` is implemented; `second` is a reserved placeholder
+that is not configured yet and reports a clear error if selected. Vision answers
+report a numeric `lateral_bearing_deg` = `atan((cx - u) / fx)` in degrees
+(positive = robot-left) rather than only a coarse side label. For comparison,
+`vision_capture` saves rectified pairs with operator-measured ground truth and
+`vision_eval` replays them offline through the configured pipeline.
 
 ## Running the full system
 
@@ -110,6 +117,12 @@ docker compose up -d micro_ros_agent
 docker compose run --rm ros2
 ```
 
+The `ros2` image has only Pillow (to convert ROS images to JPEG); YOLO-world
+inference runs on the computer, not in Docker. Before starting the vision node,
+run `./scripts/start_yolo_service.sh` in another host terminal once (it creates
+a local venv, installs CPU torch/ultralytics, and downloads the weights). No
+vision Ollama server is needed; Ollama is used separately by the ROSA planner.
+
 Inside the container:
 
 ```bash
@@ -124,9 +137,9 @@ source install/setup.bash
 # stop everything: Ctrl+C in the launch_all.sh terminal
 ```
 
-Every per-run parameter (camera URLs/intrinsics, VLM models, map size, search
-target, CSV paths, manual-drive speeds) comes from
-`scripts/full_system_eval.conf`. Edit that one file, pass another config file,
+Every per-run parameter (camera URLs/intrinsics, vision pipeline choice and
+detector name, map size, search target, CSV paths, manual-drive speeds) comes
+from `scripts/full_system_eval.conf`. Edit that one file, pass another config file,
 or override a value in the environment:
 
 ```bash
@@ -145,7 +158,7 @@ ros2 run dog_toy_finder_mapping map_webserver   # live map (prints its URL; Save
 cd /workspace/software/rosa_agent && python3 -m rosa_agent
 ```
 
-Test the VLM without ROSA:
+Test the vision pipeline without ROSA:
 
 ```bash
 python3 /workspace/scripts/vision_test.py "red ball"

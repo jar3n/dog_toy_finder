@@ -26,7 +26,13 @@ docker compose build
 ```
 
 This builds `docker-ros2:latest` with ROS 2 Humble, the vision/mapping
-dependencies, and the ROSA Python packages.
+dependencies, the ROSA Python packages, and Pillow for JPEG conversion. The
+`open_vocab` pipeline runs YOLO-world on the computer, not in the container:
+run `./scripts/start_yolo_service.sh` once to create a host venv with CPU torch
+and ultralytics and download weights to `software/host_vision/models/`. The
+container reaches that service at `YOLO_SERVICE_URL` (default
+`http://localhost:5006`). No vision Ollama server or model pull is needed (ROSA
+planning uses Ollama separately).
 
 ## 3. Build the micro-ROS library (Pico)
 

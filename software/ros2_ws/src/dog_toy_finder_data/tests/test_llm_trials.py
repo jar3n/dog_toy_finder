@@ -221,7 +221,7 @@ class RowAndCsvTests(unittest.TestCase):
         self.assertEqual(row["score"], 1.0)
         self.assertEqual(row["method"], "ml")
 
-    def test_vision_row_marks_every_answer_as_ml(self):
+    def test_vision_row_defaults_method_to_ml_for_legacy_answers(self):
         result = {"id": "43", "target": "red ball", "image": ""}
         entry = {
             "model": "gemma4",
@@ -232,6 +232,18 @@ class RowAndCsvTests(unittest.TestCase):
         self.assertEqual(row["model"], "gemma4")
         self.assertEqual(row["method"], "ml")
         self.assertIn("method", llm_trials.VISION_FIELDS)
+
+    def test_vision_row_keeps_pipeline_method(self):
+        result = {"id": "44", "target": "red ball", "image": ""}
+        entry = {
+            "model": "yolov8s-world", "method": "open_vocab",
+            "target_visible": True, "lateral_bearing_deg": 15.6,
+            "position": "left", "distance_m": 1.0,
+            "distance_source": "stereo_triangulation", "seconds": 0.08,
+        }
+        row = llm_trials.vision_row(result, entry, "yolov8s-world", "vision1")
+        self.assertEqual(row["method"], "open_vocab")
+        self.assertEqual(row["model"], "yolov8s-world")
 
     def test_append_then_read_roundtrip(self):
         with tempfile.TemporaryDirectory() as directory:

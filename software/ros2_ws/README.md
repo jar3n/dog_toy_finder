@@ -9,7 +9,7 @@ Colcon workspace for the computer-side ROS 2 packages.
 | `dog_toy_finder_bringup` | `ament_cmake` | launch files, EKF config, robot geometry, `cmd_vel_mux` start |
 | `dog_toy_finder_odometry` | `ament_python` | `/joint_states` -> `/wheel/odom` |
 | `dog_toy_finder_motion` | `ament_python` | closed-loop moves, `cmd_vel_mux`, manual keyboard drive, `mover_test` |
-| `dog_toy_finder_vision` | `ament_python` | stereo rectification, live VLM node, capture-first `vision_capture`/`vision_eval` |
+| `dog_toy_finder_vision` | `ament_python` | stereo rectification, live selectable vision pipeline (`open_vocab`; `second` reserved), capture-first `vision_capture`/`vision_eval` |
 | `dog_toy_finder_mapping` | `ament_python` | occupancy map, toy markers, browser map server |
 | `dog_toy_finder_planning` | `ament_python` | autonomous search planner and path utilities |
 | `dog_toy_finder_diagnostics` | `ament_python` | sensor and camera heartbeat monitor |
@@ -51,6 +51,12 @@ ros2 run dog_toy_finder_mapping map_webserver
 ros2 run dog_toy_finder_motion mover_test straight 0.5
 ros2 run dog_toy_finder_motion manual_drive
 ```
+
+The vision pipeline is selected with the `pipeline` launch arg, `VISION_PIPELINE`
+in `scripts/full_system_eval.conf`, or the top-level `pipeline` key in
+`dog_toy_finder_vision/config/vision_detectors.yaml`. `open_vocab` is the
+implemented open-vocabulary detector; `second` is reserved and reports a clear
+error until it is configured.
 
 The ROSA agent is outside this workspace in `../rosa_agent/`; source this
 workspace before starting it so `dog_toy_finder_*` Python modules are on

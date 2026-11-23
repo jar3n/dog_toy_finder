@@ -2,8 +2,8 @@
 
 Capturing and evaluating are deliberately separate: this node only waits for a
 new left/right rectified-color pair from the running stereo pipeline and writes
-it to disk. No model runs at capture time, so the robot can be positioned and
-the target measured without Ollama loaded.
+it to disk. No detector runs at capture time, so the robot can be positioned
+and the target measured without loading a vision model.
 
 Usage inside the ROS 2 container::
 

@@ -32,7 +32,7 @@ def generate_launch_description():
         DeclareLaunchArgument("run_id", default_value="run1",
                               description="label stored in the log"),
         DeclareLaunchArgument("found_distance", default_value="0.4",
-                              description="stop when the VLM estimates the toy within this (m)"),
+                              description="stop when the vision pipeline estimates the toy within this (m)"),
         DeclareLaunchArgument("find_all", default_value="false",
                               description="demo: keep searching after each find"),
         DeclareLaunchArgument("toy_side_offset", default_value="0.25",

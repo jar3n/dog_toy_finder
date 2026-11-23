@@ -4,7 +4,7 @@ Each eye is an ESP32-CAM photo server (firmware/esp_cam). This node downloads
 a JPEG from each eye on a timer, decodes it with Pillow (no OpenCV needed on
 the Python side), and publishes for every eye:
 
-  * image_raw  sensor_msgs/Image  rgb8   -- colour frames for the VLM
+  * image_raw  sensor_msgs/Image  rgb8   -- colour frames for the vision pipeline
   * image_mono sensor_msgs/Image  mono8  -- greyscale frames for rectification
   * camera_info sensor_msgs/CameraInfo   -- intrinsics + stereo baseline
 

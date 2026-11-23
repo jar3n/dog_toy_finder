@@ -5,7 +5,7 @@ and reports performance metrics for evaluating the robot at finding a given toy.
 
 ## Run a search
 
-Prerequisites: bringup (+ vision if using the VLM) running.
+Prerequisites: bringup (+ vision if using the vision pipeline) running.
 
 ```bash
 ros2 launch dog_toy_finder_experiments toy_search.launch.py \

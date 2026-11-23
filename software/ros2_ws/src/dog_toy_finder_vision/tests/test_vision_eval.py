@@ -1,5 +1,7 @@
 """Tests for offline replay of saved rectified stereo captures."""
 
+import contextlib
+import io
 import json
 import os
 import sys
@@ -9,10 +11,9 @@ import unittest
 import numpy as np
 from PIL import Image
 
-SRC_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+SRC_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 sys.path.insert(0, SRC_ROOT)
 
-from dog_toy_finder_vision import vision_answer  # noqa: E402
 from dog_toy_finder_vision import vision_config  # noqa: E402
 from dog_toy_finder_vision import vision_eval  # noqa: E402
 try:  # installed ROS workspace vs. plain source checkout
@@ -21,13 +22,42 @@ except ImportError:  # pragma: no cover - host-side fallback
     import llm_trials  # noqa: E402
 
 
+def _detection(u, v, label):
+    width = 12
+    return {"label": label, "confidence": 0.95, "u": float(u), "v": float(v),
+            "width_px": width, "height_px": width,
+            "bbox_px": [u - width / 2, v - width / 2,
+                        u + width / 2, v + width / 2]}
+
+
+class FakeClient:
+    """Stand-in for the host detector service using the saved red disc."""
+
+    def __init__(self):
+        self.calls = []
+
+    def __call__(self, left_jpeg, right_jpeg, classes, config):
+        self.calls.append((left_jpeg, right_jpeg, list(classes)))
+        found = []
+        for jpeg in (left_jpeg, right_jpeg):
+            image = np.asarray(Image.open(io.BytesIO(jpeg)).convert("RGB"))
+            mask = ((image[:, :, 0] > 200) & (image[:, :, 1] < 80)
+                    & (image[:, :, 2] < 80))
+            ys, xs = np.nonzero(mask)
+            if len(xs) == 0:
+                found.append([])
+            else:
+                found.append([_detection(xs.mean(), ys.mean(), classes[0])])
+        return found[0], found[1], "fake-world"
+
+
 class OfflineEvalTests(unittest.TestCase):
     def setUp(self):
         self.config = vision_config.load_config()
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
-        self.capture_dir = os.path.join(
-            self.temp.name, "captures", "run1", "cap1")
+        self.root = os.path.join(self.temp.name, "captures")
+        self.capture_dir = os.path.join(self.root, "run1", "cap1")
         os.makedirs(self.capture_dir)
 
     def _write_synthetic_pair(self, center_x=90, disparity=20, visible=True):
@@ -37,7 +67,7 @@ class OfflineEvalTests(unittest.TestCase):
         left = np.full((height, width, 3), 210, dtype=np.uint8)
         right = np.full((height, width, 3), 210, dtype=np.uint8)
         yy, xx = np.ogrid[:height, :width]
-        radius = 10
+        radius = 6
         if visible:
             left[(xx - center_x) ** 2 + (yy - 120) ** 2 <= radius ** 2] = \
                 [255, 0, 0]
@@ -67,66 +97,73 @@ class OfflineEvalTests(unittest.TestCase):
 
     def test_iter_captures_finds_complete_directories(self):
         self._write_synthetic_pair()
-        incomplete = os.path.join(self.temp.name, "captures", "run1", "bad")
+        incomplete = os.path.join(self.root, "run1", "bad")
         os.makedirs(incomplete)
-        found = list(vision_eval.iter_captures(
-            os.path.join(self.temp.name, "captures")))
+        found = list(vision_eval.iter_captures(self.root))
         self.assertEqual(found, [self.capture_dir])
 
-    def test_replay_model_answer_uses_ground_truth(self):
+    def test_replay_pipeline_answer_uses_ground_truth(self):
         self._write_synthetic_pair()
-        calls = []
-
-        def fake_ask(model, jpegs, target, prompt, chat_url, **kwargs):
-            calls.append((model, target, len(jpegs), bool(prompt)))
-            answer = vision_answer.tidy({
-                "description": "a red ball on the left",
-                "target_visible": True,
-                "position": "left",
-                "lateral_bearing_deg": vision_config.lateral_bearing_deg(
-                    90, self.config),
-                "size": "small",
-                "distance_m": 1.0,
-                "obstacle_ahead": "none",
-            }, self.config)
-            answer["model"] = model
-            answer["method"] = "ml"
-            answer["seconds"] = 0.1
-            return answer
-
-        original = vision_eval.ollama_vlm.ask_model
-        vision_eval.ollama_vlm.ask_model = fake_ask
-        self.addCleanup(setattr, vision_eval.ollama_vlm, "ask_model", original)
+        client = FakeClient()
 
         result, meta = vision_eval.evaluate_capture(
-            self.capture_dir, self.config, ["fake-vlm"],
-            "http://localhost:11434/api/chat", False, 1.0)
-        self.assertEqual(result["id"], "cap1")
-        self.assertEqual(result["models"], ["fake-vlm"])
-        self.assertEqual(len(result["results"]), 1)
-        self.assertEqual(calls, [("fake-vlm", "red ball", 2, True)])
+            self.capture_dir, self.config, "open_vocab", client=client)
 
+        self.assertEqual(result["id"], "cap1")
+        self.assertEqual(result["pipeline"], "open_vocab")
+        self.assertEqual(result["models"], ["fake-world"])
+        self.assertEqual(len(client.calls), 1, "one request carries both eyes")
         entry = result["results"][0]
         self.assertTrue(entry["target_visible"])
+        self.assertEqual(entry["method"], "open_vocab")
+        self.assertEqual(entry["distance_source"], "stereo_triangulation")
         self.assertEqual(entry["position"], "left")
-        self.assertGreater(entry["lateral_bearing_deg"], 0.0)
+        self.assertAlmostEqual(entry["distance_m"], 1.0, places=2)
 
         row = llm_trials.vision_row(
-            result, entry, "fake-vlm", "run1",
+            result, entry, "fake-world", "run1",
             ground_truth=meta["ground_truth"], bearing_tolerance=5.0)
-        self.assertEqual(row["method"], "ml")
+        self.assertEqual(row["method"], "open_vocab")
         self.assertEqual(row["gt_lateral_bearing_deg"],
                          meta["ground_truth"]["lateral_bearing_deg"])
         self.assertTrue(row["bearing_within_tolerance"])
-        self.assertAlmostEqual(row["bearing_error_deg"], 0.0)
+        self.assertAlmostEqual(row["bearing_error_deg"], 0.0, delta=0.5)
 
-    def test_replay_without_models_produces_no_entries(self):
+    def test_second_pipeline_reports_not_configured(self):
         self._write_synthetic_pair()
-        result, _ = vision_eval.evaluate_capture(
-            self.capture_dir, self.config, [],
-            "http://localhost:11434/api/chat", False, 1.0)
-        self.assertEqual(result["results"], [])
-        self.assertEqual(result["models"], [])
+        with self.assertRaises(NotImplementedError):
+            vision_eval.evaluate_capture(self.capture_dir, self.config,
+                                         "second")
+
+    def test_main_writes_csv_and_pipeline_manifest(self):
+        self._write_synthetic_pair()
+        original = vision_eval.evaluate_capture
+
+        def evaluate_with_fake_client(path, config, pipeline=None, client=None):
+            return original(path, config, pipeline, FakeClient())
+
+        vision_eval.evaluate_capture = evaluate_with_fake_client
+        self.addCleanup(setattr, vision_eval, "evaluate_capture", original)
+
+        csv_path = os.path.join(self.temp.name, "trials.csv")
+        results_path = os.path.join(self.temp.name, "results.jsonl")
+        summary_path = os.path.join(self.temp.name, "summary.json")
+        with contextlib.redirect_stdout(io.StringIO()):
+            code = vision_eval.main([
+                "--captures-dir", self.root, "--pipeline", "open_vocab",
+                "--output-csv", csv_path, "--results-json", results_path,
+                "--summary-json", summary_path])
+        self.assertEqual(code, 0)
+        with open(summary_path) as handle:
+            summary = json.load(handle)
+        self.assertEqual(summary["pipeline"], "open_vocab")
+        self.assertEqual(summary["rows"], 1)
+        self.assertEqual(summary["models"], ["fake-world"])
+        rows, fields = llm_trials.read_csv(csv_path)
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["method"], "open_vocab")
+        self.assertIn("method", fields)
+        self.assertTrue(os.path.isfile(results_path))
 
 
 if __name__ == "__main__":

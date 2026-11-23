@@ -1,8 +1,8 @@
 """Load and validate the shared rectified-stereo detector configuration.
 
-The live node, capture tool, and offline evaluator read the same YAML file, so
-the physical measurements in the VLM prompt match the calibrated intrinsics,
-baseline, valid depth range, and the toy's real-world size.
+The live node, capture tool, and offline evaluator read the same YAML file.
+It selects the vision pipeline and holds the calibrated intrinsics, baseline,
+valid depth range, and open-vocabulary detector settings.
 
 The path is normally supplied by ``scripts/full_system_eval.conf`` as
 ``VISION_DETECTOR_CONFIG`` and forwarded through ``stereo_vision.launch.py``.
@@ -26,6 +26,7 @@ DEFAULT_CONFIG_PATH = os.path.join(
 # Minimal defaults so a partial user config still loads. The committed YAML is
 # the authoritative, fully commented example.
 DEFAULTS = {
+    "pipeline": "open_vocab",
     "camera": {
         "width": 320,
         "height": 240,
@@ -46,9 +47,15 @@ DEFAULTS = {
         "position_split_right": 0.667,
         "position_bearing_deg": 15.0,
     },
-    "ml": {
-        "enabled": True,
-        "include_physical_summary": True,
+    "open_vocab": {
+        "name": "yolov8s-world",
+        "service_url": "http://localhost:5006",
+        "timeout_s": 60,
+        "confidence_threshold": 0.25,
+        "max_detections": 10,
+        "min_disparity": 3,
+        "max_disparity": 96,
+        "max_vertical_delta_px": 20,
     },
 }
 
@@ -148,30 +155,6 @@ def get(config, *keys, default=None):
             return default
         value = value[key]
     return value
-
-
-def physical_summary(config):
-    """One-line measurement summary appended to the ML prompt."""
-    if not get(config, "ml", "include_physical_summary", default=True):
-        return ""
-    camera = config.get("camera", {})
-    target = config.get("target", {})
-    return (
-        "Camera measurements: rectified %dx%d images, fx=%.1f px, "
-        "fy=%.1f px, baseline=%.3f m, valid depth %.2f-%.2f m. "
-        "The requested toy is about %.3f m wide and %.3f m tall. "
-        "Report lateral_bearing_deg from the optical axis in degrees, "
-        "positive when the toy is to the robot's left (image x smaller "
-        "than cx=%.1f px), negative when it is to the right."
-        % (int(camera.get("width", 0)), int(camera.get("height", 0)),
-           float(camera.get("fx", 0.0)), float(camera.get("fy", 0.0)),
-           float(camera.get("baseline_m", 0.0)),
-           float(camera.get("depth_min_m", 0.0)),
-           float(camera.get("depth_max_m", 0.0)),
-           float(target.get("known_width_m", 0.0)),
-           float(target.get("known_height_m", 0.0)),
-           float(camera.get("cx", 0.0)))
-    )
 
 
 # --- Lateral bearing -------------------------------------------------------

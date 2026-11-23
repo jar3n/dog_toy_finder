@@ -3,7 +3,7 @@
 Covers the autonomous (single-target) and find-all demo workflows:
 
   SCENARIO=size        search stops when the toy looks medium (homing path)
-  SCENARIO=distance    search stops on VLM distance (<= found_distance)
+  SCENARIO=distance    search stops on pipeline distance (<= found_distance)
   SCENARIO=notfound    toy never appears: full coverage, found=False
   SCENARIO=findall     two distinct toys found, search keeps sweeping
   SCENARIO=multitarget two target kinds; only one is ever visible

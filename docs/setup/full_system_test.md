@@ -20,6 +20,21 @@ cd docker
 docker compose build
 ```
 
+The image includes Pillow for JPEG conversion, but YOLO-world inference runs on
+the computer, not in Docker. Start the host detector service once before the
+vision node:
+
+```bash
+cd /workspace   # or the repository root on the host
+./scripts/start_yolo_service.sh
+```
+
+It creates `software/host_vision/.venv`, installs CPU torch and ultralytics,
+downloads `software/host_vision/models/yolov8s-world.pt`, and serves HTTP on
+`YOLO_SERVICE_URL` (default `http://localhost:5006`). Set `YOLO_MODEL_PATH` or
+`YOLO_DEVICE` to change the weights or torch device. Ollama is only needed for
+the ROSA/planning comparisons; vision does not use it.
+
 ## 2. Flash the Pico firmware
 
 ```bash
@@ -104,15 +119,20 @@ back to tmux:
 ```
 
 All software parameters for the evaluation run (bringup geometry, health
-timeouts, camera URLs/intrinsics, the detector config path, VLM path switch,
-VLM models, map/toy settings, web-map port, manual drive speeds, and
+timeouts, camera URLs/intrinsics, the detector config path, vision pipeline
+choice, map/toy settings, web-map port, manual drive speeds, and
 the ROSA environment) live in
-`scripts/full_system_eval.conf`. `launch_all.sh` sources that file and passes
-each value to its launch file. Edit the file for a run, pass a different file
-as the first argument, or override one value from the environment
-(`WEBMAP_PORT=9000 ./scripts/launch_all.sh`). `--manual` adds and selects a
-`manual` pane/window without editing the config; setting `MANUAL_DRIVE=true`
-in the config does the same for every launch.
+`scripts/full_system_eval.conf`. Set `VISION_PIPELINE` there to `open_vocab` (the
+implemented open-vocabulary detector) or `second` (a reserved placeholder that
+is not configured yet and reports a clear error if selected). The pipeline can
+also be set with the top-level `pipeline` key in `vision_detectors.yaml`;
+explicit selections (launch arg `pipeline:=...` or `vision_eval --pipeline`) win
+over `VISION_PIPELINE`, which wins over the YAML key. `launch_all.sh` sources
+that file and passes each value to its launch file. Edit the file for a run,
+pass a different file as the first argument, or override one value from the
+environment (`WEBMAP_PORT=9000 ./scripts/launch_all.sh`). `--manual` adds and
+selects a `manual` pane/window without editing the config; setting
+`MANUAL_DRIVE=true` in the config does the same for every launch.
 `./scripts/launch_all.sh --dry-run` prints the exact commands without starting
 anything. `--konsole` / `--tmux` force the launcher; `KONSOLE=true` in the
 config makes Konsole the default. Set `LLM_TRIALS=true` to add a `trials`
@@ -150,14 +170,14 @@ source install/setup.bash
 # Terminal A: robot stack (odometry + EKF)
 ros2 launch dog_toy_finder_bringup robot.launch.py
 
-# Terminal B: stereo vision + live detectors (rectified pair, /vision/ask)
-# For capture-only model comparison, add vision:=false; vision_capture needs
+# Terminal B: stereo vision + live detector (rectified pair, /vision/ask)
+# For capture-only comparison, add vision:=false; vision_capture needs
 # only /stereo/{left,right}/image_rect_color and waits for a fresh pair.
 ros2 launch dog_toy_finder_vision stereo_vision.launch.py \
     left_url:=http://esp32cam-left.local/capture \
     right_url:=http://esp32cam-right.local/capture \
     config_path:=$VISION_DETECTOR_CONFIG \
-    models:="gemma4"   # or a comma-separated list to compare
+    pipeline:="open_vocab"   # or set VISION_PIPELINE in the config file
 ```
 
 Check data flow:
@@ -360,8 +380,10 @@ and `software/`: `data/vision/captures/`, `data/vision/vision_eval_*.csv/json`
 and `data/planning/<run_id>/`. Inside the ROS 2 container those paths are under
 `/workspace/data`.
 
-For vision, set `VISION_DETECTOR_CONFIG` to your measured camera/toy YAML. The
-live vision node is not needed for capture; terminate it (or launch
+For vision, set `VISION_DETECTOR_CONFIG` to your measured camera/toy YAML and
+`VISION_PIPELINE` to `open_vocab` (or select it with `pipeline:=open_vocab` on
+the launch command). `second` is reserved and not configured yet. The live
+vision node is not needed for capture; terminate it (or launch
 `stereo_vision.launch.py` with `vision:=false`) and leave the rectified stereo
 pipeline running. Then save a labelled pair:
 
@@ -401,7 +423,7 @@ saved pair with no camera topics or ROS graph:
 ```bash
 ros2 run dog_toy_finder_vision vision_eval \
     --captures-dir "$VISION_CAPTURE_DIR" \
-    --models "$VISION_EVAL_MODELS" \
+    --pipeline "$VISION_PIPELINE" \
     --tolerance "$VISION_EVAL_TOLERANCE" \
     --bearing-tolerance "$VISION_EVAL_BEARING_TOLERANCE" \
     --output-csv "$VISION_EVAL_CSV" \
@@ -409,10 +431,12 @@ ros2 run dog_toy_finder_vision vision_eval \
     --summary-json "$VISION_EVAL_SUMMARY_JSON"
 ```
 
-One row is written per capture and Ollama model, with `method=ml`. Ground truth
-is copied from `meta.json`, and scored columns are written immediately. With
-several models configured, each model is unloaded after its answer; use
-`--compare-models` to force that behaviour for a single model.
+One scored row is written per capture per configured model name produced by the
+pipeline (for `open_vocab`, the detector name from the config). New vision rows
+carry `method=open_vocab` and `distance_source=stereo_triangulation` for matched
+detections; `method=ml` is only used by legacy rows. Ground truth is copied from
+`meta.json`, and scored columns are written immediately. The summary manifest
+(`vision_eval_summary.json`) records which pipeline was used.
 
 Planning rows are written by ROSA (section 5.1) to `$ROSA_OUTPUT_CSV`. The
 `gt_*` columns stay blank unless `ROSA_GT_JSON` points at a JSON file. A flat
@@ -430,7 +454,8 @@ ros2 run dog_toy_finder_data llm_trials aggregate "$ROSA_OUTPUT_CSV" --json
 `score` writes `<name>_scored.csv` and prints per-model latency, error count,
 ground-truthed row count, per-field accuracy, distance/bearing error, and mean
 score. Create an empty template for data collected another way with
-`llm_trials template --kind vision|planning --models ... --output ...`.
+`llm_trials template --kind vision|planning --models ... --output ...` (for
+vision, use the configured detector name as the model value).
 
 ## 6. Reset and run again
 
@@ -473,11 +498,11 @@ ros2 run dog_toy_finder_data llm_trials analyze "$VISION_EVAL_CSV" \
 
 Metrics reported: success, time/steps to find, path length, vision call count
 and average latency, target-visible rate, final pose. The LLM trial tool reports
-per-model vision accuracy, distance/bearing error, planning action/argument
-matches, latency, errors, and a mean score. `llm_trials analyze` adds confidence
-intervals and paired model comparisons so differences can be judged after all
-trials are collected. For captured trials, `ask_id` is the capture ID, so each
-model is compared on the same saved image.
+vision accuracy per configured model name, distance/bearing error, planning
+action/argument matches, latency, errors, and a mean score. `llm_trials analyze`
+adds confidence intervals and paired comparisons so differences can be judged
+after all trials are collected. For captured trials, `ask_id` is the capture ID,
+so each configured model name is compared on the same saved image.
 
 ## 8. Viewing the map
 
@@ -502,7 +527,7 @@ The map distinguishes where each obstacle came from:
 | blue | `70` | vision only |
 | orange | `85` | both IR and vision |
 | green cells | `60` | occupied by a detected toy |
-| bright green sphere | `/detected_toys` pose | vision toy detection (VLM answers fused by median) |
+| bright green sphere | `/detected_toys` pose | vision toy detection (vision pipeline answers fused by median) |
 | white floor | `0` | driven-through free space |
 
 Vision obstacles expire after `vision_timeout` (default 5 s), so blue/orange

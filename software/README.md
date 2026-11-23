@@ -10,7 +10,7 @@ software/
     dog_toy_finder_bringup/     launch files, EKF config, robot geometry
     dog_toy_finder_odometry/    /joint_states -> /wheel/odom
     dog_toy_finder_motion/      closed-loop moves, cmd_vel mux, manual keyboard drive
-    dog_toy_finder_vision/      stereo capture, disparity/point cloud, Ollama VLM detector
+    dog_toy_finder_vision/      stereo capture, disparity/point cloud, selectable vision pipeline
     dog_toy_finder_mapping/     occupancy map, toy markers, browser map server
     dog_toy_finder_planning/    autonomous search planner
     dog_toy_finder_diagnostics/ sensor and camera heartbeat monitor
@@ -41,7 +41,7 @@ Pico firmware                         Computer
 ESP32-CAM left/right --HTTP--> stereo_camera_node -> image_proc
                                     -> stereo_image_proc -> /stereo/disparity, /stereo/points2
                                     -> rectified colour pair -> vision_node
-                                        (Ollama vision models) -> /vision/result
+                                        (open-vocabulary detector) -> /vision/result
                                              |                         |
                                              |                         +-> occupancy_mapper
                                              |                             -> /map, /detected_toys
@@ -52,11 +52,13 @@ ESP32-CAM left/right --HTTP--> stereo_camera_node -> image_proc
 ```
 
 The vision node is request-driven: planners and ROSA publish a JSON request on
-`/vision/ask` and read the matching answer on `/vision/result`. All answers use
-a numeric `lateral_bearing_deg` (positive = robot-left). For fair model
-comparison, capture rectified pairs once with `vision_capture` and replay them
-offline with `vision_eval`; no live pose or Ollama server is needed at capture
-time.
+`/vision/ask` and read the matching answer on `/vision/result`. Select the
+pipeline with `pipeline:=open_vocab|second` at launch, `VISION_PIPELINE`, or the
+top-level `pipeline` key in `vision_detectors.yaml`; `second` is reserved and
+not configured yet. All answers use a numeric `lateral_bearing_deg`
+(`atan((cx - u) / fx)`, positive = robot-left). For fair comparison, capture
+rectified pairs once with `vision_capture` and replay them offline with
+`vision_eval`; no live pose or detector is needed at capture time.
 
 ## Quick start
 
@@ -89,8 +91,9 @@ Or run components individually:
 # odometry + EKF + cmd_vel_mux + health monitor
 ros2 launch dog_toy_finder_bringup robot.launch.py
 
-# cameras + stereo depth + Ollama vision models
-ros2 launch dog_toy_finder_vision stereo_vision.launch.py
+# cameras + stereo depth + open-vocabulary vision pipeline
+ros2 launch dog_toy_finder_vision stereo_vision.launch.py \
+    pipeline:=open_vocab
 
 # occupancy map and browser viewer
 ros2 launch dog_toy_finder_mapping mapping.launch.py

@@ -1,6 +1,6 @@
 """Shared ROS 2 session used by the vision tools.
 
-The vision node owns the camera and the VLM; these helpers only publish
+The vision node owns the camera and the vision pipeline; these helpers only publish
 /vision/ask and collect the matching /vision/result. Keeping the rclpy node
 here means the tool descriptions stay readable.
 """

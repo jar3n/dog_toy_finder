@@ -1,17 +1,25 @@
 # Stereo vision
 
 `dog_toy_finder_vision` turns the two ESP32-CAM eyes into a ROS 2 stereo
-pipeline and asks **one or more Ollama vision models about the same rectified
-colour pair**. Models are loaded and unloaded one at a time, so each gets all
-available VRAM during comparison runs.
+pipeline and runs a **selectable vision pipeline on the same rectified colour
+pair**. `open_vocab` is implemented: a YOLO-world style open-vocabulary detector
+runs on both rectified images, detections are matched between the eyes, and the
+target location is triangulated from disparity using `fx` and the stereo
+baseline. `second` is a reserved placeholder that is not configured yet;
+selecting it reports a clear error.
+
+The pipeline is chosen by the launch arg `pipeline:=open_vocab|second`, the
+`VISION_PIPELINE` environment variable, or the top-level `pipeline` key in
+`vision_detectors.yaml` (in that order of precedence); `vision_eval` also has
+`--pipeline`.
 
 The node subscribes only to `/stereo/{left,right}/image_rect_color`. Raw images
-still exist for rectification and the point-cloud pipeline, but model inputs
+still exist for rectification and the point-cloud pipeline, but detector inputs
 are rectified.
 
-Model comparison is **capture-first**. `vision_capture` saves a rectified
+Comparison is **capture-first**. `vision_capture` saves a rectified
 left/right pair with operator-measured ground truth, and `vision_eval` later
-replays those saved pairs through the configured models. Lateral position is a
+replays those saved pairs through the configured pipeline. Lateral position is a
 numeric `lateral_bearing_deg` (degrees from the optical axis, positive =
 robot-left / ROS `+y`); the legacy `left`/`center`/`right` label is derived from
 it for compatibility.
@@ -52,11 +60,22 @@ The path is set once in `scripts/full_system_eval.conf` as
 `VISION_DETECTOR_CONFIG` and forwarded through the launch file. Put your
 measured camera and toy values there:
 
+- `pipeline` — `open_vocab` (default) or the reserved `second`
+- `open_vocab.service_url` — host YOLO service URL (default
+  `http://localhost:5006`; `YOLO_SERVICE_URL` overrides it)
+- `open_vocab.timeout_s` — HTTP timeout in seconds
+- `open_vocab.name` — fallback model name recorded in results and trial CSVs
+  (the host service may report its own name)
+- `open_vocab.confidence_threshold`, `max_detections`, `min_disparity`,
+  `max_disparity`, `max_vertical_delta_px` — detector and stereo-matching limits
+- Weights and torch device are **not** in the YAML: configure them on the host
+  service with `YOLO_MODEL_PATH` / `YOLO_DEVICE` (see below)
 - `camera.fx`, `fy`, `cx`, `cy` — calibrated intrinsics in pixels
 - `camera.baseline_m` — spacing between the two optical centres
 - `camera.depth_min_m`, `depth_max_m` — valid metric depth range
-- `camera.{left,right}_rectified_topic` — model image inputs
-- `target.known_width_m`, `known_height_m` — real toy measurements
+- `camera.{left,right}_rectified_topic` — detector image inputs
+- `target.known_width_m`, `known_height_m` — retained for older tooling;
+  `open_vocab` triangulates from disparity rather than apparent size
 - `target.position_split_left/right` — image thirds used to derive the
   compatibility `left`/`center`/`right` label
 - `target.position_bearing_deg` — fallback bearing (default `15°`) only for old
@@ -71,34 +90,59 @@ target's horizontal pixel centre. Positive values mean the target is left of
 the optical axis; zero means centred. This same field is used by live control,
 mapping, and offline scoring.
 
-## Vision model path
+## Open-vocabulary pipeline
 
-The vision node sends the same two rectified images to Ollama together with a
-short physical-measurement summary from the YAML config. Each model returns:
+`open_vocab` sends both rectified JPEGs and the text target to a YOLO-world
+service running **on the computer**, not in the ROS container. Start it once
+from the repository root:
+
+```bash
+./scripts/start_yolo_service.sh
+```
+
+The script creates `software/host_vision/.venv`, installs CPU torch and
+ultralytics, downloads `software/host_vision/models/yolov8s-world.pt`, and serves
+`POST /detect` on `http://localhost:5006` (host networking lets the container
+reach it). Set `YOLO_MODEL_PATH` or pass `--device` to change weights/device;
+`GET /health` reports the loaded model name.
+
+The service detects the text target independently in each eye. The container
+pairs detections by label, image row, and horizontal disparity; distance is
+`fx * baseline_m / disparity`, and lateral bearing comes from the left-image
+pixel centre. The service's model name (or `open_vocab.name`) is reported as
+`model`, with `method: "open_vocab"` and
+`distance_source: "stereo_triangulation"` for matched detections. Selecting
+`second` instead raises a clear "reserved but not configured yet" error.
+
+Each answer uses the existing schema:
 
 ```json
 {
+  "model": "yolov8s-world",
+  "method": "open_vocab",
+  "distance_source": "stereo_triangulation",
   "description": "...",
   "target_visible": true,
   "position": "left | center | right | none",
   "lateral_bearing_deg": 12.0,
   "size": "small | medium | large | none",
-  "distance_m": 0.0,
-  "obstacle_ahead": "..."
+  "distance_m": 1.15,
+  "obstacle_ahead": "none",
+  "bbox_px": [140, 96, 176, 132],
+  "bbox_right_px": [120, 96, 156, 132],
+  "disparity_px": 20.0
 }
 ```
 
-Set `models:="gemma4:latest,minicpm-v4.5:latest,qwen3.5:4b"` to compare models
-on every ask. Each answer gets `method: "ml"`, its model name, and timing.
-
 ## Result fields
 
-`/vision/result` contains a `results` array. Every entry has:
+`/vision/result` contains a `results` array plus the selected `pipeline` name.
+Every entry has:
 
 | Field | Meaning |
 |---|---|
-| `model` | Ollama model name |
-| `method` | `ml` |
+| `model` | configured detector name from the pipeline |
+| `method` | `open_vocab` for new vision rows (`ml` only on legacy rows) |
 | `target_visible` | whether the requested target was found |
 | `lateral_bearing_deg` | numeric bearing from the optical axis; positive = robot-left |
 | `position` | derived compatibility label: `left`, `center`, `right`, or `none` |
@@ -106,19 +150,22 @@ on every ask. Each answer gets `method: "ml"`, its model name, and timing.
 | `distance_m` | distance to the target in metres, `0` if unknown/not visible |
 | `obstacle_ahead` | object blocking the centre of the path, or `none` |
 | `path_clear` | `true` when `obstacle_ahead` is `none` |
-| `description` | human-readable model summary |
-| `seconds` | model latency |
-| `distance_source` | how the metric distance was derived (`vlm_estimate`) |
+| `description` | human-readable detector summary |
+| `seconds` | detector latency |
+| `distance_source` | `stereo_triangulation` for matched detections, `none` when no target was found |
+| `bbox_px` | left rectified-image box `[x1, y1, x2, y2]` in pixels |
+| `bbox_right_px` | matching box in the right rectified image |
+| `disparity_px` | horizontal difference between the two box centres, used for depth |
 
 The mapping node consumes all entries and fuses visible toys by median bearing
 and distance. The trial collector writes one CSV row per entry. For fair
-offline comparison, prefer `vision_capture` + `vision_eval` below: every model
-sees the exact same saved images.
+offline comparison, prefer `vision_capture` + `vision_eval` below: every
+configured detector name sees the exact same saved images.
 
-## Capture-first model comparison
+## Capture-first comparison
 
-With the rectified stereo pipeline running, save a labelled pair. No Ollama
-model or `/vision/ask` is involved:
+With the rectified stereo pipeline running, save a labelled pair. No detector
+or `/vision/ask` is involved:
 
 ```bash
 cd /workspace
@@ -143,7 +190,7 @@ After capturing all scenes, replay them offline:
 ```bash
 ros2 run dog_toy_finder_vision vision_eval \
     --captures-dir "$VISION_CAPTURE_DIR" \
-    --models "$VISION_EVAL_MODELS" \
+    --pipeline "$VISION_PIPELINE" \
     --tolerance "$VISION_EVAL_TOLERANCE" \
     --bearing-tolerance "$VISION_EVAL_BEARING_TOLERANCE" \
     --output-csv "$VISION_EVAL_CSV" \
@@ -151,10 +198,11 @@ ros2 run dog_toy_finder_vision vision_eval \
     --summary-json "$VISION_EVAL_SUMMARY_JSON"
 ```
 
-`vision_eval` needs no ROS graph. It writes one scored row per capture and
-model, plus a per-model summary. Multiple models are unloaded after each answer;
-use `--compare-models` to force that for one model. Useful flags include
-`--run-id`, `--capture`, and `--limit`.
+`vision_eval` needs no ROS graph. It writes one scored row per capture per
+configured model name produced by the pipeline (`open_vocab.name` or the weight
+filename) and records the chosen pipeline in the summary manifest
+(`vision_eval_summary.json`). Useful flags include `--run-id`, `--capture`, and
+`--limit`.
 See [`docs/setup/llm_comparison_guide.md`](../../../../docs/setup/llm_comparison_guide.md)
 for the full experiment workflow.
 
@@ -165,21 +213,18 @@ cd /workspace/software/ros2_ws
 colcon build --symlink-install
 source install/setup.bash
 
-# full stack: cameras + rectification + depth + Ollama vision models
-ros2 launch dog_toy_finder_vision stereo_vision.launch.py
-
-# compare several Ollama models on the same rectified pair
+# full stack: cameras + rectification + depth + open-vocabulary detector
 ros2 launch dog_toy_finder_vision stereo_vision.launch.py \
-    models:="gemma4:latest,minicpm-v4.5:latest,qwen3.5:4b"
+    pipeline:=open_vocab
 
-# use a different physical measurement config
+# same pipeline selected via the environment (VISION_PIPELINE in the config)
+VISION_PIPELINE=open_vocab ros2 launch dog_toy_finder_vision stereo_vision.launch.py
+
+# use a different physical measurement config (including its pipeline key)
 ros2 launch dog_toy_finder_vision stereo_vision.launch.py \
     config_path:=/workspace/data/vision/my_calibration.yaml
 
-# skip the vision models (keep cameras and depth)
-ros2 launch dog_toy_finder_vision stereo_vision.launch.py ml:=false
-
-# depth pipeline only, no detectors
+# depth pipeline only: keep cameras and depth, skip the detector node
 ros2 launch dog_toy_finder_vision stereo_vision.launch.py vision:=false
 ```
 
@@ -200,8 +245,10 @@ the full `/vision/result` JSON.
 - `rate` controls how often each eye is sampled (default 2 Hz). Higher rates
   need a stronger Wi-Fi link.
 - `stereo:=false` skips cameras/depth pipeline, `stereo_proc:=false` skips
-  disparity/point cloud, `vision:=false` skips the vision node, and
-  `ml:=false` keeps the node up but skips the models.
+  disparity/point cloud, and `vision:=false` skips the vision node.
+- Tune `open_vocab.confidence_threshold`, `min_disparity`, `max_disparity`, and
+  `max_vertical_delta_px` in the YAML when calibration or lighting makes
+  left/right matches noisy.
 - `approximate_sync:=true` is the default because the eyes are not
   hardware-synchronised.
 - At 640x480 the ~900 KB colour frames are often dropped by DDS. If you raise

@@ -1,10 +1,17 @@
-# Physical measurements for the Ollama vision models. The path to this file is
-# set in scripts/full_system_eval.conf as VISION_DETECTOR_CONFIG and forwarded
-# to the capture/eval tools and stereo_vision.launch.py.
+# Settings for the rectified stereo vision stack. The path to this file is set
+# in scripts/full_system_eval.conf as VISION_DETECTOR_CONFIG and forwarded to
+# the capture/eval tools and stereo_vision.launch.py.
+#
+# Both pipelines take the operator's text target plus the rectified left/right
+# JPEGs and return the object's location. An explicit `pipeline:=` launch arg,
+# --pipeline on vision_eval, or VISION_PIPELINE overrides the choice below.
 #
 # The camera values must match the calibrated intrinsics passed to
-# stereo_vision.launch.py. They are included in the model prompt so the model
-# can judge depth and lateral bearing from the rectified pair.
+# stereo_vision.launch.py. They are used for stereo triangulation and for the
+# shared numeric bearing convention atan((cx - u) / fx), positive to the left.
+
+pipeline: open_vocab   # open_vocab | second (reserved, not configured yet)
+
 camera:
   width: 320
   height: 240
@@ -18,9 +25,9 @@ camera:
   left_rectified_topic: /stereo/left/image_rect_color
   right_rectified_topic: /stereo/right/image_rect_color
 
-# Real-world toy measurements included in the model prompt. Measure these with
-# a ruler for your actual toy. The position_* fields are only used to derive
-# the legacy left/center/right label from a numeric bearing.
+# Real-world toy measurements. Measure these with a ruler for your actual toy.
+# The position_* fields only derive the legacy left/center/right label from the
+# numeric bearing; they do not affect triangulation.
 target:
   known_width_m: 0.075
   known_height_m: 0.075
@@ -30,10 +37,16 @@ target:
   # left/center/right label and no lateral_bearing_deg field.
   position_bearing_deg: 15.0
 
-# Ollama vision models receive the same rectified images and this physical
-# measurement summary. Set VISION_MODELS in
-# scripts/full_system_eval.conf to compare several models; models are loaded
-# and unloaded one at a time.
-ml:
-  enabled: true
-  include_physical_summary: true
+# open_vocab: the YOLO-world detector runs on the computer as an HTTP service
+# (scripts/start_yolo_service.sh); this container only sends JPEGs and matches
+# the returned detections. Weight path and torch device are configured on the
+# host service via YOLO_MODEL_PATH / --device, not here.
+open_vocab:
+  name: yolov8s-world            # fallback model name; the service may report its own
+  service_url: http://localhost:5006
+  timeout_s: 60
+  confidence_threshold: 0.25
+  max_detections: 10
+  min_disparity: 3
+  max_disparity: 96
+  max_vertical_delta_px: 20

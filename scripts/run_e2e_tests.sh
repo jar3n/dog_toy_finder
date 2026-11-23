@@ -8,7 +8,7 @@
 #   ./scripts/run_e2e_tests.sh note_found size distance
 #
 # The tests use a fake robot (integrates /cmd_vel_auto into /odometry/filtered)
-# and scripted fake vision, so no hardware, cameras, or VLMs are needed. The
+# and scripted fake vision, so no hardware, cameras, or vision model are needed. The
 # full suite takes several minutes (ROSA 'all'/'multi' drive 3 loops).
 
 set -euo pipefail

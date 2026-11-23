@@ -2,7 +2,7 @@
 
 | Folder / service | Container | Notes |
 |---|---|---|
-| `ros2/` | ROS 2 Humble + vision/mapping packages + ROSA Python deps | host networking; the main development and run container |
+| `ros2/` | ROS 2 Humble + vision/mapping packages + ROSA Python deps + Pillow | host networking; the main development and run container |
 | `microros_builder/` | ROS 2 Humble + Pico SDK + `arm-none-eabi` toolchain + `micro_ros_setup` | builds `libmicroros` for the Pico |
 | `micro_ros_agent` | `microros/micro-ros-agent:humble` | host networking, UDP port 8888; connects the Pico to the ROS 2 graph |
 
@@ -16,6 +16,13 @@ Build the main image once:
 cd docker
 docker compose build ros2
 ```
+
+The `ros2` image installs Pillow so vision nodes can convert ROS images to JPEG.
+YOLO-world inference for the `open_vocab` pipeline runs on the computer via
+`./scripts/start_yolo_service.sh` (host venv with CPU torch, ultralytics, and
+weights in `software/host_vision/models/`); the container only talks to it over
+HTTP at `YOLO_SERVICE_URL` (default `http://localhost:5006`). Vision does not
+need an Ollama server; Ollama is used separately for ROSA planning.
 
 ## micro-ROS agent
 

@@ -51,3 +51,6 @@ data/planning/*
 software/build/
 software/install/
 software/log/
+
+# Host-side YOLO weights (downloaded locally)
+software/host_vision/models/*.pt

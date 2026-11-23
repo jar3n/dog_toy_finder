@@ -7,6 +7,7 @@ FROM ros:humble
 RUN apt-get update && apt-get install -y \
     python3-pip \
     python3-numpy \
+    python3-pil \
     python3-yaml \
     libnss-mdns \
     avahi-utils \
@@ -42,6 +43,11 @@ RUN pip3 install --no-cache-dir \
     'chromadb==0.6.3' \
     'posthog>=2.4,<4.0' \
     requests
+
+# The open_vocab pipeline sends rectified JPEGs to the host-side YOLO service
+# (scripts/start_yolo_service.sh). torch, ultralytics, and the weights stay on
+# the computer, so this image only needs Pillow to convert ROS Image messages
+# to JPEG (installed as python3-pil above).
 
 # Source ROS 2 automatically in every shell
 RUN echo "source /opt/ros/humble/setup.bash" >> /etc/bash.bashrc

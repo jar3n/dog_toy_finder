@@ -38,10 +38,11 @@ report an obstacle at the same time, the near and far regions are both marked
 `85` so the fusion is visible. The map is published at 1 Hz; vision can be
 disabled with `use_vision:=false`.
 
-`/detected_toys` is a separate `geometry_msgs/PoseArray` layer. When a model
-answer has `target_visible: true`, the mapper uses its numeric
+`/detected_toys` is a separate `geometry_msgs/PoseArray` layer. When a vision
+pipeline answer has `target_visible: true`, the mapper uses its numeric
 `lateral_bearing_deg` (degrees from the optical axis, positive = robot-left)
-and `distance_m` to place the toy in the robot's frame. If several model answers
+and `distance_m` to place the toy in the robot's frame. For `open_vocab`,
+`distance_m` comes from stereo triangulation. If several detector answers
 arrive in one `/vision/result`, bearings and distances are fused by median.
 Older results with only a `left`/`center`/`right` label are still accepted via a
 small fallback bearing. If no answer provides a usable `distance_m`, the
