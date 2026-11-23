@@ -9,11 +9,17 @@ detection dictionaries back. Three backends share the same interface:
 ``yoloe_26``
     Ultralytics YOLOE-26 text-prompted segmentation (``yoloe-26s-seg.pt``),
     also using ``set_classes``. Requires ultralytics >= 8.4 and a one-time
-    CLIP text-encoder download on the first prompt.
+    CLIP text-encoder download on the first prompt. Its instance masks are used
+    directly: the reported ``u``/``v`` is the mean of the mask's pixels.
 ``grounding_dino``
     Hugging Face ``IDEA-Research/grounding-dino-tiny`` via transformers
     ``AutoModelForZeroShotObjectDetection``; text queries are lowercased and
     dot-terminated as required by that model card.
+
+YOLO-World and Grounding DINO are box-only models, so their reported centre is
+the box centre. Every detection records ``center_source`` (``mask_centroid`` or
+``box_center``) so the stereo stage can report which model output was used.
+Only the small centroid/box/area values cross HTTP; full masks stay on the host.
 
 Heavy imports are lazy so ``--help``, health checks, and tests do not load torch.
 Tests can inject fakes with ``load_detector(config, model=fake)``.
@@ -36,6 +42,9 @@ DEFAULT_WEIGHTS = {
     YOLOE_26: "yoloe-26s-seg.pt",
     GROUNDING_DINO: "IDEA-Research/grounding-dino-tiny",
 }
+
+MASK_CENTROID = "mask_centroid"
+BOX_CENTER = "box_center"
 
 _CACHE = {}
 
@@ -95,9 +104,87 @@ def load_detector(config, model=None):
     return backend, _CACHE[key]
 
 
-def _detection(xyxy, score, label):
+def _as_array(data):
+    """Return a numpy view of a torch tensor, numpy array, or nested list."""
+    if hasattr(data, "detach"):
+        data = data.detach()
+    if hasattr(data, "cpu"):
+        data = data.cpu()
+    if hasattr(data, "numpy"):
+        data = data.numpy()
+    return np.asarray(data)
+
+
+def _polygon_centroid(points):
+    """Area centroid ``(u, v)`` of an instance-mask polygon in pixel coords."""
+    points = np.asarray(points, dtype=float)
+    if points.ndim != 2 or points.shape[1] != 2 or len(points) < 3:
+        return None
+    x, y = points[:, 0], points[:, 1]
+    cross = x * np.roll(y, -1) - np.roll(x, -1) * y
+    area = 0.5 * cross.sum()
+    if abs(area) < 1e-9:
+        return None
+    return (float(((x + np.roll(x, -1)) * cross).sum() / (6.0 * area)),
+            float(((y + np.roll(y, -1)) * cross).sum() / (6.0 * area)))
+
+
+def _mask_geometry(masks, index, image_shape):
+    """Return centroid, mask-derived box, and area, or ``None`` if unavailable.
+
+    Ultralytics ``Masks.data`` can be at network resolution while ``xy``
+    polygons are in original-image pixels, so binary-mask coordinates are
+    scaled to ``image_shape`` before they are compared with box detections.
+    """
+    if masks is None:
+        return None
+    height, width = int(image_shape[0]), int(image_shape[1])
+    data = getattr(masks, "data", None)
+    if data is not None:
+        try:
+            array = _as_array(data[index])
+        except (IndexError, TypeError, ValueError):
+            array = None
+        if array is not None and array.ndim == 2:
+            mask_h, mask_w = array.shape
+            if mask_h > 0 and mask_w > 0:
+                ys, xs = np.nonzero(array > 0)
+                if len(xs):
+                    sx, sy = width / mask_w, height / mask_h
+                    x1, x2 = float(xs.min()) * sx, (float(xs.max()) + 1) * sx
+                    y1, y2 = float(ys.min()) * sy, (float(ys.max()) + 1) * sy
+                    return {
+                        "u": float(xs.mean()) * sx,
+                        "v": float(ys.mean()) * sy,
+                        "bbox_px": [x1, y1, x2, y2],
+                        "width_px": x2 - x1,
+                        "height_px": y2 - y1,
+                        "mask_area_px": int(round(len(xs) * sx * sy)),
+                    }
+    polygons = getattr(masks, "xy", None)
+    if polygons is not None and index < len(polygons):
+        center = _polygon_centroid(polygons[index])
+        if center is not None:
+            points = np.asarray(polygons[index], dtype=float)
+            x1, y1 = points.min(axis=0)
+            x2, y2 = points.max(axis=0)
+            cross = (points[:, 0] * np.roll(points[:, 1], -1)
+                     - np.roll(points[:, 0], -1) * points[:, 1])
+            return {
+                "u": center[0],
+                "v": center[1],
+                "bbox_px": [float(x1), float(y1), float(x2), float(y2)],
+                "width_px": float(x2 - x1),
+                "height_px": float(y2 - y1),
+                "mask_area_px": int(round(abs(cross.sum()) / 2.0)),
+            }
+    return None
+
+
+def _detection(xyxy, score, label, masks=None, index=None, image_shape=None):
+    """Build a detection dict, preferring a real mask centroid when present."""
     x1, y1, x2, y2 = [float(value) for value in xyxy]
-    return {
+    entry = {
         "label": str(label),
         "confidence": float(score),
         "bbox_px": [x1, y1, x2, y2],
@@ -105,7 +192,18 @@ def _detection(xyxy, score, label):
         "v": (y1 + y2) / 2.0,
         "width_px": x2 - x1,
         "height_px": y2 - y1,
+        "center_source": BOX_CENTER,
+        "mask_centroid_px": None,
+        "mask_area_px": 0,
     }
+    if masks is not None and index is not None and image_shape is not None:
+        geometry = _mask_geometry(masks, index, image_shape)
+        if geometry:
+            entry.update(geometry)
+            entry["center_source"] = MASK_CENTROID
+            entry["mask_centroid_px"] = [round(entry["u"], 2),
+                                         round(entry["v"], 2)]
+    return entry
 
 
 def _yolo_detections(model, rgb, classes, config):
@@ -120,11 +218,15 @@ def _yolo_detections(model, rgb, classes, config):
     if boxes is None or len(boxes) == 0:
         return []
     names = getattr(results[0], "names", None) or getattr(model, "names", {}) or {}
+    # YOLOE-26-seg supplies instance masks; YOLO-World detection weights do not.
+    masks = getattr(results[0], "masks", None)
     detections = []
-    for xyxy, score, class_id in zip(boxes.xyxy, boxes.conf, boxes.cls):
-        index = int(class_id)
-        label = names.get(index, classes[min(index, len(classes) - 1)])
-        detections.append(_detection(xyxy, score, label))
+    for index, (xyxy, score, class_id) in enumerate(
+            zip(boxes.xyxy, boxes.conf, boxes.cls)):
+        label = names.get(int(class_id),
+                          classes[min(int(class_id), len(classes) - 1)])
+        detections.append(_detection(xyxy, score, label, masks=masks,
+                                     index=index, image_shape=rgb.shape))
     return detections
 
 

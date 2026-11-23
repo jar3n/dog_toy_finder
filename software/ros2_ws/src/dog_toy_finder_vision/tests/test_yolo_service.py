@@ -187,6 +187,8 @@ class HostServiceTests(unittest.TestCase):
         self.assertAlmostEqual(detections[0][0]["u"], 90.0, delta=1.0)
         self.assertAlmostEqual(detections[1][0]["u"], 70.0, delta=1.0)
         self.assertEqual(detections[0][0]["label"], "red ball")
+        self.assertEqual(detections[0][0]["center_source"], "box_center")
+        self.assertIn("mask_centroid_px", detections[0][0])
 
     def test_request_threshold_overrides_are_applied(self):
         seen = {}

@@ -6,8 +6,10 @@ pair**. `open_vocab` is implemented: one host-side open-vocabulary detector
 runs on both rectified images, detections are matched between the eyes, and the
 target location is triangulated from disparity using `fx` and the stereo
 baseline. The detector runs on the computer (YOLO-World, YOLOE-26, or Grounding
-DINO); `second` is a reserved placeholder that is not configured yet.
-Selecting it reports a clear error.
+DINO). YOLOE-26-seg supplies instance masks, so the matched centre is the mean
+of the mask pixels; YOLO-World and Grounding DINO are box-only, so they use the
+box centre. `second` is a reserved placeholder that is not configured yet;
+selecting it reports a clear error.
 
 The pipeline is chosen by the launch arg `pipeline:=open_vocab|second`, the
 `VISION_PIPELINE` environment variable, or the top-level `pipeline` key in
@@ -113,11 +115,18 @@ container reach it). Override weights with `YOLO_MODEL_PATH`, `YOLOE_MODEL_PATH`
 or `GROUNDING_DINO_MODEL`; pass `--device` to change the torch device.
 `GET /health` reports the selected detector and model name.
 
-The service detects the text target independently in each eye. The container
-pairs detections by label, image row, and horizontal disparity; distance is
-`fx * baseline_m / disparity`, and lateral bearing comes from the left-image
-pixel centre. The service's model name (or `open_vocab.name`) is reported as
-`model`, with `method: "open_vocab"` and
+The service detects the text target independently in each eye. It uses each
+model's own output for the centre: **YOLOE-26-seg** returns instance masks, so
+the reported `u`/`v` is the mean of the mask pixels (`center_source:
+"mask_centroid"`), and the box/area fields are derived from that mask.
+**YOLO-World** and **Grounding DINO** are box-only models, so they report the
+box centre (`center_source: "box_center"`). No masks cross HTTP — only the
+centroid, mask-derived box, and area. Full masks stay on the computer.
+
+The container pairs detections by label, image row, and horizontal disparity;
+distance is `fx * baseline_m / disparity`, and lateral bearing comes from the
+left-image centre described above. The service's model name (or
+`open_vocab.name`) is reported as `model`, with `method: "open_vocab"` and
 `distance_source: "stereo_triangulation"` for matched detections. Selecting
 `second` instead raises a clear "reserved but not configured yet" error.
 
@@ -137,6 +146,9 @@ Each answer uses the existing schema:
   "obstacle_ahead": "none",
   "bbox_px": [140, 96, 176, 132],
   "bbox_right_px": [120, 96, 156, 132],
+  "center_source": "mask_centroid | box_center | mixed | none",
+  "mask_centroid_px": [158.0, 114.0],
+  "mask_area_px": 900,
   "disparity_px": 20.0
 }
 ```
@@ -160,9 +172,12 @@ Every entry has:
 | `description` | human-readable detector summary |
 | `seconds` | detector latency |
 | `distance_source` | `stereo_triangulation` for matched detections, `none` when no target was found |
-| `bbox_px` | left rectified-image box `[x1, y1, x2, y2]` in pixels |
+| `bbox_px` | left rectified-image box `[x1, y1, x2, y2]` in pixels (mask bounds for YOLOE-26) |
 | `bbox_right_px` | matching box in the right rectified image |
-| `disparity_px` | horizontal difference between the two box centres, used for depth |
+| `center_source` | `mask_centroid` (YOLOE-26), `box_center` (YOLO-World/Grounding DINO), `mixed`, or `none` |
+| `mask_centroid_px` | `[u, v]` mean of mask pixels on the left image, or `null` for box-only models |
+| `mask_area_px` | mask area in left-image pixels, `0` for box-only models |
+| `disparity_px` | horizontal difference between the two reported centres, used for depth |
 
 The mapping node consumes all entries and fuses visible toys by median bearing
 and distance. The trial collector writes one CSV row per entry. For fair

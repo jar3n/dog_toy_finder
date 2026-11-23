@@ -9,6 +9,12 @@ then pairs detections by label, row, and horizontal disparity. Depth is
 centre in the left rectified image using the shared convention in
 ``vision_config``.
 
+The centre comes from each model's own output: YOLOE-26-seg supplies an instance
+mask, so the service reports the mean of the mask pixels (``mask_centroid``).
+YOLO-World and Grounding DINO are box-only, so they report ``box_center``.
+Disparity and bearing use those centres unchanged; ``center_source`` in the
+answer records which output was used.
+
 Tests inject a fake ``client`` with the same signature as
 ``yolo_client.detect``, so no model weights or torch install are needed.
 """
@@ -77,6 +83,8 @@ def _match(left, right, config):
                 continue
             confidence = (left_detection["confidence"]
                           + right_detection["confidence"]) / 2.0
+            left_source = left_detection.get("center_source") or "box_center"
+            right_source = right_detection.get("center_source") or "box_center"
             pairs.append({
                 "label": left_detection["label"],
                 "confidence": confidence,
@@ -85,6 +93,10 @@ def _match(left, right, config):
                 "bbox_px": left_detection["bbox_px"],
                 "bbox_right_px": right_detection["bbox_px"],
                 "width_px": left_detection["width_px"],
+                "center_source": (left_source if left_source == right_source
+                                  else "mixed"),
+                "mask_centroid_px": left_detection.get("mask_centroid_px"),
+                "mask_area_px": left_detection.get("mask_area_px", 0),
                 "disparity_px": disparity,
                 "distance_m": distance,
             })
@@ -112,6 +124,9 @@ def _entry(answer, name, confidence, seconds, distance_source):
         "confidence": round(float(confidence), 3),
         "seconds": round(seconds, 3),
     })
+    answer.setdefault("center_source", "none")
+    answer.setdefault("mask_centroid_px", None)
+    answer.setdefault("mask_area_px", 0)
     return answer
 
 
@@ -170,6 +185,9 @@ def detect(left_jpeg, right_jpeg, target, config, client=None):
     answer.update({
         "bbox_px": pair["bbox_px"],
         "bbox_right_px": pair["bbox_right_px"],
+        "center_source": pair["center_source"],
+        "mask_centroid_px": pair["mask_centroid_px"],
+        "mask_area_px": pair["mask_area_px"],
         "disparity_px": round(pair["disparity_px"], 2),
     })
     return _entry(answer, name, pair["confidence"], time.time() - start,

@@ -16,7 +16,8 @@ second pipeline is reserved for later).
   then runs a vision pipeline on both rectified images. `open_vocab` uses one
   host-side open-vocabulary detector (YOLO-World, YOLOE-26, or Grounding DINO),
   matches detections between the eyes, and triangulates the target's location
-  from disparity using `fx` and the stereo baseline.
+  from disparity using `fx` and the stereo baseline. YOLOE-26-seg reports the
+  centroid of its instance mask; the box-only models report their box centre.
 - Runs either a deterministic expanding-square search or a ROSA/LLM-driven
   search, for one toy or a comma-separated list of toy kinds.
 - Records poses/vision results to CSV and evaluates success, time, path length,

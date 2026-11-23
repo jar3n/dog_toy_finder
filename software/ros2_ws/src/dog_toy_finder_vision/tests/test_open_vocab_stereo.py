@@ -20,11 +20,16 @@ from dog_toy_finder_vision import open_vocab_stereo  # noqa: E402
 from dog_toy_finder_vision import vision_config  # noqa: E402
 
 
-def _detection(u, v=120, label="red ball", confidence=0.95, width=12):
+def _detection(u, v=120, label="red ball", confidence=0.95, width=12,
+               center_source="box_center"):
     return {"label": label, "confidence": confidence, "u": u, "v": v,
             "width_px": width, "height_px": width,
             "bbox_px": [u - width / 2, v - width / 2,
-                        u + width / 2, v + width / 2]}
+                        u + width / 2, v + width / 2],
+            "center_source": center_source,
+            "mask_centroid_px": ([round(u, 2), round(v, 2)]
+                                 if center_source == "mask_centroid" else None),
+            "mask_area_px": 100 if center_source == "mask_centroid" else 0}
 
 
 def _stereo_jpegs(left_x=90, disparity=20, right_visible=True):
@@ -61,7 +66,8 @@ class FakeClient:
                 found.append([])
                 continue
             found.append([_detection(float(xs.mean()), float(ys.mean()),
-                                     label=classes[0] if classes else "red ball")])
+                                     label=classes[0] if classes else "red ball",
+                                      center_source="mask_centroid")])
         return found[0], found[1], "fake-world"
 
 
@@ -115,6 +121,9 @@ class TriangulationTests(unittest.TestCase):
         self.assertEqual(entry["position"], "left")
         self.assertIn("bbox_px", entry)
         self.assertIn("bbox_right_px", entry)
+        self.assertEqual(entry["center_source"], "mask_centroid")
+        self.assertAlmostEqual(entry["mask_centroid_px"][0], 90.0, delta=1.0)
+        self.assertEqual(entry["mask_area_px"], 100)
         self.assertEqual(entry["size"], "small")
 
     def test_unmatched_target_reports_not_visible(self):
@@ -125,6 +134,7 @@ class TriangulationTests(unittest.TestCase):
         self.assertEqual(entry["distance_source"], "none")
         self.assertEqual(entry["distance_m"], 0.0)
         self.assertEqual(entry["lateral_bearing_deg"], 0.0)
+        self.assertEqual(entry["center_source"], "none")
 
     def test_empty_target_does_not_call_the_service(self):
         left, right = _stereo_jpegs()
@@ -177,6 +187,19 @@ class MatchFilterTests(unittest.TestCase):
         pair = open_vocab_stereo._match(left, right, self.config)
         self.assertAlmostEqual(pair["u_left"], 110.0)
         self.assertAlmostEqual(pair["confidence"], 0.95)
+
+    def test_center_source_follows_detector_output(self):
+        pair = self._match(100, 80, center_source="mask_centroid")
+        self.assertEqual(pair["center_source"], "mask_centroid")
+        self.assertEqual(pair["mask_centroid_px"], [100.0, 120.0])
+
+        pair = self._match(100, 80)
+        self.assertEqual(pair["center_source"], "box_center")
+
+        mixed = open_vocab_stereo._match(
+            [_detection(100, center_source="mask_centroid")],
+            [_detection(80)], self.config)
+        self.assertEqual(mixed["center_source"], "mixed")
 
 
 if __name__ == "__main__":

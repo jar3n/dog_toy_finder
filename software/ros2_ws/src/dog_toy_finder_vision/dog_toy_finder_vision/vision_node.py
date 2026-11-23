@@ -44,7 +44,7 @@ TOP_LEVEL_KEYS = (
     "description", "target_visible", "position", "lateral_bearing_deg",
     "size", "distance_m", "obstacle_ahead", "path_clear", "seconds",
     "method", "distance_source", "model", "bbox_px", "bbox_right_px",
-    "disparity_px",
+    "disparity_px", "center_source", "mask_centroid_px", "mask_area_px",
 )
 
 

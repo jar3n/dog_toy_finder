@@ -84,22 +84,32 @@ class _Boxes:
         return len(self.xyxy)
 
 
+class FakeMasks:
+    def __init__(self, data):
+        self.data = data
+        self.xy = None
+
+
 class FakeResult:
     boxes = _Boxes()
     names = {0: "red ball", 1: "blue bone"}
 
+    def __init__(self, masks=None):
+        self.masks = masks
+
 
 class FakeYoloModel:
-    def __init__(self):
+    def __init__(self, masks=None):
         self.classes = []
         self.kwargs = None
+        self.masks = masks
 
     def set_classes(self, classes):
         self.classes = list(classes)
 
     def __call__(self, rgb, **kwargs):
         self.kwargs = kwargs
-        return [FakeResult()]
+        return [FakeResult(self.masks)]
 
 
 def fake_modules():
@@ -176,6 +186,48 @@ class DetectionConversionTests(unittest.TestCase):
                          ["red ball", "blue bone"])
         self.assertAlmostEqual(entries[0]["u"], 90.0)
         self.assertAlmostEqual(entries[0]["width_px"], 20.0)
+        self.assertEqual(entries[0]["center_source"], "box_center")
+        self.assertEqual(entries[0]["mask_area_px"], 0)
+        self.assertIsNone(entries[0]["mask_centroid_px"])
+
+    def test_mask_centroid_replaces_box_centre(self):
+        # A triangular mask inside the 80..100 x 110..130 box: its pixel mean is
+        # left of the box centre, so the test proves the mask actually drives u/v.
+        mask = np.zeros((240, 320), dtype=np.uint8)
+        for x in range(80, 101):
+            mask[110:110 + (101 - x) // 2, x] = 1
+        ys, xs = np.nonzero(mask)
+        model = FakeYoloModel(masks=FakeMasks(np.asarray([mask, mask * 0])))
+        entries = detectors.detections_for_image(
+            (detectors.YOLOE_26, model), np.zeros((240, 320, 3), dtype=np.uint8),
+            ["red ball"], {"confidence_threshold": 0.25})
+
+        first = entries[0]
+        self.assertEqual(first["center_source"], "mask_centroid")
+        self.assertAlmostEqual(first["u"], float(xs.mean()), places=5)
+        self.assertAlmostEqual(first["v"], float(ys.mean()), places=5)
+        self.assertLess(first["u"], 90.0)  # box centre would be 90
+        self.assertEqual(first["mask_centroid_px"],
+                         [round(first["u"], 2), round(first["v"], 2)])
+        self.assertEqual(first["mask_area_px"], len(xs))
+        self.assertAlmostEqual(first["bbox_px"][0], 80.0)
+        self.assertAlmostEqual(first["bbox_px"][2], 100.0)
+        # A second detection with an empty mask falls back to its box centre.
+        self.assertEqual(entries[1]["center_source"], "box_center")
+        self.assertAlmostEqual(entries[1]["u"], 190.0)
+
+    def test_mask_at_network_resolution_is_scaled_to_image_pixels(self):
+        mask = np.zeros((120, 160), dtype=np.uint8)  # half of 240x320
+        mask[55:60, 40:50] = 1                      # image x 80..100, y 110..120
+        ys, xs = np.nonzero(mask)
+        model = FakeYoloModel(masks=FakeMasks(np.asarray([mask])))
+        entries = detectors.detections_for_image(
+            (detectors.YOLOE_26, model), np.zeros((240, 320, 3), dtype=np.uint8),
+            ["red ball"], {})
+        self.assertEqual(entries[0]["center_source"], "mask_centroid")
+        self.assertAlmostEqual(entries[0]["u"], float(xs.mean()) * 2.0, places=5)
+        self.assertAlmostEqual(entries[0]["v"], float(ys.mean()) * 2.0, places=5)
+        self.assertEqual(entries[0]["mask_area_px"], len(xs) * 4)
 
     def test_grounding_dino_query_and_thresholds(self):
         self.assertEqual(detectors._dino_query(["Red Ball", "blue bone."]),
@@ -197,6 +249,7 @@ class DetectionConversionTests(unittest.TestCase):
         self.assertEqual(entries[0]["label"], "Red Ball")
         self.assertAlmostEqual(entries[0]["u"], 90.0)
         self.assertAlmostEqual(entries[0]["confidence"], 0.91)
+        self.assertEqual(entries[0]["center_source"], "box_center")
 
 
 if __name__ == "__main__":

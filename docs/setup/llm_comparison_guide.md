@@ -116,11 +116,18 @@ torch device are configured on the host service via `DETECTOR_MODEL`,
 bearing = atan((cx - u) / fx)
 ```
 
-where `u` is the target's horizontal pixel centre. Positive means the toy is to
-the robot's **left** (image column less than `cx`, ROS `+y`), negative means
-right, and zero means centred. `target.position_bearing_deg` (default `15°`) is
-only a fallback for older results that contain a legacy `left`/`center`/`right`
-label but no numeric bearing.
+where `u` is the target's horizontal pixel centre. For **YOLOE-26-seg** that is
+the mean of the instance-mask pixels (`center_source: "mask_centroid"`); for
+**YOLO-World** and **Grounding DINO**, which are box-only models, it is the
+detected box centre (`center_source: "box_center"`). Only centroid/box/area
+numbers cross HTTP; full masks stay on the computer. The same centre drives
+disparity and depth.
+
+Positive bearing means the toy is to the robot's **left** (image column less
+than `cx`, ROS `+y`), negative means right, and zero means centred.
+`target.position_bearing_deg` (default `15°`) is only a fallback for older
+results that contain a legacy `left`/`center`/`right` label but no numeric
+bearing.
 
 ### A2. Start the rectified stereo pipeline
 
