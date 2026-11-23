@@ -7,6 +7,7 @@ import os
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 import numpy as np
 from PIL import Image
@@ -14,8 +15,10 @@ from PIL import Image
 SRC_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 sys.path.insert(0, SRC_ROOT)
 
+from dog_toy_finder_vision import depth_client  # noqa: E402
 from dog_toy_finder_vision import vision_config  # noqa: E402
 from dog_toy_finder_vision import vision_eval  # noqa: E402
+from dog_toy_finder_vision import yolo_client  # noqa: E402
 try:  # installed ROS workspace vs. plain source checkout
     from dog_toy_finder_data import llm_trials  # noqa: E402
 except ImportError:  # pragma: no cover - host-side fallback
@@ -202,6 +205,117 @@ class OfflineEvalTests(unittest.TestCase):
         self.assertEqual(rows[0]["method"], "open_vocab")
         self.assertIn("method", fields)
         self.assertTrue(os.path.isfile(results_path))
+
+
+    def test_main_selects_each_pipeline_one_at_a_time(self):
+        """`--pipeline` chooses exactly one pipeline per evaluation run."""
+        self._write_synthetic_pair()
+
+        def detect_both(left_jpeg, right_jpeg, classes, config):
+            left, right, _ = FakeClient()(left_jpeg, right_jpeg, classes, config)
+            return left, right, "fake-world"
+
+        def detect_one(jpeg, classes, config):
+            detections, _, _ = FakeClient()(jpeg, jpeg, classes, config)
+            for entry in detections:
+                entry["center_source"] = "box_center"
+                entry["mask_area_px"] = 0
+                entry["depth_sample_pixels"] = []
+            return detections, "fake-world"
+
+        def sample_depth(left_jpeg, right_jpeg, spec, config):
+            return {
+                "model": "fake-stereo", "depth_m": 1.0, "disparity_px": 20.0,
+                "sample_source": spec["sample_source"], "sample_count": 49,
+                "valid_count": 49,
+            }
+
+        expected = {
+            "open_vocab": ("open_vocab", "stereo_triangulation"),
+            "second": ("second", "dense_stereo_depth"),
+        }
+        for pipeline, (method, distance_source) in expected.items():
+            with self.subTest(pipeline=pipeline):
+                csv_path = os.path.join(self.temp.name, pipeline + ".csv")
+                jsonl_path = os.path.join(self.temp.name, pipeline + ".jsonl")
+                summary_path = os.path.join(self.temp.name,
+                                            pipeline + "_summary.json")
+                with mock.patch.object(yolo_client, "detect", detect_both), \
+                     mock.patch.object(yolo_client, "detect_one", detect_one), \
+                     mock.patch.object(depth_client, "sample", sample_depth), \
+                     contextlib.redirect_stdout(io.StringIO()):
+                    code = vision_eval.main([
+                        "--captures-dir", self.root, "--pipeline", pipeline,
+                        "--output-csv", csv_path, "--results-json", jsonl_path,
+                        "--summary-json", summary_path])
+                self.assertEqual(code, 0)
+                with open(summary_path) as handle:
+                    summary = json.load(handle)
+                self.assertEqual(summary["pipeline"], pipeline)
+                self.assertEqual(summary["rows"], 1)
+                with open(jsonl_path) as handle:
+                    results = [json.loads(line) for line in handle]
+                self.assertEqual(len(results), 1)
+                entry = results[0]["results"][0]
+                self.assertEqual(entry["method"], method)
+                self.assertEqual(entry["distance_source"], distance_source)
+                rows, fields = llm_trials.read_csv(csv_path)
+                self.assertEqual(len(rows), 1)
+                self.assertEqual(rows[0]["method"], method)
+                self.assertIn("method", fields)
+
+    def test_main_honours_environment_and_yaml_pipeline_selection(self):
+        """With no `--pipeline`, $VISION_PIPELINE then YAML choose one pipeline."""
+        self._write_synthetic_pair()
+
+        def detect_both(left_jpeg, right_jpeg, classes, config):
+            left, right, _ = FakeClient()(left_jpeg, right_jpeg, classes, config)
+            return left, right, "fake-world"
+
+        def detect_one(jpeg, classes, config):
+            detections, _, _ = FakeClient()(jpeg, jpeg, classes, config)
+            for entry in detections:
+                entry["center_source"] = "box_center"
+                entry["mask_area_px"] = 0
+                entry["depth_sample_pixels"] = []
+            return detections, "fake-world"
+
+        def sample_depth(left_jpeg, right_jpeg, spec, config):
+            return {
+                "model": "fake-stereo", "depth_m": 1.0, "disparity_px": 20.0,
+                "sample_source": spec["sample_source"], "sample_count": 49,
+                "valid_count": 49,
+            }
+
+        config_path = os.path.join(self.temp.name, "second.yaml")
+        with open(config_path, "w") as handle:
+            handle.write("pipeline: second\n")
+        cases = (
+            ("env", None, {"VISION_PIPELINE": "second"}, "second"),
+            ("yaml", config_path, {
+                "VISION_PIPELINE": ""}, "second"),
+        )
+        for label, config_arg, environ, expected in cases:
+            with self.subTest(source=label):
+                summary_path = os.path.join(self.temp.name,
+                                            label + "_summary.json")
+                argv = ["--captures-dir", self.root,
+                        "--output-csv", os.path.join(self.temp.name,
+                                                     label + ".csv"),
+                        "--results-json", os.path.join(self.temp.name,
+                                                       label + ".jsonl"),
+                        "--summary-json", summary_path]
+                if config_arg:
+                    argv += ["--config", config_arg]
+                with mock.patch.dict(os.environ, environ, clear=True), \
+                     mock.patch.object(yolo_client, "detect", detect_both), \
+                     mock.patch.object(yolo_client, "detect_one", detect_one), \
+                     mock.patch.object(depth_client, "sample", sample_depth), \
+                     contextlib.redirect_stdout(io.StringIO()):
+                    code = vision_eval.main(argv)
+                self.assertEqual(code, 0)
+                with open(summary_path) as handle:
+                    self.assertEqual(json.load(handle)["pipeline"], expected)
 
 
 if __name__ == "__main__":

@@ -275,24 +275,30 @@ truth, including `lateral_bearing_deg`; use `--not-visible` for an empty frame.
 `vision_capture` waits for a fresh matched rectified pair, so it works with the
 non-hardware-synchronised ESP32-CAMs.
 
-After capturing all scenes, replay them offline:
+After capturing all scenes, replay them offline. Select **one** pipeline per
+invocation with `--pipeline open_vocab` or `--pipeline second` (or set
+`VISION_PIPELINE` / the YAML `pipeline` key and omit the flag); the other
+pipeline is not run. To compare both, use different output paths for each run so
+the first result is not overwritten:
 
 ```bash
 ros2 run dog_toy_finder_vision vision_eval \
     --captures-dir "$VISION_CAPTURE_DIR" \
-    --pipeline "$VISION_PIPELINE" \
-    --tolerance "$VISION_EVAL_TOLERANCE" \
-    --bearing-tolerance "$VISION_EVAL_BEARING_TOLERANCE" \
+    --pipeline open_vocab \
     --output-csv "$VISION_EVAL_CSV" \
     --results-json "$VISION_EVAL_JSONL" \
-    --summary-json "$VISION_EVAL_SUMMARY_JSON"
+    --summary-json "$VISION_EVAL_SUMMARY_JSON" \
+    --tolerance "$VISION_EVAL_TOLERANCE" \
+    --bearing-tolerance "$VISION_EVAL_BEARING_TOLERANCE"
+
+# start the host depth service, then replay the same captures with:
+#   --pipeline second --output-csv .../second_trials.csv ...
 ```
 
-`vision_eval` needs no ROS graph. It writes one scored row per capture per
-configured model name produced by the pipeline (`open_vocab.name` or the weight
-filename) and records the chosen pipeline in the summary manifest
-(`vision_eval_summary.json`). Useful flags include `--run-id`, `--capture`, and
-`--limit`.
+`vision_eval` needs no ROS graph. It writes one scored row per capture using the
+model name produced by the selected pipeline (detector name for `open_vocab`,
+dense depth model name for `second`) and records the chosen pipeline in the
+summary manifest. Useful flags include `--run-id`, `--capture`, and `--limit`.
 See [`docs/setup/llm_comparison_guide.md`](../../../../docs/setup/llm_comparison_guide.md)
 for the full experiment workflow.
 

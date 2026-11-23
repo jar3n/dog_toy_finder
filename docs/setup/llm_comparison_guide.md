@@ -236,15 +236,33 @@ Use `--notes` for anything the numeric fields do not capture.
 
 ### A5. Replay every capture offline
 
+Run **one pipeline per invocation**. `--pipeline` (or `$VISION_PIPELINE`, then
+the YAML `pipeline` key when the flag is omitted) selects exactly one pipeline
+for the whole run; the other is not touched. To compare both, replay the same
+captures twice with different output paths so the first run is not overwritten:
+
 ```bash
 ros2 run dog_toy_finder_vision vision_eval \
     --captures-dir "$VISION_CAPTURE_DIR" \
-    --pipeline "$VISION_PIPELINE" \
+    --pipeline open_vocab \
+    --output-csv /workspace/data/vision/open_vocab_trials.csv \
+    --results-json /workspace/data/vision/open_vocab_results.jsonl \
+    --summary-json /workspace/data/vision/open_vocab_summary.json \
+    --tolerance "$VISION_EVAL_TOLERANCE" \
+    --bearing-tolerance "$VISION_EVAL_BEARING_TOLERANCE"
+
+# start the host depth service, then replay the same captures with `second`
+ros2 run dog_toy_finder_vision vision_eval \
+    --captures-dir "$VISION_CAPTURE_DIR" \
+    --pipeline second \
+    --output-csv /workspace/data/vision/second_trials.csv \
+    --results-json /workspace/data/vision/second_results.jsonl \
+    --summary-json /workspace/data/vision/second_summary.json \
     --tolerance "$VISION_EVAL_TOLERANCE" \
     --bearing-tolerance "$VISION_EVAL_BEARING_TOLERANCE"
 ```
 
-This writes:
+Without the output overrides, each run writes to the same default paths:
 
 ```text
 /workspace/data/vision/vision_eval_trials.csv
