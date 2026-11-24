@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Start the host-side dense-stereo depth service used by the second pipeline.
+# Start the host-side dense-stereo depth service used by the stereo-net pipeline.
 #
 # One depth model runs at a time, chosen with DEPTH_MODEL (or pass --model):
 #   lite_any_stereo          Lite Any Stereo V2, small (LAS2_S.pth)

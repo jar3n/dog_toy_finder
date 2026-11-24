@@ -42,7 +42,7 @@ ESP32-CAM left/right --HTTP--> stereo_camera_node -> image_proc
                                     -> stereo_image_proc -> /stereo/disparity, /stereo/points2
                                     -> rectified colour pair -> vision_node
                                         (open_vocab: two-eye triangulation;
-                                         second: one-eye detection + dense
+                                         stereo-net: one-eye detection + dense
                                          stereo depth) -> /vision/result
                                              |                         |
                                              |                         +-> occupancy_mapper
@@ -55,9 +55,9 @@ ESP32-CAM left/right --HTTP--> stereo_camera_node -> image_proc
 
 The vision node is request-driven: planners and ROSA publish a JSON request on
 `/vision/ask` and read the matching answer on `/vision/result`. Select the
-pipeline with `pipeline:=open_vocab|second` at launch, `VISION_PIPELINE`, or the
+pipeline with `pipeline:=open_vocab|stereo-net` at launch, `VISION_PIPELINE`, or the
 top-level `pipeline` key in `vision_detectors.yaml`. `open_vocab` triangulates
-two-eye detections; `second` detects in the left eye and reads depth from a
+two-eye detections; `stereo-net` detects in the left eye and reads depth from a
 dense stereo map. All answers use a numeric `lateral_bearing_deg`
 (`atan((cx - u) / fx)`, positive = robot-left). For fair comparison, capture
 rectified pairs once with `vision_capture` and replay them offline with
@@ -77,7 +77,7 @@ docker compose -f docker/docker-compose.yml run --rm ros2
 
 On the host, before starting the vision node, start the detector service
 (`./scripts/start_yolo_service.sh`, one detector at a time via
-`DETECTOR_MODEL=yolo_world|yoloe_26|grounding_dino`). For the `second` pipeline
+`DETECTOR_MODEL=yolo_world|yoloe_26|grounding_dino`). For the `stereo-net` pipeline
 also start the dense-stereo depth service
 (`./scripts/start_stereo_service.sh`, one model at a time via
 `DEPTH_MODEL=lite_any_stereo|fast_foundation_stereo|rt_igevpp`). Both keep torch

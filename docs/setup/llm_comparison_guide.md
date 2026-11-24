@@ -7,7 +7,7 @@ offline through the configured pipeline. Planning comparison still sends each
 prompt to every model live with ROSA. Both trial kinds share one CSV schema and
 one scoring tool (`dog_toy_finder_data.llm_trials`).
 
-The vision pipeline is selected with `pipeline:=open_vocab|second` on the launch
+The vision pipeline is selected with `pipeline:=open_vocab|stereo-net` on the launch
 command, `VISION_PIPELINE` in `scripts/full_system_eval.conf`, the top-level
 `pipeline` key in `vision_detectors.yaml`, or `vision_eval --pipeline` (explicit
 selections win). Both are implemented:
@@ -16,7 +16,7 @@ selections win). Both are implemented:
   or Grounding DINO) runs on both rectified images, matching detections are
   paired, and distance comes from stereo triangulation using `fx` and the stereo
   baseline.
-- `second`: the same detector runs on the left image only and a host dense-stereo
+- `stereo-net`: the same detector runs on the left image only and a host dense-stereo
   model (Lite Any Stereo, Fast Foundation Stereo, or RT-IGEV++) supplies depth
   from a disparity map, sampled over the object's mask pixels (YOLOE-26) or a
   small box-centre window (box-only detectors).
@@ -59,9 +59,9 @@ data/
     open_vocab_trials.csv                      # example per-pipeline outputs
     open_vocab_results.jsonl
     open_vocab_summary.json
-    second_trials.csv
-    second_results.jsonl
-    second_summary.json
+    stereo-net_trials.csv
+    stereo-net_results.jsonl
+    stereo-net_summary.json
     <live_run_id>/vision_trials.csv            # optional live-path collector
   planning/<run_id>/planning_trials.csv
 ```
@@ -91,7 +91,7 @@ time; choose it with `DETECTOR_MODEL=yolo_world|yoloe_26|grounding_dino`
 `IDEA-Research/grounding-dino-tiny`). The container sends rectified JPEGs to
 that service at `YOLO_SERVICE_URL` (default `http://localhost:5006`).
 
-For the `second` pipeline also start `./scripts/start_stereo_service.sh` on the
+For the `stereo-net` pipeline also start `./scripts/start_stereo_service.sh` on the
 host. It reuses the same venv and serves dense disparity at
 `STEREO_SERVICE_URL` (default `http://localhost:5007`). One depth model runs at
 a time, selected with
@@ -129,8 +129,8 @@ own copy). At minimum, set the calibrated `fx`, `fy`, `cx`, `cy`, `baseline_m`,
 and the valid `camera.depth_min_m`/`depth_max_m`. The top-level `pipeline` key
 selects the vision pipeline (`open_vocab` by default); `open_vocab.service_url`
 points at the host detector service and `open_vocab.name` is the fallback model
-name recorded in results and trial CSVs. The `second.service_url`,
-`second.window_radius_px`, and `second.max_disparity` keys tune the dense-depth
+name recorded in results and trial CSVs. The `stereo-net.service_url`,
+`stereo-net.window_radius_px`, and `stereo-net.max_disparity` keys tune the dense-depth
 path. The detector backend, weights, and torch device are configured on the
 host service via `DETECTOR_MODEL`, `YOLO_MODEL_PATH` / `YOLOE_MODEL_PATH` /
 `GROUNDING_DINO_MODEL`, and `YOLO_DEVICE`; the dense model is selected on the
@@ -364,7 +364,7 @@ ROS graph are needed for `vision_eval`.
 Run **one pipeline per invocation**. `--pipeline` (or `$VISION_PIPELINE`, then
 the YAML `pipeline` key when the flag is omitted) selects exactly one pipeline
 for the whole run; the other is not touched. Keep the same host `DETECTOR_MODEL`
-for both pipelines: `open_vocab` uses the detector service only, while `second`
+for both pipelines: `open_vocab` uses the detector service only, while `stereo-net`
 also uses the depth service (one depth model at a time). To compare both, replay
 the same captures twice with different output paths so the first run is not
 overwritten. Captures are shuffled before replay so directory names do not
@@ -381,13 +381,13 @@ ros2 run dog_toy_finder_vision vision_eval \
     --tolerance "$VISION_EVAL_TOLERANCE" \
     --bearing-tolerance "$VISION_EVAL_BEARING_TOLERANCE"
 
-# start the host depth service, then replay the same captures with `second`
+# start the host depth service, then replay the same captures with `stereo-net`
 ros2 run dog_toy_finder_vision vision_eval \
     --captures-dir "$VISION_CAPTURE_DIR" \
-    --pipeline second \
-    --output-csv /workspace/data/vision/second_trials.csv \
-    --results-json /workspace/data/vision/second_results.jsonl \
-    --summary-json /workspace/data/vision/second_summary.json \
+    --pipeline stereo-net \
+    --output-csv /workspace/data/vision/stereo-net_trials.csv \
+    --results-json /workspace/data/vision/stereo-net_results.jsonl \
+    --summary-json /workspace/data/vision/stereo-net_summary.json \
     --tolerance "$VISION_EVAL_TOLERANCE" \
     --bearing-tolerance "$VISION_EVAL_BEARING_TOLERANCE"
 ```
@@ -403,9 +403,9 @@ Without the output overrides, each run writes to the same default paths:
 One scored row is written per capture (one answer per capture). For
 `open_vocab` the `model` column is reported by the host detector service
 (falling back to `open_vocab.name`), answers carry `method=open_vocab`, and
-matched detections report `distance_source=stereo_triangulation`. For `second`
+matched detections report `distance_source=stereo_triangulation`. For `stereo-net`
 the `model` column is the dense depth model name from the host depth service,
-answers carry `method=second` and `detector_model` for the one-eye detector, and
+answers carry `method=stereo-net` and `detector_model` for the one-eye detector, and
 use `distance_source=dense_stereo_depth` plus `depth_sample_*` fields. Legacy
 rows from the retired path use `method=ml`. Ground truth is copied from each
 `meta.json`, so no spreadsheet annotation is needed. The summary manifest
@@ -475,7 +475,7 @@ python3 /workspace/scripts/vision_test.py "red ball" --gt-json gt_vision.json
 
 Each ask appends one row per answer entry from the selected pipeline to
 `$VISION_TRIAL_DIR/$VISION_TRIAL_RUN_ID/vision_trials.csv`; the `model` column is
-the detector name for `open_vocab` or the dense depth model name for `second`.
+the detector name for `open_vocab` or the dense depth model name for `stereo-net`.
 `distance_m` may be a single number or repeated measurements; scoring uses the
 mean. If ground truth is not supplied, fill these columns later:
 
@@ -722,7 +722,7 @@ above.
 
 The summary manifest also reports `bearing_mae_deg` and
 `bearing_within_rate` for each `model` value reported by the selected pipeline
-(detector name for `open_vocab`, dense depth model name for `second`). Rows where
+(detector name for `open_vocab`, dense depth model name for `stereo-net`). Rows where
 the toy is not visible only score visibility and obstacle checks. Blank
 ground-truth fields are ignored, so partial annotation still produces useful
 results.

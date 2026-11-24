@@ -160,7 +160,7 @@ def _mask_geometry(masks, index, image_shape):
                         "width_px": x2 - x1,
                         "height_px": y2 - y1,
                         "mask_area_px": int(round(len(xs) * sx * sy)),
-                        # The second pipeline asks the dense-stereo service for
+                        # The stereo-net pipeline asks the dense-stereo service for
                         # the median over these pixels. They stay inside this
                         # host-to-host request and are not part of the answer.
                         "depth_sample_pixels": [

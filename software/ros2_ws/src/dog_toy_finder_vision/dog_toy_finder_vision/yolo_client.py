@@ -4,7 +4,7 @@ The ROS container has no torch/ultralytics installation. It sends rectified
 JPEGs and text class prompts to the service running on the computer (host
 networking makes ``localhost`` reachable from the container), and receives plain
 Python detection dictionaries back. ``detect`` sends both eyes for triangulation;
-``detect_one`` sends only the left eye for the dense-stereo ``second`` pipeline.
+``detect_one`` sends only the left eye for the dense-stereo ``stereo-net`` pipeline.
 
 ``YOLO_SERVICE_URL`` overrides the ``open_vocab.service_url`` config key when
 set in the container environment.

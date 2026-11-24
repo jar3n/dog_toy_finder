@@ -6,7 +6,7 @@ returns answer entries in the ``/vision/result`` schema.
 ``open_vocab``
     Run the host open-vocabulary detector on both eyes and triangulate matched
     detections from disparity.
-``second``
+``stereo-net``
     Detect the target in the left eye only, then read depth at the detected
     object from a dense disparity map produced by a host dense-stereo model
     (Lite Any Stereo, Fast-FoundationStereo, or RT-IGEV++).
@@ -18,8 +18,8 @@ parameter or CLI flag), ``VISION_PIPELINE``, the detector YAML, then the default
 import os
 
 OPEN_VOCAB = "open_vocab"
-SECOND = "second"
-PIPELINES = (OPEN_VOCAB, SECOND)
+STEREO_NET = "stereo-net"
+PIPELINES = (OPEN_VOCAB, STEREO_NET)
 
 
 def pipeline_name(explicit=None, config=None, environ=None):
@@ -40,16 +40,16 @@ def run_pipeline(name, target, left_jpeg, right_jpeg, config, client=None,
 
     ``client`` is the detector callable injected by tests; production uses the
     HTTP client to the host-side detector service. ``depth_client`` similarly
-    injects the host dense-stereo sampling call for ``second``.
+    injects the host dense-stereo sampling call for ``stereo-net``.
     """
     name = pipeline_name(name, config)
     if name == OPEN_VOCAB:
         from . import open_vocab_stereo
         return [open_vocab_stereo.detect(
             left_jpeg, right_jpeg, target, config, client=client)]
-    if name == SECOND:
-        from . import second_pipeline
-        return [second_pipeline.detect(
+    if name == STEREO_NET:
+        from . import stereo_net_pipeline
+        return [stereo_net_pipeline.detect(
             left_jpeg, right_jpeg, target, config, client=client,
             depth_client_override=depth_client)]
     raise NotImplementedError("Unknown vision pipeline %r" % name)

@@ -28,7 +28,7 @@ Run inside the ROS 2 container:
 
 ``pipeline`` falls back to ``$VISION_PIPELINE``, then the detector YAML's
 ``pipeline`` key, then ``open_vocab``. ``open_vocab`` sends rectified JPEGs to
-the host-side detector service (``scripts/start_yolo_service.sh``). ``second``
+the host-side detector service (``scripts/start_yolo_service.sh``). ``stereo-net``
 detects in the left image only and asks the host dense-stereo service
 (``scripts/start_stereo_service.sh``) for depth. Torch, models, and weights run
 on the computer, never in this container.
@@ -215,7 +215,7 @@ def generate_launch_description():
                               default_value=DEFAULT_DETECTOR_CONFIG,
                               description="YAML with stereo geometry and pipeline settings"),
         DeclareLaunchArgument("pipeline", default_value="",
-                              description="Vision pipeline: open_vocab|second "
+                              description="Vision pipeline: open_vocab|stereo-net "
                                           "(default: $VISION_PIPELINE / YAML / open_vocab)"),
         DeclareLaunchArgument("yolo_service_url", default_value="",
                               description="Host open-vocabulary detector service URL "

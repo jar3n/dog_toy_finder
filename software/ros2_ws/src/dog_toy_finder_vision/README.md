@@ -7,7 +7,7 @@ pair**. Both pipelines are implemented:
 - `open_vocab`: one host-side open-vocabulary detector runs on both rectified
   images, detections are matched between the eyes, and the target location is
   triangulated from disparity using `fx` and the stereo baseline.
-- `second`: the same detector runs on the left image only; a dense stereo model
+- `stereo-net`: the same detector runs on the left image only; a dense stereo model
   on the host produces a disparity map from the full pair and its median over
   the object's mask pixels (YOLOE-26) or a small window around the box centre
   (YOLO-World / Grounding DINO) gives the depth.
@@ -18,7 +18,7 @@ mask pixels; YOLO-World and Grounding DINO are box-only, so they use the box
 centre. All model weights, torch, and the dense stereo repositories stay on the
 computer, never in the ROS container.
 
-The pipeline is chosen by the launch arg `pipeline:=open_vocab|second`, the
+The pipeline is chosen by the launch arg `pipeline:=open_vocab|stereo-net`, the
 `VISION_PIPELINE` environment variable, or the top-level `pipeline` key in
 `vision_detectors.yaml` (in that order of precedence); `vision_eval` also has
 `--pipeline`.
@@ -70,7 +70,7 @@ The path is set once in `scripts/full_system_eval.conf` as
 `VISION_DETECTOR_CONFIG` and forwarded through the launch file. Put your
 measured camera and toy values there:
 
-- `pipeline` — `open_vocab` (default) or `second`
+- `pipeline` — `open_vocab` (default) or `stereo-net`
 - `open_vocab.service_url` — host detector service URL (default
   `http://localhost:5006`; `YOLO_SERVICE_URL` overrides it)
 - `open_vocab.timeout_s` — HTTP timeout in seconds
@@ -78,11 +78,11 @@ measured camera and toy values there:
   (the host service may report its own name)
 - `open_vocab.confidence_threshold`, `max_detections`, `min_disparity`,
   `max_disparity`, `max_vertical_delta_px` — detector and stereo-matching limits
-- `second.service_url` — host dense-stereo depth service URL (default
+- `stereo-net.service_url` — host dense-stereo depth service URL (default
   `http://localhost:5007`; `STEREO_SERVICE_URL` overrides it)
-- `second.timeout_s`, `second.window_radius_px` — HTTP timeout and the
+- `stereo-net.timeout_s`, `stereo-net.window_radius_px` — HTTP timeout and the
   `(2r+1)^2` box-centre window used by box-only detectors
-- `second.name`, `second.max_disparity` — fallback depth model name and the
+- `stereo-net.name`, `stereo-net.max_disparity` — fallback depth model name and the
   upper bound on sampled disparity
 - The detector backend, weights, and torch device are **not** in the YAML:
   configure them on the host services with `DETECTOR_MODEL`,
@@ -160,9 +160,9 @@ Each answer uses this schema:
 }
 ```
 
-## Second pipeline (dense stereo depth)
+## Stereo-net pipeline (dense stereo depth)
 
-`second` reuses the **same detector service** as `open_vocab` (configured with
+`stereo-net` reuses the **same detector service** as `open_vocab` (configured with
 `DETECTOR_MODEL`), but calls `POST /detect` with a single rectified left image
 and `include_depth_samples: true`. A second host service computes a dense
 disparity map from the full pair; start it once from the repository root:
@@ -186,7 +186,7 @@ repository over HTTPS into `software/host_vision/models/repos/`, and downloads
 weights from Hugging Face (no file-sharing drives). It serves `POST /depth` on
 `http://localhost:5007` and `GET /health` (which reports the selected `model` and
 weights). The container reaches it via `STEREO_SERVICE_URL` (default
-`http://localhost:5007`, also settable through `second.service_url`).
+`http://localhost:5007`, also settable through `stereo-net.service_url`).
 
 Host-only environment variables for the depth service:
 
@@ -200,10 +200,10 @@ Host-only environment variables for the depth service:
 | `LITE_ANY_STEREO_REPO`, `FAST_FOUNDATION_STEREO_REPO`, `IGEV_PLUSPLUS_REPO` | override upstream source checkout locations |
 
 The depth sampler uses every instance-mask pixel from YOLOE-26, or the
-`(2 * second.window_radius_px + 1)^2` window around the box centre for
+`(2 * stereo-net.window_radius_px + 1)^2` window around the box centre for
 YOLO-World and Grounding DINO, and takes the median of the valid disparities.
 Depth is `fx * baseline_m / disparity_px`; bearing uses the same left-image
-centre and convention as `open_vocab`. The answer reports `method: "second"`,
+centre and convention as `open_vocab`. The answer reports `method: "stereo-net"`,
 `distance_source: "dense_stereo_depth"`, the dense model name in `model`, the
 detector name in `detector_model`, and `depth_sample_source`,
 `depth_sample_count`, `depth_valid_count`, and `depth_disparity_px` describing
@@ -218,9 +218,9 @@ Every entry has:
 
 | Field | Meaning |
 |---|---|
-| `model` | detector name for `open_vocab`; dense depth model name for `second` |
-| `method` | `open_vocab` or `second` (`ml` only on legacy rows) |
-| `detector_model` | detector used for the single-image detection (`second` only) |
+| `model` | detector name for `open_vocab`; dense depth model name for `stereo-net` |
+| `method` | `open_vocab` or `stereo-net` (`ml` only on legacy rows) |
+| `detector_model` | detector used for the single-image detection (`stereo-net` only) |
 | `target_visible` | whether the requested target was found |
 | `lateral_bearing_deg` | sole lateral measurement: numeric bearing from the optical axis in degrees, positive = robot-left / ROS `+y` |
 | `size` | `small`, `medium`, `large`, or `none` |
@@ -229,17 +229,17 @@ Every entry has:
 | `path_clear` | `true` when `obstacle_ahead` is `none` |
 | `description` | human-readable detector summary |
 | `seconds` | detector latency |
-| `distance_source` | `stereo_triangulation` (`open_vocab`), `dense_stereo_depth` (`second`), or `none` |
+| `distance_source` | `stereo_triangulation` (`open_vocab`), `dense_stereo_depth` (`stereo-net`), or `none` |
 | `bbox_px` | left rectified-image box `[x1, y1, x2, y2]` in pixels (mask bounds for YOLOE-26) |
 | `bbox_right_px` | matching box in the right rectified image (`open_vocab` only) |
 | `center_source` | `mask_centroid` (YOLOE-26), `box_center` (YOLO-World/Grounding DINO), `mixed`, or `none` |
 | `mask_centroid_px` | `[u, v]` mean of mask pixels on the left image, or `null` for box-only models |
 | `mask_area_px` | mask area in left-image pixels, `0` for box-only models |
 | `disparity_px` | horizontal difference between the two reported centres (`open_vocab` only) |
-| `depth_sample_source` | `mask_pixels` or `box_window` used by `second` |
-| `depth_sample_count` | number of disparity samples requested by `second` |
+| `depth_sample_source` | `mask_pixels` or `box_window` used by `stereo-net` |
+| `depth_sample_count` | number of disparity samples requested by `stereo-net` |
 | `depth_valid_count` | number of valid samples in the median |
-| `depth_disparity_px` | median disparity used for dense depth (`second` only) |
+| `depth_disparity_px` | median disparity used for dense depth (`stereo-net` only) |
 
 The mapping node consumes all entries and fuses visible toys by median bearing
 and distance. The trial collector writes one CSV row per entry. For fair
@@ -271,10 +271,10 @@ truth, including `lateral_bearing_deg`; use `--not-visible` for an empty frame.
 non-hardware-synchronised ESP32-CAMs.
 
 After capturing all scenes, replay them offline. Select **one** pipeline per
-invocation with `--pipeline open_vocab` or `--pipeline second` (or set
+invocation with `--pipeline open_vocab` or `--pipeline stereo-net` (or set
 `VISION_PIPELINE` / the YAML `pipeline` key and omit the flag); the other
 pipeline is not run. Keep the same host `DETECTOR_MODEL` for both: `open_vocab`
-uses the detector service only, while `second` also needs the depth service
+uses the detector service only, while `stereo-net` also needs the depth service
 (one depth model at a time). Use the same `--seed` for both runs so they process
 the randomized captures in identical order. To compare both, use different
 output paths for each run so the first result is not overwritten:
@@ -290,12 +290,12 @@ ros2 run dog_toy_finder_vision vision_eval \
     --bearing-tolerance "$VISION_EVAL_BEARING_TOLERANCE"
 
 # start the host depth service, then replay the same captures with:
-#   --pipeline second --output-csv .../second_trials.csv ...
+#   --pipeline stereo-net --output-csv .../stereo-net_trials.csv ...
 ```
 
 `vision_eval` needs no ROS graph. It writes one scored row per capture using the
 model name produced by the selected pipeline (detector name for `open_vocab`,
-dense depth model name for `second`) and records the chosen pipeline in the
+dense depth model name for `stereo-net`) and records the chosen pipeline in the
 summary manifest. Captures are processed in shuffled order (`--limit` applies
 after the shuffle); a random `shuffle_seed` is generated unless `--seed` is
 given, and both the seed and `capture_order` are saved in the summary manifest
@@ -317,14 +317,14 @@ ros2 launch dog_toy_finder_vision stereo_vision.launch.py \
 
 # one-eye detection + dense stereo depth (start both host services first)
 ros2 launch dog_toy_finder_vision stereo_vision.launch.py \
-    pipeline:=second
+    pipeline:=stereo-net
 
 # same pipeline selected via the environment (VISION_PIPELINE in the config)
 VISION_PIPELINE=open_vocab ros2 launch dog_toy_finder_vision stereo_vision.launch.py
 
 # point at a non-default host depth service
 STEREO_SERVICE_URL=http://localhost:5007 ros2 launch \
-    dog_toy_finder_vision stereo_vision.launch.py pipeline:=second
+    dog_toy_finder_vision stereo_vision.launch.py pipeline:=stereo-net
 
 # use a different physical measurement config (including its pipeline key)
 ros2 launch dog_toy_finder_vision stereo_vision.launch.py \

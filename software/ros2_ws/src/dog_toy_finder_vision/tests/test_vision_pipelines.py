@@ -17,19 +17,19 @@ from dog_toy_finder_vision import vision_pipelines  # noqa: E402
 class PipelineNameTests(unittest.TestCase):
     def test_explicit_value_wins_over_environment_and_config(self):
         name = vision_pipelines.pipeline_name(
-            "second", {"pipeline": "open_vocab"},
+            "stereo-net", {"pipeline": "open_vocab"},
             {"VISION_PIPELINE": "open_vocab"})
-        self.assertEqual(name, "second")
+        self.assertEqual(name, "stereo-net")
 
     def test_environment_wins_over_config(self):
         name = vision_pipelines.pipeline_name(
-            None, {"pipeline": "second"}, {"VISION_PIPELINE": "open_vocab"})
+            None, {"pipeline": "stereo-net"}, {"VISION_PIPELINE": "open_vocab"})
         self.assertEqual(name, "open_vocab")
 
     def test_config_wins_over_default(self):
         name = vision_pipelines.pipeline_name(
-            None, {"pipeline": "second"}, {})
-        self.assertEqual(name, "second")
+            None, {"pipeline": "stereo-net"}, {})
+        self.assertEqual(name, "stereo-net")
 
     def test_default_is_open_vocab(self):
         self.assertEqual(vision_pipelines.pipeline_name(None, {}, {}),
@@ -90,13 +90,13 @@ class RunPipelineTests(unittest.TestCase):
         self.assertFalse(entry["target_visible"])
         self.assertEqual(entry["model"], "fake-world")
 
-    def test_second_detects_once_and_samples_dense_depth(self):
+    def test_stereo_net_detects_once_and_samples_dense_depth(self):
         entries = vision_pipelines.run_pipeline(
-            "second", "red ball", _jpeg(), _jpeg(), self.config,
+            "stereo-net", "red ball", _jpeg(), _jpeg(), self.config,
             client=_one_detection_client, depth_client=_depth_client)
         self.assertEqual(len(entries), 1)
         entry = entries[0]
-        self.assertEqual(entry["method"], "second")
+        self.assertEqual(entry["method"], "stereo-net")
         self.assertEqual(entry["distance_source"], "dense_stereo_depth")
         self.assertEqual(entry["model"], "fake-stereo")
         self.assertEqual(entry["detector_model"], "fake-world")
@@ -106,7 +106,7 @@ class RunPipelineTests(unittest.TestCase):
         self.assertAlmostEqual(entry["distance_m"], 1.0)
         self.assertEqual(entry["center_source"], "box_center")
 
-    def test_second_reports_no_detection_without_calling_depth(self):
+    def test_stereo_net_reports_no_detection_without_calling_depth(self):
         calls = []
 
         def fail_depth(*args):
@@ -114,14 +114,14 @@ class RunPipelineTests(unittest.TestCase):
             raise AssertionError("depth service must not be called")
 
         entries = vision_pipelines.run_pipeline(
-            "second", "red ball", _jpeg(), _jpeg(), self.config,
+            "stereo-net", "red ball", _jpeg(), _jpeg(), self.config,
             client=lambda jpeg, classes, config: ([], "fake-world"),
             depth_client=fail_depth)
         self.assertFalse(entries[0]["target_visible"])
         self.assertEqual(entries[0]["distance_source"], "none")
         self.assertEqual(calls, [])
 
-    def test_second_uses_mask_pixels_when_detector_supplies_them(self):
+    def test_stereo_net_uses_mask_pixels_when_detector_supplies_them(self):
         seen = {}
 
         def mask_client(jpeg, classes, config):
@@ -139,7 +139,7 @@ class RunPipelineTests(unittest.TestCase):
             return _depth_client(left, right, spec, config)
 
         vision_pipelines.run_pipeline(
-            "second", "red ball", _jpeg(), _jpeg(), self.config,
+            "stereo-net", "red ball", _jpeg(), _jpeg(), self.config,
             client=mask_client, depth_client=capture_depth)
         self.assertEqual(seen["sample_source"], "mask_pixels")
         self.assertEqual(seen["points"], [[9.0, 11.0], [10.0, 12.0]])

@@ -176,7 +176,7 @@ class OfflineEvalTests(unittest.TestCase):
         self.assertTrue(row["bearing_within_tolerance"])
         self.assertAlmostEqual(row["bearing_error_deg"], 0.0, delta=0.5)
 
-    def test_second_pipeline_replays_with_dense_depth(self):
+    def test_stereo_net_pipeline_replays_with_dense_depth(self):
         self._write_synthetic_pair()
 
         def detect_one(jpeg, classes, config):
@@ -202,13 +202,13 @@ class OfflineEvalTests(unittest.TestCase):
             }
 
         result, meta = vision_eval.evaluate_capture(
-            self.capture_dir, self.config, "second", client=detect_one,
+            self.capture_dir, self.config, "stereo-net", client=detect_one,
             depth_client=sample_depth)
 
-        self.assertEqual(result["pipeline"], "second")
+        self.assertEqual(result["pipeline"], "stereo-net")
         self.assertEqual(result["models"], ["fake-stereo"])
         entry = result["results"][0]
-        self.assertEqual(entry["method"], "second")
+        self.assertEqual(entry["method"], "stereo-net")
         self.assertEqual(entry["distance_source"], "dense_stereo_depth")
         self.assertTrue(entry["target_visible"])
         self.assertAlmostEqual(entry["distance_m"], 1.0, places=2)
@@ -216,7 +216,7 @@ class OfflineEvalTests(unittest.TestCase):
         row = llm_trials.vision_row(
             result, entry, entry["model"], "run1",
             ground_truth=meta["ground_truth"], bearing_tolerance=5.0)
-        self.assertEqual(row["method"], "second")
+        self.assertEqual(row["method"], "stereo-net")
         self.assertTrue(row["distance_within_tolerance"])
         self.assertTrue(row["bearing_within_tolerance"])
 
@@ -339,7 +339,7 @@ class OfflineEvalTests(unittest.TestCase):
 
         expected = {
             "open_vocab": ("open_vocab", "stereo_triangulation"),
-            "second": ("second", "dense_stereo_depth"),
+            "stereo-net": ("stereo-net", "dense_stereo_depth"),
         }
         for pipeline, (method, distance_source) in expected.items():
             with self.subTest(pipeline=pipeline):
@@ -394,13 +394,13 @@ class OfflineEvalTests(unittest.TestCase):
                 "valid_count": 49,
             }
 
-        config_path = os.path.join(self.temp.name, "second.yaml")
+        config_path = os.path.join(self.temp.name, "stereo-net.yaml")
         with open(config_path, "w") as handle:
-            handle.write("pipeline: second\n")
+            handle.write("pipeline: stereo-net\n")
         cases = (
-            ("env", None, {"VISION_PIPELINE": "second"}, "second"),
+            ("env", None, {"VISION_PIPELINE": "stereo-net"}, "stereo-net"),
             ("yaml", config_path, {
-                "VISION_PIPELINE": ""}, "second"),
+                "VISION_PIPELINE": ""}, "stereo-net"),
         )
         for label, config_arg, environ, expected in cases:
             with self.subTest(source=label):

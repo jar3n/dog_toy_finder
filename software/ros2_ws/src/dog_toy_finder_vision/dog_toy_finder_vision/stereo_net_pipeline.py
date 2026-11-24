@@ -1,6 +1,6 @@
 """Open-vocabulary detection in one eye plus dense-stereo depth.
 
-This is the ``second`` comparison pipeline. The text target is found by the
+This is the ``stereo-net`` comparison pipeline. The text target is found by the
 same host open-vocabulary detector as ``open_vocab``, but only in the rectified
 left image. A dense stereo model on the computer computes a disparity map from
 the full pair; its median over the detected object's mask pixels (YOLOE-26) or
@@ -21,7 +21,7 @@ from . import depth_client, open_vocab_stereo, vision_answer, vision_config, \
 
 def model_name(config):
     """Fallback dense model name when the host service does not report one."""
-    configured = vision_config.get(config, "second", "name")
+    configured = vision_config.get(config, "stereo-net", "name")
     return str(configured or "lite_any_stereo")
 
 
@@ -36,7 +36,7 @@ def _entry(answer, name, detector, confidence, seconds, distance_source):
     answer.update({
         "model": name,
         "detector_model": detector,
-        "method": "second",
+        "method": "stereo-net",
         "distance_source": distance_source,
         "confidence": round(float(confidence), 3),
         "seconds": round(seconds, 3),
@@ -86,7 +86,7 @@ def _sample_spec(detection, config):
     if detection.get("center_source") == "mask_centroid" and pixels:
         return {"sample_source": "mask_pixels", "points": pixels}
     radius = int(vision_config.get(
-        config, "second", "window_radius_px", default=3))
+        config, "stereo-net", "window_radius_px", default=3))
     return {
         "sample_source": "box_window",
         "window": {"u": detection["u"], "v": detection["v"], "radius": radius},

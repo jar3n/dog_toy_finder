@@ -66,7 +66,7 @@ emitted or accepted.
 
 `vision_eval` writes one scored row per capture per invocation, with the columns
 already filled. The `model` column is the detector name for `open_vocab` or the
-dense depth model name for `second`. Its summary manifest records the selected
+dense depth model name for `stereo-net`. Its summary manifest records the selected
 pipeline, the `shuffle_seed`, and the resulting `capture_order`, so the same
 captures can be replayed in the same order by both pipelines.
 

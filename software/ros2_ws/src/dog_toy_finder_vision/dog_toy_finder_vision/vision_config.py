@@ -54,7 +54,7 @@ DEFAULTS = {
         "max_disparity": 96,
         "max_vertical_delta_px": 20,
     },
-    "second": {
+    "stereo-net": {
         "name": "lite_any_stereo",
         "service_url": "http://localhost:5007",
         "timeout_s": 180,

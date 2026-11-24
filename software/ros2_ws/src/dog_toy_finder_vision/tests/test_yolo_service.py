@@ -246,7 +246,7 @@ class HostServiceTests(unittest.TestCase):
         self.assertAlmostEqual(left[0]["u"], 90.0, delta=1.0)
         self.assertAlmostEqual(right[0]["u"], 70.0, delta=1.0)
 
-    def test_single_image_request_supports_second_pipeline(self):
+    def test_single_image_request_supports_stereo_net_pipeline(self):
         """The dense pipeline asks for mask pixels on the left image only."""
         with mock.patch.object(service.detectors, "load_detector",
                                return_value=("yolo_world", RedDotModel())):

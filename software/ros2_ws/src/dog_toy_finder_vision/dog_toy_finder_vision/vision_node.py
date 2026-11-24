@@ -12,7 +12,7 @@ Publishes   /vision/result                       std_msgs/String (JSON)
 Parameters
 ----------
 config_path       : str   detector YAML path (from full_system_eval.conf)
-pipeline          : str   open_vocab|second (empty = VISION_PIPELINE / YAML)
+pipeline          : str   open_vocab|stereo-net (empty = VISION_PIPELINE / YAML)
 yolo_service_url  : str   host detector service (empty = env / YAML / default)
 stereo_service_url: str   host dense-depth service (empty = env / YAML / default)
 left_rect_topic   : str   override the left rectified-color topic
@@ -68,7 +68,7 @@ class VisionNode(Node):
             self.config.setdefault("open_vocab", {})["service_url"] = service_url
         stereo_url = self.get_parameter("stereo_service_url").value
         if stereo_url:
-            self.config.setdefault("second", {})["service_url"] = stereo_url
+            self.config.setdefault("stereo-net", {})["service_url"] = stereo_url
         self.pipeline = vision_pipelines.pipeline_name(
             self.get_parameter("pipeline").value, self.config)
 

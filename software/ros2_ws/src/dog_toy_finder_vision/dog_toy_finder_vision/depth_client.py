@@ -1,11 +1,11 @@
 """HTTP client for the host-side dense-stereo depth service.
 
-The ROS container has no torch or dense-stereo checkpoints. For the ``second``
+The ROS container has no torch or dense-stereo checkpoints. For the ``stereo-net``
 pipeline it sends the two rectified JPEGs plus the pixels to sample (all mask
 pixels, or a small window around a box centre) to the service on the computer
 and receives the median disparity and derived depth.
 
-``STEREO_SERVICE_URL`` overrides the ``second.service_url`` config key when set
+``STEREO_SERVICE_URL`` overrides the ``stereo-net.service_url`` config key when set
 in the container environment.
 """
 
@@ -23,7 +23,7 @@ DEFAULT_SERVICE_URL = "http://localhost:5007"
 def service_url(config):
     """Return the depth service base URL from env, config, or default."""
     return (os.environ.get("STEREO_SERVICE_URL")
-            or vision_config.get(config, "second", "service_url",
+            or vision_config.get(config, "stereo-net", "service_url",
                                  default=DEFAULT_SERVICE_URL)
             or DEFAULT_SERVICE_URL)
 
@@ -32,7 +32,7 @@ def sample(left_jpeg, right_jpeg, sample_spec, config):
     """Return the host's depth sampling result for one rectified pair."""
     url = service_url(config).rstrip("/") + "/depth"
     timeout = float(vision_config.get(
-        config, "second", "timeout_s", default=180))
+        config, "stereo-net", "timeout_s", default=180))
     camera = config.get("camera", {}) if isinstance(config, dict) else {}
     payload = {
         "images": [base64.b64encode(jpeg).decode("ascii")
@@ -42,7 +42,7 @@ def sample(left_jpeg, right_jpeg, sample_spec, config):
         "depth_min_m": float(camera.get("depth_min_m", 0.0)),
         "depth_max_m": float(camera.get("depth_max_m", 0.0)),
         "max_disp": int(vision_config.get(
-            config, "second", "max_disparity", default=192)),
+            config, "stereo-net", "max_disparity", default=192)),
         "points": sample_spec.get("points"),
         "window": sample_spec.get("window"),
     }

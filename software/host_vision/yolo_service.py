@@ -6,7 +6,7 @@ transformers and the model weights stay out of the container image. The
 container sends one or two rectified JPEGs plus text class prompts to
 ``POST /detect``; this service runs the selected detector on each image and
 returns plain-Python detection dictionaries. ``open_vocab`` sends both eyes for
-stereo matching in the container; ``second`` sends only the left eye and asks
+stereo matching in the container; ``stereo-net`` sends only the left eye and asks
 for mask-pixel samples for the host depth service.
 
 One detector runs at a time, selected on the host with ``DETECTOR_MODEL`` or
@@ -110,7 +110,7 @@ def detect(body):
         detections.append(
             detectors.detections_for_image(_MODEL, rgb, classes, config))
 
-    # The second pipeline needs the mask pixels for dense-depth sampling. Keep
+    # The stereo-net pipeline needs the mask pixels for dense-depth sampling. Keep
     # them off the normal open_vocab response so those answers stay small.
     if not body.get("include_depth_samples"):
         for eye in detections:

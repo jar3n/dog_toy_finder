@@ -36,10 +36,10 @@ data/
   which replays every capture through one selected vision pipeline per
   invocation. `vision_eval_trials.csv` has one scored row per capture, with
   ground truth and scored columns already filled. The `model` column is the
-  detector name for `open_vocab` or the dense depth model name for `second`.
+  detector name for `open_vocab` or the dense depth model name for `stereo-net`.
   `vision_eval_summary.json` records the selected pipeline, `shuffle_seed`,
   `capture_order`, and the per-model summary. The trial CSV schema is unchanged:
-  new vision rows use `method=open_vocab` or `method=second`, while `method=ml`
+  new vision rows use `method=open_vocab` or `method=stereo-net`, while `method=ml`
   only appears on legacy rows.
 - `vision/<live_run_id>/` is the optional live `/vision/ask` collector
   (`collect_llm_trials.launch.py`), one row per answer entry per request.

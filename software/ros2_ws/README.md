@@ -9,7 +9,7 @@ Colcon workspace for the computer-side ROS 2 packages.
 | `dog_toy_finder_bringup` | `ament_cmake` | launch files, EKF config, robot geometry, `cmd_vel_mux` start |
 | `dog_toy_finder_odometry` | `ament_python` | `/joint_states` -> `/wheel/odom` |
 | `dog_toy_finder_motion` | `ament_python` | closed-loop moves, `cmd_vel_mux`, manual keyboard drive, `mover_test` |
-| `dog_toy_finder_vision` | `ament_python` | stereo rectification, live selectable vision pipeline (`open_vocab` triangulation or `second` dense depth), capture-first `vision_capture`/`vision_eval` |
+| `dog_toy_finder_vision` | `ament_python` | stereo rectification, live selectable vision pipeline (`open_vocab` triangulation or `stereo-net` dense depth), capture-first `vision_capture`/`vision_eval` |
 | `dog_toy_finder_mapping` | `ament_python` | occupancy map, toy markers, browser map server |
 | `dog_toy_finder_planning` | `ament_python` | autonomous search planner and path utilities |
 | `dog_toy_finder_diagnostics` | `ament_python` | sensor and camera heartbeat monitor |
@@ -55,7 +55,7 @@ ros2 run dog_toy_finder_motion manual_drive
 The vision pipeline is selected with the `pipeline` launch arg, `VISION_PIPELINE`
 in `scripts/full_system_eval.conf`, or the top-level `pipeline` key in
 `dog_toy_finder_vision/config/vision_detectors.yaml`. `open_vocab` triangulates
-detections from both eyes; `second` detects in the left eye only and reads depth
+detections from both eyes; `stereo-net` detects in the left eye only and reads depth
 from a dense stereo map. Both run their models on the host (see the
 [`dog_toy_finder_vision` README](src/dog_toy_finder_vision/README.md)).
 

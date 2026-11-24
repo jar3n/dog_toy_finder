@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Host-side dense-stereo depth service for the ``second`` pipeline.
+"""Host-side dense-stereo depth service for the ``stereo-net`` pipeline.
 
 Runs on the computer (not in the ROS 2 container) so torch, the upstream model
 repositories, and their weights stay out of the container image. The container

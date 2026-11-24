@@ -6,7 +6,7 @@ contains the operator's ground truth.
 
 No live camera topics and no ROS graph are needed. Only the shared detector
 config, the saved JPEGs, and the host services (detector, plus the depth service
-for ``second``) are used.
+for ``stereo-net``) are used.
 
 Usage inside the ROS 2 container::
 
@@ -131,7 +131,7 @@ def _build_parser():
                         help="only evaluate captures from this run id")
     parser.add_argument("--config", default=None, help="detector YAML path")
     parser.add_argument("--pipeline", default=None,
-                        help="vision pipeline: open_vocab|second (default: "
+                        help="vision pipeline: open_vocab|stereo-net (default: "
                              "$VISION_PIPELINE / detector YAML / open_vocab)")
     parser.add_argument("--tolerance", type=float, default=0.25,
                         help="distance tolerance in metres")

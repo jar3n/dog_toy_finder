@@ -1,4 +1,4 @@
-"""Dense-stereo depth backends for the host-side ``second`` pipeline.
+"""Dense-stereo depth backends for the host-side ``stereo-net`` pipeline.
 
 Runs only on the computer (see ``stereo_service.py``). The ROS container sends
 one rectified JPEG pair plus one sampling request; this module runs the selected

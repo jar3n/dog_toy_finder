@@ -39,7 +39,7 @@ transformers, downloads the selected weights, and serves HTTP on
 `YOLO_SERVICE_URL` (default `http://localhost:5006`). `YOLO_DEVICE` selects the
 torch device; `GROUNDING_DINO_TEXT_THRESHOLD` sets its text threshold.
 
-For the `second` pipeline also start the host dense-stereo depth service:
+For the `stereo-net` pipeline also start the host dense-stereo depth service:
 
 ```bash
 ./scripts/start_stereo_service.sh                          # Lite Any Stereo (default)
@@ -54,7 +54,7 @@ One depth model runs at a time; `STEREO_DEVICE` selects the torch device and
 per-model `*_MODEL_PATH` variables override checkpoint paths (see
 `software/ros2_ws/src/dog_toy_finder_vision/README.md`). Keep the same
 `DETECTOR_MODEL` for both pipelines: `open_vocab` needs only the detector
-service, while `second` also needs the depth service. Run one detector and one
+service, while `stereo-net` also needs the depth service. Run one detector and one
 depth model at a time. Ollama is only needed for the ROSA/planning comparisons;
 vision does not use it.
 
@@ -146,7 +146,7 @@ timeouts, camera URLs/intrinsics, the detector config path, vision pipeline
 choice, map/toy settings, web-map port, manual drive speeds, and
 the ROSA environment) live in
 `scripts/full_system_eval.conf`. Set `VISION_PIPELINE` there to `open_vocab`
-(two-eye detection and triangulation) or `second` (one-eye detection plus dense
+(two-eye detection and triangulation) or `stereo-net` (one-eye detection plus dense
 stereo depth; start both host services first). The pipeline can
 also be set with the top-level `pipeline` key in `vision_detectors.yaml`;
 explicit selections (launch arg `pipeline:=...` or `vision_eval --pipeline`) win
@@ -404,9 +404,9 @@ and `data/planning/<run_id>/`. Inside the ROS 2 container those paths are under
 `/workspace/data`.
 
 For vision, set `VISION_DETECTOR_CONFIG` to your measured camera/toy YAML and
-`VISION_PIPELINE` to `open_vocab` or `second` (or select it with
+`VISION_PIPELINE` to `open_vocab` or `stereo-net` (or select it with
 `pipeline:=...` on the launch command). Use the same `DETECTOR_MODEL` for both
-pipelines: `open_vocab` needs only the host detector service; `second` also
+pipelines: `open_vocab` needs only the host detector service; `stereo-net` also
 needs the host dense-stereo depth service, with one depth model at a time. The
 live vision node is not needed for capture; terminate it (or launch
 `stereo_vision.launch.py` with `vision:=false`) and leave the rectified stereo
@@ -463,19 +463,19 @@ ros2 run dog_toy_finder_vision vision_eval \
 # detector + depth service must be running for this second invocation
 ros2 run dog_toy_finder_vision vision_eval \
     --captures-dir "$VISION_CAPTURE_DIR" \
-    --pipeline second \
+    --pipeline stereo-net \
     --tolerance "$VISION_EVAL_TOLERANCE" \
     --bearing-tolerance "$VISION_EVAL_BEARING_TOLERANCE" \
-    --output-csv "$DATA_DIR/vision/second_trials.csv" \
-    --results-json "$DATA_DIR/vision/second_results.jsonl" \
-    --summary-json "$DATA_DIR/vision/second_summary.json"
+    --output-csv "$DATA_DIR/vision/stereo-net_trials.csv" \
+    --results-json "$DATA_DIR/vision/stereo-net_results.jsonl" \
+    --summary-json "$DATA_DIR/vision/stereo-net_summary.json"
 ```
 
 One scored row is written per capture per invocation; the trial CSV schema is
 unchanged. For `open_vocab`, `model` is the detector name and matched detections
 carry `method=open_vocab` plus `distance_source=stereo_triangulation`. For
-`second`, `model` is the dense depth model name, `detector_model` records the
-one-image detector, and answers carry `method=second` plus
+`stereo-net`, `model` is the dense depth model name, `detector_model` records the
+one-image detector, and answers carry `method=stereo-net` plus
 `distance_source=dense_stereo_depth`. `method=ml` is only used by legacy rows.
 Ground truth is copied from `meta.json`, and scored columns are written
 immediately. Each summary manifest (`vision_eval_summary.json`) records the
@@ -501,7 +501,7 @@ score. Repeat the score/analyze commands for each pipeline CSV when comparing
 both. Create an empty template for data collected another way with
 `llm_trials template --kind vision|planning --models ... --output ...`: for
 vision use the detector name for `open_vocab` rows or the dense depth model name
-for `second` rows.
+for `stereo-net` rows.
 
 ## 6. Reset and run again
 
@@ -547,7 +547,7 @@ ros2 run dog_toy_finder_data llm_trials analyze "$VISION_EVAL_CSV" \
 Metrics reported: success, time/steps to find, path length, vision call count
 and average latency, target-visible rate, final pose. The LLM trial tool reports
 vision accuracy per `model` value (detector name for `open_vocab`, dense depth
-model name for `second`), distance/bearing error, planning action/argument
+model name for `stereo-net`), distance/bearing error, planning action/argument
 matches, latency, errors, and a mean score. `llm_trials analyze` adds confidence
 intervals and paired comparisons so differences can be judged after all trials
 are collected. For captured trials, `ask_id` is the capture ID, so each pipeline
