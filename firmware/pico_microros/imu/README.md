@@ -66,14 +66,15 @@ if (bno055_init() && imu_ros_init()) {
 ```
 
 `imu_ros_init()` calls `ros_node_init()`, so it also works when
-`ros_log_init()` was not called. If the agent is unreachable, it returns false
-and the rest of the firmware keeps running.
+`ros_log_init()` was not called. `ros_node_init()` waits indefinitely for the
+agent and a valid agent-synchronized epoch; it only returns false if session
+setup itself fails.
 
 The message contains:
 
 | Field | Source |
 |---|---|
-| `header.stamp` | `ros_node_time_ns()` (agent epoch, or time since boot) |
+| `header.stamp` | `ros_node_time_ns()` (validated agent epoch; zero if unsynchronized) |
 | `header.frame_id` | `IMU_ROS_FRAME_ID` |
 | `orientation` | BNO055 fused quaternion (IMU mode: accel + gyro) |
 | `angular_velocity` | gyro, converted from degrees/s to rad/s |

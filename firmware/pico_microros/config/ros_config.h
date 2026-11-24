@@ -29,6 +29,14 @@
 #define ROS_INIT_RETRY_DELAY_MS 1000
 #define ROS_AGENT_PING_TIMEOUT_MS 500
 
-// Time sync with the agent. When it fails, log stamps fall back to time since
-// boot. Set to 0 to skip the sync attempt.
-#define ROS_TIME_SYNC_TIMEOUT_MS 1000
+// Time sync with the agent is required before the node is considered ready.
+// Wi-Fi stalls can outlast a single NTP exchange, so the firmware retries
+// indefinitely instead of publishing boot-time stamps. ROS_TIME_SYNC_TIMEOUT_MS
+// is the budget for each sync attempt; ROS_TIME_SYNC_RETRY_DELAY_MS is the pause
+// between attempts. Both must be positive.
+#define ROS_TIME_SYNC_TIMEOUT_MS 5000
+#define ROS_TIME_SYNC_RETRY_DELAY_MS 1000
+
+// Ignore any synchronized epoch at or below this value. Boot time on the Pico
+// is only a few seconds (~1e12 ns); current host epoch time is ~1.8e18 ns.
+#define ROS_MIN_VALID_EPOCH_NS 1000000000000000LL

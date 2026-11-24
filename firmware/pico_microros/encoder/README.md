@@ -102,8 +102,8 @@ The message contains, in this fixed order:
 | `velocity` | filtered rad/s | filtered rad/s |
 | `effort` | empty | empty |
 
-`header.stamp` comes from `ros_node_time_ns()` (agent epoch when synchronized,
-otherwise time since boot). Position is unwrapped, so it keeps increasing as
+`header.stamp` comes from `ros_node_time_ns()` (validated agent epoch, or zero
+if the session loses synchronization). Position is unwrapped, so it keeps increasing as
 the wheel turns instead of wrapping at 2π. `frame_id` is empty, which is the
 usual convention for `JointState`.
 

@@ -34,7 +34,9 @@ Settings live in `config/ros_config.h`, which is committed. Edit it in place:
 
 #define ROS_INIT_RETRY_DELAY_MS 1000
 #define ROS_AGENT_PING_TIMEOUT_MS 500
-#define ROS_TIME_SYNC_TIMEOUT_MS 1000
+#define ROS_TIME_SYNC_TIMEOUT_MS 5000
+#define ROS_TIME_SYNC_RETRY_DELAY_MS 1000
+#define ROS_MIN_VALID_EPOCH_NS 1000000000000000LL
 ```
 
 - `ROS_AGENT_IP` must be the address of the computer running the agent, reachable
@@ -51,6 +53,11 @@ Settings live in `config/ros_config.h`, which is committed. Edit it in place:
   auto-reset, and the LED keeps blinking until the agent answers. Start or
   restart the agent at any time; the Pico joins on the next probe. Only a
   power cycle reboots the Pico.
+- Time sync is part of that same indefinite wait. `ROS_TIME_SYNC_TIMEOUT_MS`
+  budgets each NTP exchange, and `ROS_TIME_SYNC_RETRY_DELAY_MS` is the pause
+  between failed attempts. Boot-time stamps are rejected by
+  `ROS_MIN_VALID_EPOCH_NS`; no stamped ROS message is published until the host
+  epoch is valid.
 - `ROS_INIT_ATTEMPTS` is retained in the config for compatibility but is no
   longer used.
 
@@ -144,8 +151,9 @@ function: ''
 ```
 
 `level` follows the usual severity values (`10` debug, `20` info, `30` warn,
-`40` error, `50` fatal). Timestamps come from `rmw_uros_sync_session()`; when the
-sync fails, stamps fall back to time since boot.
+`40` error, `50` fatal). Timestamps come from `rmw_uros_sync_session()`. The
+firmware keeps retrying until the agent epoch is valid; if it is ever lost,
+`ros_node_time_ns()` returns zero instead of falling back to time since boot.
 
 ## Notes
 
