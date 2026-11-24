@@ -71,7 +71,6 @@ memory.
 | `ir_topic` | `/ir_obstacle/detected` | IR obstacle Bool topic |
 | `publish_period` | `1.0` | seconds between `/map` publishes |
 | `toy_forward_distance` | `0.6` | fallback toy distance ahead when no detector gives one (m) |
-| `toy_side_offset` | `0.25` | deprecated compatibility parameter; placement now uses `lateral_bearing_deg` |
 | `toy_max_distance` | `5.0` | clamp for vision detector distance estimates (m) |
 | `toy_merge_radius` | `0.15` | toys within this distance are treated as the same toy (m) |
 | `toy_occupancy_radius` | `1` | cells marked around each toy (1 = 3x3) |

@@ -33,18 +33,21 @@ detects in the left image only and asks the host dense-stereo service
 (``scripts/start_stereo_service.sh``) for depth. Torch, models, and weights run
 on the computer, never in this container.
 
-The default capture size is 320x240. At 640x480 each colour frame is ~900 KB
-and the host's DDS socket buffers drop a large fraction of them, which makes
-image_proc log "do not appear to be synchronized" and stalls the point cloud;
-320x240 keeps the frames small enough to arrive reliably. If you raise
-width/height, scale fx, fy, cx and cy with them.
+Camera geometry is read from ``config_path`` (``vision_detectors.yaml`` by
+default). The ``width``/``height``/``fx``/``fy``/``cx``/``cy``/``baseline``
+launch arguments are optional overrides; when left empty the YAML values are
+used. The default capture size is 320x240 because at 640x480 each colour frame
+is ~900 KB and the host's DDS socket buffers drop enough of them to stall the
+point cloud. If you raise width/height in the YAML, scale fx, fy, cx and cy
+with them.
 """
 
 import os
 
 from ament_index_python.packages import get_package_share_directory
+from dog_toy_finder_vision.vision_config import load_config
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, GroupAction
+from launch.actions import DeclareLaunchArgument, GroupAction, OpaqueFunction
 from launch.conditions import IfCondition
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import ComposableNodeContainer, Node
@@ -56,13 +59,34 @@ DEFAULT_DETECTOR_CONFIG = os.path.join(
     "config", "vision_detectors.yaml")
 
 
-def generate_launch_description():
-    left_url = LaunchConfiguration("left_url")
-    right_url = LaunchConfiguration("right_url")
-    rate = LaunchConfiguration("rate")
-    stereo_enabled = LaunchConfiguration("stereo")
-    stereo_proc_enabled = LaunchConfiguration("stereo_proc")
-    vision_enabled = LaunchConfiguration("vision")
+def _arg(context, name):
+    """Return the resolved value of a declared launch argument."""
+    return LaunchConfiguration(name).perform(context)
+
+
+def _default_if_empty(value, fallback):
+    """Use the YAML value unless the launch argument was given explicitly."""
+    text = str(value).strip()
+    return text if text else str(fallback)
+
+
+def _launch_setup(context):
+    """Build the nodes after launch args are known, so YAML can fill defaults."""
+    camera = load_config(_arg(context, "config_path") or None)["camera"]
+
+    def camera_arg(name, key):
+        return _default_if_empty(_arg(context, name), camera[key])
+
+    left_url = _arg(context, "left_url")
+    right_url = _arg(context, "right_url")
+    rate = _arg(context, "rate")
+    width = camera_arg("width", "width")
+    height = camera_arg("height", "height")
+    fx = camera_arg("fx", "fx")
+    fy = camera_arg("fy", "fy")
+    cx = camera_arg("cx", "cx")
+    cy = camera_arg("cy", "cy")
+    baseline = camera_arg("baseline", "baseline_m")
 
     stereo_camera = Node(
         package="dog_toy_finder_vision",
@@ -72,14 +96,14 @@ def generate_launch_description():
         parameters=[{
             "left_url": left_url,
             "right_url": right_url,
-            "rate": rate,
-            "width": LaunchConfiguration("width"),
-            "height": LaunchConfiguration("height"),
-            "fx": LaunchConfiguration("fx"),
-            "fy": LaunchConfiguration("fy"),
-            "cx": LaunchConfiguration("cx"),
-            "cy": LaunchConfiguration("cy"),
-            "baseline": LaunchConfiguration("baseline"),
+            "rate": float(rate),
+            "width": int(width),
+            "height": int(height),
+            "fx": float(fx),
+            "fy": float(fy),
+            "cx": float(cx),
+            "cy": float(cy),
+            "baseline": float(baseline),
         }],
     )
 
@@ -118,11 +142,11 @@ def generate_launch_description():
         plugin="stereo_image_proc::DisparityNode",
         name="disparity_node",
         parameters=[{
-            "approximate_sync": LaunchConfiguration("approximate_sync"),
+            "approximate_sync": _arg(context, "approximate_sync"),
             "use_system_default_qos": False,
-            "stereo_algorithm": LaunchConfiguration("stereo_algorithm"),
-            "min_disparity": LaunchConfiguration("min_disparity"),
-            "disparity_range": LaunchConfiguration("disparity_range"),
+            "stereo_algorithm": int(_arg(context, "stereo_algorithm")),
+            "min_disparity": int(_arg(context, "min_disparity")),
+            "disparity_range": int(_arg(context, "disparity_range")),
         }],
         remappings=[
             ("left/image_rect", "/stereo/left/image_rect"),
@@ -137,9 +161,9 @@ def generate_launch_description():
         plugin="stereo_image_proc::PointCloudNode",
         name="point_cloud_node",
         parameters=[{
-            "approximate_sync": LaunchConfiguration("approximate_sync"),
+            "approximate_sync": _arg(context, "approximate_sync"),
             "use_system_default_qos": False,
-            "use_color": LaunchConfiguration("use_color"),
+            "use_color": _arg(context, "use_color"),
         }],
         remappings=[
             ("disparity", "/stereo/disparity"),
@@ -155,7 +179,7 @@ def generate_launch_description():
         package="rclcpp_components",
         executable="component_container",
         output="screen",
-        condition=IfCondition(stereo_proc_enabled),
+        condition=IfCondition(_arg(context, "stereo_proc")),
         composable_node_descriptions=[disparity_node, point_cloud_node],
     )
 
@@ -166,7 +190,7 @@ def generate_launch_description():
             *side_nodes("/stereo/right"),
             stereo_proc,
         ],
-        condition=IfCondition(stereo_enabled),
+        condition=IfCondition(_arg(context, "stereo")),
     )
 
     vision_node = Node(
@@ -174,17 +198,21 @@ def generate_launch_description():
         executable="vision_node",
         name="vision_node",
         output="screen",
-        condition=IfCondition(vision_enabled),
+        condition=IfCondition(_arg(context, "vision")),
         parameters=[{
-            "config_path": LaunchConfiguration("config_path"),
-            "pipeline": LaunchConfiguration("pipeline"),
-            "yolo_service_url": LaunchConfiguration("yolo_service_url"),
-            "stereo_service_url": LaunchConfiguration("stereo_service_url"),
+            "config_path": _arg(context, "config_path"),
+            "pipeline": _arg(context, "pipeline"),
+            "yolo_service_url": _arg(context, "yolo_service_url"),
+            "stereo_service_url": _arg(context, "stereo_service_url"),
         }],
     )
 
+    return [stereo_group, vision_node]
+
+
+def generate_launch_description():
     return LaunchDescription([
-        # --- camera / stereo geometry ---
+        # --- camera / stereo geometry (geometry defaults come from the YAML) ---
         DeclareLaunchArgument("left_url",
                               default_value="http://esp32cam-left.local/capture",
                               description="Left eye /capture URL"),
@@ -193,16 +221,20 @@ def generate_launch_description():
                               description="Right eye /capture URL"),
         DeclareLaunchArgument("rate", default_value="2.0",
                               description="Photos per second per eye"),
-        DeclareLaunchArgument("width", default_value="320",
-                              description="Image width (320 keeps rgb8 frames small enough for reliable delivery)"),
-        DeclareLaunchArgument("height", default_value="240",
-                              description="Image height"),
-        DeclareLaunchArgument("fx", default_value="250.0", description="Focal length x (px)"),
-        DeclareLaunchArgument("fy", default_value="250.0", description="Focal length y (px)"),
-        DeclareLaunchArgument("cx", default_value="160.0", description="Principal point x (px)"),
-        DeclareLaunchArgument("cy", default_value="120.0", description="Principal point y (px)"),
-        DeclareLaunchArgument("baseline", default_value="0.08",
-                              description="Distance between optical centres (m)"),
+        DeclareLaunchArgument("width", default_value="",
+                              description="Image width (default: camera.width in config_path)"),
+        DeclareLaunchArgument("height", default_value="",
+                              description="Image height (default: camera.height in config_path)"),
+        DeclareLaunchArgument("fx", default_value="",
+                              description="Focal length x in px (default: camera.fx in config_path)"),
+        DeclareLaunchArgument("fy", default_value="",
+                              description="Focal length y in px (default: camera.fy in config_path)"),
+        DeclareLaunchArgument("cx", default_value="",
+                              description="Principal point x in px (default: camera.cx in config_path)"),
+        DeclareLaunchArgument("cy", default_value="",
+                              description="Principal point y in px (default: camera.cy in config_path)"),
+        DeclareLaunchArgument("baseline", default_value="",
+                              description="Optical centre separation in m (default: camera.baseline_m in config_path)"),
 
         # --- stage switches ---
         DeclareLaunchArgument("stereo", default_value="true",
@@ -236,6 +268,5 @@ def generate_launch_description():
         DeclareLaunchArgument("disparity_range", default_value="64",
                               description="Number of disparities to search (multiple of 16)"),
 
-        stereo_group,
-        vision_node,
+        OpaqueFunction(function=_launch_setup),
     ])

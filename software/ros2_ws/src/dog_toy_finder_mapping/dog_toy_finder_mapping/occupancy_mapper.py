@@ -70,7 +70,6 @@ class OccupancyMapper(Node):
 
         # Toy marker estimate.
         self.declare_parameter("toy_forward_distance", 0.6)  # fallback m ahead
-        self.declare_parameter("toy_side_offset", 0.25)      # m left/right
         self.declare_parameter("toy_max_distance", 5.0)      # clamp vision pipeline estimates
         self.declare_parameter("toy_merge_radius", 0.15)    # m
         self.declare_parameter("toy_occupancy_radius", 1)    # cells around toy
@@ -88,7 +87,6 @@ class OccupancyMapper(Node):
         ir_topic = self.get_parameter("ir_topic").value
         self.use_vision = bool(self.get_parameter("use_vision").value)
         self.toy_forward = float(self.get_parameter("toy_forward_distance").value)
-        self.toy_side = float(self.get_parameter("toy_side_offset").value)
         self.toy_max_distance = float(self.get_parameter("toy_max_distance").value)
         self.toy_merge = float(self.get_parameter("toy_merge_radius").value)
         self.toy_occupancy_radius = int(self.get_parameter("toy_occupancy_radius").value)

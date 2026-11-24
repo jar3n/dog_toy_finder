@@ -56,7 +56,6 @@ class AutonomousSearch(Mover):
         self.declare_parameter("home_on_visible", True)
         self.declare_parameter("found_distance", 0.4)  # m, stop when this close
         self.declare_parameter("find_all", False)      # demo: keep searching
-        self.declare_parameter("toy_side_offset", 0.25)  # m left/right estimate
         self.declare_parameter("toy_forward_distance", 0.6)  # fallback m ahead
         self.declare_parameter("toy_merge_radius", 0.15)  # m, same-toy radius
         self.declare_parameter("toy_max_count", 500)
@@ -78,7 +77,6 @@ class AutonomousSearch(Mover):
         self.home_on_visible = bool(self.get_parameter("home_on_visible").value)
         self.found_distance = float(self.get_parameter("found_distance").value)
         self.find_all = bool(self.get_parameter("find_all").value)
-        self.toy_side = float(self.get_parameter("toy_side_offset").value)
         self.toy_forward = float(self.get_parameter("toy_forward_distance").value)
         self.toy_merge = float(self.get_parameter("toy_merge_radius").value)
         self.toy_max_count = int(self.get_parameter("toy_max_count").value)

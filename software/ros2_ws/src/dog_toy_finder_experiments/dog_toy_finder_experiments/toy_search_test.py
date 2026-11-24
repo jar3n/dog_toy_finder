@@ -20,8 +20,8 @@ run_id          : str   label stored in the log
 found_distance  : float stop when the vision pipeline estimates the target within (m)
 find_all        : bool  demo mode: record each new toy and keep searching
                     instead of stopping at the first one
-toy_side_offset / toy_forward_distance / toy_merge_radius : toy placement
-                    for the found-toy estimate (same as the occupancy mapper)
+toy_forward_distance / toy_merge_radius : toy placement for the found-toy
+                    estimate (same as the occupancy mapper)
 escape_distance : float metres backed up after each find in demo mode
 """
 
@@ -59,7 +59,6 @@ class ToySearchTest(Mover):
         self.declare_parameter("run_id", "run1")
         self.declare_parameter("found_distance", 0.4)  # m, stop when this close
         self.declare_parameter("find_all", False)      # demo: keep searching
-        self.declare_parameter("toy_side_offset", 0.25)  # m left/right estimate
         self.declare_parameter("toy_forward_distance", 0.6)  # fallback m ahead
         self.declare_parameter("toy_merge_radius", 0.15)  # m, same-toy radius
         self.declare_parameter("toy_max_count", 500)
@@ -80,7 +79,6 @@ class ToySearchTest(Mover):
         self.run_id = self.get_parameter("run_id").value
         self.found_distance = float(self.get_parameter("found_distance").value)
         self.find_all = bool(self.get_parameter("find_all").value)
-        self.toy_side = float(self.get_parameter("toy_side_offset").value)
         self.toy_forward = float(self.get_parameter("toy_forward_distance").value)
         self.toy_merge = float(self.get_parameter("toy_merge_radius").value)
         self.toy_max_count = int(self.get_parameter("toy_max_count").value)

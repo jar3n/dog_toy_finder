@@ -150,10 +150,12 @@ source install/setup.bash
 # stop everything: Ctrl+C in the launch_all.sh terminal
 ```
 
-Every per-run parameter (camera URLs/intrinsics, vision pipeline choice and
-detector name, map size, search target, CSV paths, manual-drive speeds) comes
-from `scripts/full_system_eval.conf`. Edit that one file, pass another config file,
-or override a value in the environment:
+Per-run launch values (camera URLs, vision pipeline choice and detector name,
+map size, search target, CSV paths, manual-drive speeds) come from
+`scripts/full_system_eval.conf`. Camera geometry is the one exception: that is
+read from `vision_detectors.yaml` when the config is sourced, so there is no
+second copy to keep in sync. Edit those files, pass another config file, or
+override a value in the environment:
 
 ```bash
 WEBMAP_PORT=9000 ./scripts/launch_all.sh

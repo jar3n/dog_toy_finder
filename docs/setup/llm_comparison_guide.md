@@ -216,6 +216,10 @@ ros2 launch dog_toy_finder_vision stereo_vision.launch.py \
     vision:=false
 ```
 
+The `width`/`height`/`fx`/`fy`/`cx`/`cy`/`baseline` arguments are shown for
+clarity; the launch file reads the same values from `config_path` when they are
+omitted, and an explicit argument still wins.
+
 `vision:=false` skips the live detector node, and `stereo_proc:=false` skips
 disparity/point-cloud generation. Capture only needs the rectified colour
 topics. Leave this launch running. Capturing while the full stack is running is
