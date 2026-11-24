@@ -23,9 +23,9 @@ def generate_launch_description() -> LaunchDescription:
             description=f"Seconds without a message before {name} fails",
         )
         for name, default in [
-            ("imu_timeout", "0.5"),
-            ("joint_states_timeout", "0.5"),
-            ("ir_timeout", "1.0"),
+            ("imu_timeout", "2.0"),
+            ("joint_states_timeout", "2.0"),
+            ("ir_timeout", "3.0"),
             ("left_camera_timeout", "3.0"),
             ("right_camera_timeout", "3.0"),
             ("odometry_timeout", "2.0"),

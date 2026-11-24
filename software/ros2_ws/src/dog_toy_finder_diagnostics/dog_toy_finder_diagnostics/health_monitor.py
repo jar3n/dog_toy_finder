@@ -9,6 +9,8 @@ sensor goes stale past its timeout, and an INFO is logged when it recovers.
 The Pico sensors publish continuously (IMU 50 Hz, encoders 50 Hz, IR 10 Hz)
 and the cameras publish at the stereo rate (2 Hz by default), so topic
 silence reliably means the sensor, the Pico, the camera, or the link died.
+Measured Pico/micro-ROS stalls are about 1.1-1.2 s even while the sensors
+keep working, so the default Pico timeouts include margin above that jitter.
 A startup grace period suppresses failure logs while the stack boots: a
 sensor that has never published only fails once the grace has expired.
 """
@@ -25,9 +27,9 @@ from std_msgs.msg import Bool
 
 # (key, topic, message type, timeout parameter, default timeout in seconds)
 SENSORS = (
-    ("imu", "/imu/data", Imu, "imu_timeout", 0.5),
-    ("encoders", "/joint_states", JointState, "joint_states_timeout", 0.5),
-    ("ir", "/ir_obstacle/detected", Bool, "ir_timeout", 1.0),
+    ("imu", "/imu/data", Imu, "imu_timeout", 2.0),
+    ("encoders", "/joint_states", JointState, "joint_states_timeout", 2.0),
+    ("ir", "/ir_obstacle/detected", Bool, "ir_timeout", 3.0),
     ("left_camera", "/stereo/left/image_raw", Image,
      "left_camera_timeout", 3.0),
     ("right_camera", "/stereo/right/image_raw", Image,

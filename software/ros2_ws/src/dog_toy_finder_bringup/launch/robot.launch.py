@@ -150,17 +150,17 @@ def generate_launch_description() -> LaunchDescription:
             ),
             DeclareLaunchArgument(
                 "health_imu_timeout",
-                default_value="0.5",
+                default_value="2.0",
                 description="Seconds without /imu/data before failure",
             ),
             DeclareLaunchArgument(
                 "health_joint_states_timeout",
-                default_value="0.5",
+                default_value="2.0",
                 description="Seconds without /joint_states before failure",
             ),
             DeclareLaunchArgument(
                 "health_ir_timeout",
-                default_value="1.0",
+                default_value="3.0",
                 description="Seconds without /ir_obstacle/detected before failure",
             ),
             DeclareLaunchArgument(
