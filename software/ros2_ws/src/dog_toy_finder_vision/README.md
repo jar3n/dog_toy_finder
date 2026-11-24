@@ -95,9 +95,10 @@ measured camera and toy values there:
 - `target.known_width_m`, `known_height_m` — retained for older tooling;
   `open_vocab` triangulates from disparity rather than apparent size
 
-The camera values should match the `CAMERA_*` and `STEREO_BASELINE` values in
-`full_system_eval.conf`. The defaults are placeholders until you calibrate the
-cameras and measure the toy.
+`full_system_eval.conf` reads `camera.width`, `height`, `fx`, `fy`, `cx`, `cy`,
+and `baseline_m` from this YAML into the launch arguments, so edit them here
+only. The defaults are placeholders until you calibrate the cameras and measure
+the toy.
 
 The bearing convention is `atan((cx - u) / fx)` in degrees, where `u` is the
 target's horizontal pixel centre. Positive values mean the target is left of

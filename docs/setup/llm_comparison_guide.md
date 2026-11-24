@@ -192,10 +192,10 @@ printf 'captures=%s\nconfig=%s\nrun=%s\ntarget=%s\n' \
 
 `VISION_DETECTOR_CONFIG` must be the same file whose `fx`, `cx`, and baseline
 you checked in A1. `vision_capture` copies those values into each `meta.json`.
-Keep `CAMERA_FX`, `CAMERA_FY`, `CAMERA_CX`, `CAMERA_CY`, and `STEREO_BASELINE`
-in `full_system_eval.conf` equal to `camera.fx`, `camera.fy`, `camera.cx`,
-`camera.cy`, and `camera.baseline_m` in that YAML. The launch uses the config
-values; the capture metadata uses the YAML values.
+`full_system_eval.conf` also reads `camera.width`, `height`, `fx`, `fy`, `cx`,
+`cy`, and `baseline_m` from that YAML into the `IMAGE_WIDTH`, `CAMERA_*`, and
+`STEREO_BASELINE` variables used by the launch command below, so the live
+pipeline and the capture metadata share one set of numbers.
 
 #### Step 2 - Start a capture-only stereo pipeline (first shell)
 

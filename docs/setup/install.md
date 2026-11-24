@@ -96,7 +96,7 @@ pio run -e esp32cam_right -t upload
 Note the printed IPs / mDNS names (`esp32cam-left.local`, `esp32cam-right.local`).
 Before collecting evaluation data, measure the intrinsics and stereo baseline
 with [camera_calibration.md](camera_calibration.md) and record them in
-`scripts/full_system_eval.conf` and `vision_detectors.yaml`.
+`vision_detectors.yaml`; `scripts/full_system_eval.conf` reads them from there.
 
 ## 7. Start the ROS 2 stack
 

@@ -21,18 +21,21 @@ calibration Python below inside the container.
 
 ## Where the calibrated numbers go
 
-| Measurement | `scripts/full_system_eval.conf` | `vision_detectors.yaml` | Direct launch argument |
-|---|---|---|---|
-| Image width / height | `IMAGE_WIDTH`, `IMAGE_HEIGHT` | `camera.width`, `camera.height` | `width:=`, `height:=` |
-| Focal lengths | `CAMERA_FX`, `CAMERA_FY` | `camera.fx`, `camera.fy` | `fx:=`, `fy:=` |
-| Principal point | `CAMERA_CX`, `CAMERA_CY` | `camera.cx`, `camera.cy` | `cx:=`, `cy:=` |
-| Stereo baseline | `STEREO_BASELINE` | `camera.baseline_m` | `baseline:=` |
-| Valid depth window | (not present) | `camera.depth_min_m`, `camera.depth_max_m` | (not present) |
+| Measurement | `vision_detectors.yaml` | Direct launch argument |
+|---|---|---|
+| Image width / height | `camera.width`, `camera.height` | `width:=`, `height:=` |
+| Focal lengths | `camera.fx`, `camera.fy` | `fx:=`, `fy:=` |
+| Principal point | `camera.cx`, `camera.cy` | `cx:=`, `cy:=` |
+| Stereo baseline | `camera.baseline_m` | `baseline:=` |
+| Valid depth window | `camera.depth_min_m`, `camera.depth_max_m` | (not present) |
 
-`launch_all.sh` forwards the `full_system_eval.conf` values as launch arguments,
-so those win for the live node. `vision_eval` and `vision_capture` read only the
-YAML. **Keep both in sync**, or captures and scores will be computed with
-different geometry.
+The detector YAML is the single source of truth. When `launch_all.sh` sources
+`scripts/full_system_eval.conf`, that config reads these values from the YAML
+into `IMAGE_WIDTH`, `CAMERA_FX`, `STEREO_BASELINE`, etc. and forwards them as
+launch arguments. `vision_capture` and `vision_eval` read the same YAML, so
+live geometry and offline scoring cannot drift apart. An explicit launch
+argument or an exported environment variable still overrides a value for a
+single run.
 
 ## 1. Prepare the host calibration environment
 
@@ -164,11 +167,11 @@ rms, k1, d1, k2, d2, rotation, translation, _, _ = cv2.stereoCalibrate(
 
 baseline = abs(float(translation[0]))
 print("valid pairs: %d, reprojection RMS: %.2f px" % (len(object_points), rms))
-print("CAMERA_FX=%.2f" % k1[0, 0])
-print("CAMERA_FY=%.2f" % k1[1, 1])
-print("CAMERA_CX=%.2f" % k1[0, 2])
-print("CAMERA_CY=%.2f" % k1[1, 2])
-print("STEREO_BASELINE=%.4f" % baseline)
+print("fx: %.2f" % k1[0, 0])
+print("fy: %.2f" % k1[1, 1])
+print("cx: %.2f" % k1[0, 2])
+print("cy: %.2f" % k1[1, 2])
+print("baseline_m: %.4f" % baseline)
 PY
 ```
 
@@ -180,29 +183,15 @@ with this number.
 
 ## 5. Record the values
 
-Because `full_system_eval.conf` uses `:-` defaults, exported values win. Put the
-printed numbers in the shell environment **before** sourcing it, or edit the
-defaults in the file directly:
-
-```bash
-export IMAGE_WIDTH=320
-export IMAGE_HEIGHT=240
-export CAMERA_FX=250.0      # replace with the printed numbers
-export CAMERA_FY=250.0
-export CAMERA_CX=160.0
-export CAMERA_CY=120.0
-export STEREO_BASELINE=0.08
-source /workspace/scripts/full_system_eval.conf
-```
-
-Then set the same values in `vision_detectors.yaml`, which the offline tools
-read:
+Put the printed numbers in `vision_detectors.yaml`, then source
+`full_system_eval.conf` as usual. The config reads them from the YAML; there is
+no second camera-geometry block to edit:
 
 ```yaml
 camera:
   width: 320
   height: 240
-  fx: 250.0
+  fx: 250.0       # replace with the printed numbers
   fy: 250.0
   cx: 160.0
   cy: 120.0
@@ -210,6 +199,10 @@ camera:
   depth_min_m: 0.25
   depth_max_m: 3.0
 ```
+
+For a one-off override, export `CAMERA_FX=...` (or any of the other `CAMERA_*`
+variables) before sourcing `full_system_eval.conf`; exported values still win
+over the YAML.
 
 `depth_min_m` and `depth_max_m` are not solved by the checkerboard. Choose them
 from the useful range of your rig: `depth_min_m` should be above the distance

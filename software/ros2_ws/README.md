@@ -32,8 +32,10 @@ new files still need a build.
 
 ## Run
 
-The quickest path is the launcher, which reads every per-run value from
-`scripts/full_system_eval.conf`:
+The quickest path is the launcher, which reads per-run values from
+`scripts/full_system_eval.conf`. Camera geometry is read from
+`dog_toy_finder_vision/config/vision_detectors.yaml` when that config is
+sourced:
 
 ```bash
 /workspace/scripts/launch_all.sh
