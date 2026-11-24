@@ -403,6 +403,10 @@ and `software/`: `data/vision/captures/`, `data/vision/vision_eval_*.csv/json`
 and `data/planning/<run_id>/`. Inside the ROS 2 container those paths are under
 `/workspace/data`.
 
+Calibrate the stereo pair first with
+[camera_calibration.md](camera_calibration.md); put the measured intrinsics and
+baseline in both `scripts/full_system_eval.conf` and the detector YAML.
+
 For vision, set `VISION_DETECTOR_CONFIG` to your measured camera/toy YAML and
 `VISION_PIPELINE` to `open_vocab` or `stereo-net` (or select it with
 `pipeline:=...` on the launch command). Use the same `DETECTOR_MODEL` for both

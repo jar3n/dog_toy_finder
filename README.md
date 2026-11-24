@@ -113,7 +113,9 @@ seed-recorded order.
 ## Running the full system
 
 See [docs/setup/full_system_test.md](docs/setup/full_system_test.md) for
-flashing, calibration, the complete evaluation flow, and reset instructions.
+flashing, the complete evaluation flow, and reset instructions, and
+[docs/setup/camera_calibration.md](docs/setup/camera_calibration.md) for stereo
+intrinsics and baseline calibration.
 
 Quick start (host):
 

@@ -136,7 +136,9 @@ host service via `DETECTOR_MODEL`, `YOLO_MODEL_PATH` / `YOLOE_MODEL_PATH` /
 `GROUNDING_DINO_MODEL`, and `YOLO_DEVICE`; the dense model is selected on the
 host with `DEPTH_MODEL` and `STEREO_DEVICE`. `fx` and `baseline_m` drive both
 triangulation and dense depth (`distance = fx * baseline / disparity`), and
-`cx`/`fx` set the bearing.
+`cx`/`fx` set the bearing. Use
+[camera_calibration.md](camera_calibration.md) to measure these values and the
+stereo baseline for your rig before starting capture.
 
 `lateral_bearing_deg` is measured from the camera's optical axis in degrees:
 
