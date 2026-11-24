@@ -5,7 +5,7 @@ import os
 
 import yaml
 from launch import LaunchContext
-from launch_ros.actions import Node
+from launch_ros.actions import ComposableNodeContainer, Node
 
 LAUNCH_FILE = os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
@@ -19,7 +19,7 @@ def _load_module():
     return module
 
 
-def _camera_params(module, config_path, overrides=None):
+def _launch_context(config_path, overrides=None):
     values = dict(
         config_path=config_path,
         left_url="http://left/capture",
@@ -35,6 +35,11 @@ def _camera_params(module, config_path, overrides=None):
     context = LaunchContext()
     for name, value in values.items():
         context.launch_configurations[name] = value
+    return context
+
+
+def _camera_params(module, config_path, overrides=None):
+    context = _launch_context(config_path, overrides)
     group = module._launch_setup(context)[0]
     nodes = [entity for entity in group.get_sub_entities()
              if isinstance(entity, Node)
@@ -75,3 +80,26 @@ def test_explicit_camera_args_override_yaml(tmp_path):
 
     assert params["fx"] == 999.5
     assert params["baseline"] == 0.42
+
+
+def test_stereo_image_proc_bool_params_are_booleans(tmp_path):
+    path = tmp_path / "vision.yaml"
+    path.write_text(yaml.safe_dump({"camera": {}}))
+
+    module = _load_module()
+    context = _launch_context(
+        str(path), {"stereo_proc": "true", "approximate_sync": "true",
+                    "use_color": "false"})
+    group = module._launch_setup(context)[0]
+    containers = [entity for entity in group.get_sub_entities()
+                  if isinstance(entity, ComposableNodeContainer)]
+    assert len(containers) == 1
+    descriptions = containers[0]._ComposableNodeContainer__composable_node_descriptions
+    params = []
+    for node in descriptions:
+        raw = node._ComposableNode__parameters[0]
+        params.append({list(key)[0].text: value for key, value in raw.items()})
+
+    assert [item["approximate_sync"] for item in params] == [True, True]
+    assert params[0]["use_system_default_qos"] is False
+    assert params[1]["use_color"] is False

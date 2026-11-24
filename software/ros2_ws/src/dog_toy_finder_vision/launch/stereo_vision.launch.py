@@ -70,6 +70,16 @@ def _default_if_empty(value, fallback):
     return text if text else str(fallback)
 
 
+def _bool_arg(context, name):
+    """Resolve a launch argument as a real bool, not the string 'true'."""
+    value = str(_arg(context, name)).strip().lower()
+    if value in ("true", "1", "yes", "on"):
+        return True
+    if value in ("false", "0", "no", "off"):
+        return False
+    raise ValueError(f"launch argument {name} must be a boolean, got {value!r}")
+
+
 def _launch_setup(context):
     """Build the nodes after launch args are known, so YAML can fill defaults."""
     camera = load_config(_arg(context, "config_path") or None)["camera"]
@@ -142,7 +152,7 @@ def _launch_setup(context):
         plugin="stereo_image_proc::DisparityNode",
         name="disparity_node",
         parameters=[{
-            "approximate_sync": _arg(context, "approximate_sync"),
+            "approximate_sync": _bool_arg(context, "approximate_sync"),
             "use_system_default_qos": False,
             "stereo_algorithm": int(_arg(context, "stereo_algorithm")),
             "min_disparity": int(_arg(context, "min_disparity")),
@@ -161,9 +171,9 @@ def _launch_setup(context):
         plugin="stereo_image_proc::PointCloudNode",
         name="point_cloud_node",
         parameters=[{
-            "approximate_sync": _arg(context, "approximate_sync"),
+            "approximate_sync": _bool_arg(context, "approximate_sync"),
             "use_system_default_qos": False,
-            "use_color": _arg(context, "use_color"),
+            "use_color": _bool_arg(context, "use_color"),
         }],
         remappings=[
             ("disparity", "/stereo/disparity"),

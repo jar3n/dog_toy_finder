@@ -69,9 +69,11 @@ if [ ! -x "$VENV/bin/python" ]; then
     python3 -m venv "$VENV"
 fi
 
-if ! "$VENV/bin/python" -c 'import torch' >/dev/null 2>&1; then
-    echo "Installing CPU torch (replace with your CUDA build if you have a GPU)"
-    "$VENV/bin/pip" install --no-cache-dir torch \
+if ! "$VENV/bin/python" -c 'import torch, torchvision' >/dev/null 2>&1; then
+    echo "Installing CPU torch/torchvision (replace with your CUDA build if you have a GPU)"
+    # Keep torchvision on the same index as torch; the PyPI build breaks NMS.
+    "$VENV/bin/pip" install --no-cache-dir \
+        'torch==2.15.0+cpu' 'torchvision==0.29.2+cpu' \
         --index-url https://download.pytorch.org/whl/cpu
 fi
 if ! "$VENV/bin/python" -c 'import huggingface_hub, omegaconf, einops, cv2' >/dev/null 2>&1; then

@@ -53,9 +53,13 @@ if [ ! -x "$VENV/bin/python" ]; then
     python3 -m venv "$VENV"
 fi
 
-if ! "$VENV/bin/python" -c 'import ultralytics, transformers, PIL, yaml' >/dev/null 2>&1; then
+if ! "$VENV/bin/python" -c \
+    'import torch, torchvision, ultralytics, transformers, PIL, yaml' >/dev/null 2>&1; then
     echo "Installing host vision dependencies (CPU torch + ultralytics + transformers)"
-    "$VENV/bin/pip" install --no-cache-dir torch \
+    # torchvision from PyPI and torch from the CPU index are not ABI-compatible;
+    # install the matching pair from the same index or ultralytics' NMS fails.
+    "$VENV/bin/pip" install --no-cache-dir \
+        'torch==2.15.0+cpu' 'torchvision==0.29.2+cpu' \
         --index-url https://download.pytorch.org/whl/cpu
     "$VENV/bin/pip" install --no-cache-dir -r "$HOST_VISION/requirements.txt"
 fi

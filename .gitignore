@@ -52,7 +52,12 @@ software/build/
 software/install/
 software/log/
 
-# Host-side detector weights/caches (downloaded locally)
+# Host-side detector/depth weights and upstream repos (downloaded locally)
 software/host_vision/models/*.pt
+software/host_vision/models/*.pth
 software/host_vision/models/*.ts
 software/host_vision/models/hf/
+software/host_vision/models/repos/
+software/host_vision/models/fast_foundation_stereo/
+software/host_vision/models/rt_igevpp/
+weights/
