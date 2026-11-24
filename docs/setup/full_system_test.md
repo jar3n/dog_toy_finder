@@ -418,8 +418,6 @@ source scripts/full_system_eval.conf
 
 ros2 run dog_toy_finder_vision vision_capture \
     --target "$VISION_CAPTURE_TARGET" \
-    --depth-m 1.15 \
-    --bearing-deg +12 \
     --size medium \
     --run-id "$VISION_CAPTURE_RUN_ID" \
     --capture-id ball_115m_b12 \
@@ -430,10 +428,12 @@ ros2 run dog_toy_finder_vision vision_capture \
 
 `vision_capture` waits for a fresh matched `/stereo/{left,right}/image_rect_color`
 pair. Measure depth from the cameras with a tape measure and lateral bearing
-from the optical axis; positive bearing means robot-left (ROS `+y`). In a TTY,
-`--depth-m` and `--bearing-deg` are prompted for if omitted. Use
-`--not-visible` for an empty frame, plus `--obstacle` and `--notes` where
-needed. Each call writes:
+from the optical axis; positive bearing means robot-left (ROS `+y`). The command
+above is interactive: it prompts for `distance_m (metres)` and
+`lateral_bearing_deg (+left)`; type the measured values. Use `--not-visible`
+for an empty frame (no prompts), plus `--obstacle` and `--notes` where needed.
+For scripts or non-interactive shells, pass `--depth-m` and `--bearing-deg`
+explicitly instead. Each call writes:
 
 ```text
 $VISION_CAPTURE_DIR/<run_id>/<capture_id>/left.jpg

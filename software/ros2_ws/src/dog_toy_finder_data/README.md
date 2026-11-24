@@ -44,7 +44,7 @@ cd /workspace
 source scripts/full_system_eval.conf
 
 ros2 run dog_toy_finder_vision vision_capture \
-    --target "$VISION_CAPTURE_TARGET" --depth-m 1.15 --bearing-deg +12 \
+    --target "$VISION_CAPTURE_TARGET" \
     --run-id "$VISION_CAPTURE_RUN_ID" --capture-id ball_115m_b12 \
     --output-dir "$VISION_CAPTURE_DIR" --config "$VISION_DETECTOR_CONFIG"
 
@@ -55,6 +55,10 @@ ros2 run dog_toy_finder_vision vision_eval \
     --output-csv "$VISION_EVAL_CSV" --results-json "$VISION_EVAL_JSONL" \
     --summary-json "$VISION_EVAL_SUMMARY_JSON"
 ```
+
+The capture command is interactive: it prompts for `distance_m (metres)` and
+`lateral_bearing_deg (+left)`; type the operator-measured values. For scripts,
+pass `--depth-m` and `--bearing-deg` explicitly instead.
 
 Each capture stores `left.jpg`, `right.jpg`, and `meta.json` under
 `$VISION_CAPTURE_DIR/<run_id>/<capture_id>/`. The `gt_*` columns in

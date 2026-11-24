@@ -257,13 +257,15 @@ source scripts/full_system_eval.conf
 
 ros2 run dog_toy_finder_vision vision_capture \
     --target "$VISION_CAPTURE_TARGET" \
-    --depth-m 1.15 --bearing-deg +12 \
     --run-id "$VISION_CAPTURE_RUN_ID" \
     --capture-id ball_115m_b12 \
     --output-dir "$VISION_CAPTURE_DIR" \
     --config "$VISION_DETECTOR_CONFIG"
 ```
 
+Leaving out `--depth-m` and `--bearing-deg` makes `vision_capture` prompt in the
+TTY for `distance_m (metres)` and `lateral_bearing_deg (+left)`; type the values
+you measured. Pass those flags explicitly only in non-interactive scripts.
 Each capture writes `left.jpg`, `right.jpg`, and `meta.json` under
 `<output_dir>/<run_id>/<capture_id>/`. `meta.json` holds the operator's ground
 truth, including `lateral_bearing_deg`; use `--not-visible` for an empty frame.

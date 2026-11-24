@@ -244,13 +244,13 @@ For each scene:
    opposite side; zero means on the optical axis.
 4. Write down a short, unique `--capture-id` for this scene.
 
-#### Step 5 - Save one capture
+Keep the two measurements handy: Step 5 asks for them interactively.
+
+#### Step 5 - Save one capture interactively
 
 ```bash
 ros2 run dog_toy_finder_vision vision_capture \
     --target "$VISION_CAPTURE_TARGET" \
-    --depth-m 1.15 \
-    --bearing-deg +12.0 \
     --size medium \
     --run-id "$VISION_CAPTURE_RUN_ID" \
     --capture-id ball_115m_b12 \
@@ -258,6 +258,20 @@ ros2 run dog_toy_finder_vision vision_capture \
     --config "$VISION_DETECTOR_CONFIG" \
     --timeout "$VISION_CAPTURE_TIMEOUT"
 ```
+
+Leave out `--depth-m` and `--bearing-deg`. In this interactive (TTY) shell the
+tool prompts for the values you measured in Step 4:
+
+```text
+Enter ground truth measured for this capture:
+distance_m (metres): 1.15
+lateral_bearing_deg (+left): 12.0
+```
+
+Type each number and press Enter. `--size`, `--obstacle`, and `--notes` stay on
+the command line; they are not prompted for. For a script or other non-interactive
+shell, pass `--depth-m` and `--bearing-deg` explicitly instead (unless using
+`--not-visible`).
 
 One invocation saves exactly one fresh matched stereo pair. Use a new
 `--capture-id` for every scene; reusing an ID overwrites that capture
@@ -297,20 +311,11 @@ The bearing and distance in this file are the values `vision_eval` will score.
 #### Step 7 - Capture the other scene cases
 
 Move the toy or change the scene, then run Step 5 again with a new
-`--capture-id`. Keep the same `--run-id` for the whole dataset. Common
-variants:
+`--capture-id` and type the new measurements at the prompts. Keep the same
+`--run-id` for the whole dataset. Common variants:
 
 ```bash
-# Interactively prompted for distance and bearing (requires a TTY)
-ros2 run dog_toy_finder_vision vision_capture \
-    --target "$VISION_CAPTURE_TARGET" \
-    --run-id "$VISION_CAPTURE_RUN_ID" \
-    --capture-id ball_prompted \
-    --output-dir "$VISION_CAPTURE_DIR" \
-    --config "$VISION_DETECTOR_CONFIG" \
-    --timeout "$VISION_CAPTURE_TIMEOUT"
-
-# Target absent: stores target_visible=false, distance=0, bearing=0
+# Target absent: stores target_visible=false, distance=0, bearing=0; no prompts
 ros2 run dog_toy_finder_vision vision_capture \
     --target "$VISION_CAPTURE_TARGET" \
     --not-visible \
@@ -320,11 +325,9 @@ ros2 run dog_toy_finder_vision vision_capture \
     --config "$VISION_DETECTOR_CONFIG" \
     --timeout "$VISION_CAPTURE_TIMEOUT"
 
-# Obstacle in the path plus free-form notes
+# Obstacle plus notes: distance and bearing are still entered at the prompts
 ros2 run dog_toy_finder_vision vision_capture \
     --target "$VISION_CAPTURE_TARGET" \
-    --depth-m 0.90 \
-    --bearing-deg -8.0 \
     --obstacle chair \
     --notes "chair between cameras and toy" \
     --run-id "$VISION_CAPTURE_RUN_ID" \
@@ -332,26 +335,37 @@ ros2 run dog_toy_finder_vision vision_capture \
     --output-dir "$VISION_CAPTURE_DIR" \
     --config "$VISION_DETECTOR_CONFIG" \
     --timeout "$VISION_CAPTURE_TIMEOUT"
+
+# Non-interactive shells/scripts: supply the measurements as flags instead
+ros2 run dog_toy_finder_vision vision_capture \
+    --target "$VISION_CAPTURE_TARGET" \
+    --depth-m 0.90 --bearing-deg -8.0 \
+    --run-id "$VISION_CAPTURE_RUN_ID" \
+    --capture-id ball_090m_bneg8_scripted \
+    --output-dir "$VISION_CAPTURE_DIR" \
+    --config "$VISION_DETECTOR_CONFIG" \
+    --timeout "$VISION_CAPTURE_TIMEOUT"
 ```
 
-In non-interactive use, `--depth-m` and `--bearing-deg` are required unless
+`--depth-m` and `--bearing-deg` are required in a non-interactive shell unless
 `--not-visible` is set. Use `--notes` for anything the numeric fields do not
 capture.
 
 #### Step 8 - Aim for a varied set
 
-A useful comparison covers all of these cases:
+A useful comparison covers all of these cases. The distance and bearing values
+are typed at the Step 5 prompts; other flags stay on the command line:
 
-| Scene | Example capture ID | Key options |
+| Scene | Example capture ID | Ground truth / other options |
 |---|---|---|
-| On axis, medium range | `ball_100m_b0` | `--depth-m 1.00 --bearing-deg 0` |
-| Positive bearing | `ball_115m_b12` | `--depth-m 1.15 --bearing-deg +12.0` |
-| Negative bearing | `ball_090m_bneg8` | `--depth-m 0.90 --bearing-deg -8.0` |
-| Near | `ball_040m_b5` | `--depth-m 0.40 --bearing-deg +5.0` |
-| Far | `ball_200m_bneg3` | `--depth-m 2.00 --bearing-deg -3.0` |
-| Target absent | `ball_absent` | `--not-visible` |
-| Obstacle present | `ball_090m_bneg8_obstacle` | `--obstacle chair --notes "..."` |
-| Different target | `bone_110m_b10` | `--target "dog bone"` |
+| On axis, medium range | `ball_100m_b0` | distance 1.00 m, bearing 0° |
+| Positive bearing | `ball_115m_b12` | distance 1.15 m, bearing +12° |
+| Negative bearing | `ball_090m_bneg8` | distance 0.90 m, bearing -8° |
+| Near | `ball_040m_b5` | distance 0.40 m, bearing +5° |
+| Far | `ball_200m_bneg3` | distance 2.00 m, bearing -3° |
+| Target absent | `ball_absent` | `--not-visible` (no prompts) |
+| Obstacle present | `ball_090m_bneg8_obstacle` | distance 0.90 m, bearing -8°, `--obstacle chair --notes "..."` |
+| Different target | `bone_110m_b10` | distance 1.10 m, bearing +10°, `--target "dog bone"` |
 
 #### Step 9 - Finish capture
 
