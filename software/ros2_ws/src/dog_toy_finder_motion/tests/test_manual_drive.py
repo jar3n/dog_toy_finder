@@ -74,11 +74,11 @@ class CommandForKeyTests(unittest.TestCase):
 
     def test_left_keys(self):
         for key in ("a", "A", "left"):
-            self.assertEqual(self.command(key), (0.0, -self.angular))
+            self.assertEqual(self.command(key), (0.0, self.angular))
 
     def test_right_keys(self):
         for key in ("d", "D", "right"):
-            self.assertEqual(self.command(key), (0.0, self.angular))
+            self.assertEqual(self.command(key), (0.0, -self.angular))
 
     def test_space_stops(self):
         self.assertEqual(self.command(" "), (0.0, 0.0))
