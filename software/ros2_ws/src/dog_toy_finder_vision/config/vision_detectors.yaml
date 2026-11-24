@@ -10,22 +10,44 @@
 # stereo_vision.launch.py. They are used for stereo triangulation and for the
 # shared numeric bearing convention atan((cx - u) / fx), positive to the left.
 
-pipeline: open_vocab   # open_vocab | stereo-net (dense-stereo depth)
+# Vision pipeline used when no explicit selector is given:
+#   open_vocab  - detect in both eyes, triangulate distance from disparity
+#   stereo-net  - detect in the left eye, read dense-stereo depth
+pipeline: open_vocab
 
 camera:
+  # Rectified image size in pixels. Must match the launch width/height and the
+  # calibration that produced fx, fy, cx, and cy.
   width: 320
   height: 240
+
+  # Focal lengths in pixels. fx drives stereo triangulation
+  # (distance = fx * baseline_m / disparity) and lateral bearing; fy is used in
+  # the CameraInfo published for rectification.
   fx: 250.0
   fy: 250.0
+
+  # Principal point in pixels. cx is the optical axis for
+  # bearing = atan((cx - u) / fx); positive bearing is robot-left (ROS +y).
   cx: 160.0
   cy: 120.0
+
+  # Separation of the two optical centres in metres, from calibration.
   baseline_m: 0.08
+
+  # Accepted depth window in metres. Matches outside this range are reported as
+  # not visible instead of producing a distance.
   depth_min_m: 0.25
   depth_max_m: 3.0
+
+  # Rectified colour image topics consumed by vision_node and vision_capture.
+  # vision_node's left_rect_topic/right_rect_topic parameters can override them.
   left_rectified_topic: /stereo/left/image_rect_color
   right_rectified_topic: /stereo/right/image_rect_color
 
-# Real-world toy measurements. Measure these with a ruler for your actual toy.
+# Real-world toy measurements in metres. Measure these with a ruler for your
+# actual toy. Kept for older apparent-size tooling; the selectable pipelines
+# derive distance from stereo disparity or dense depth instead.
 target:
   known_width_m: 0.075
   known_height_m: 0.075
@@ -37,13 +59,29 @@ target:
 # host via DETECTOR_MODEL and YOLO_MODEL_PATH / YOLOE_MODEL_PATH /
 # GROUNDING_DINO_MODEL (plus YOLO_DEVICE), not here.
 open_vocab:
-  name: yolov8s-world            # fallback model name; the service may report its own
+  # Fallback model name recorded when the detector service does not report one.
+  name: yolov8s-world
+
+  # Base URL of the host detector service. Overridden by YOLO_SERVICE_URL in the
+  # container or the launch argument yolo_service_url.
   service_url: http://localhost:5006
+
+  # HTTP timeout in seconds for each /detect request.
   timeout_s: 60
+
+  # Sent to the host detector: minimum confidence and maximum detections per
+  # image. Lower confidence increases recall but also false matches.
   confidence_threshold: 0.25
   max_detections: 10
+
+  # Stereo matching bounds in pixels for paired left/right detections. A pair is
+  # accepted when min_disparity <= disparity <= max_disparity, where disparity
+  # is u_left - u_right and distance = fx * baseline_m / disparity.
   min_disparity: 3
   max_disparity: 96
+
+  # Reject a left/right detection pair when its row (v) coordinates differ by
+  # more than this many pixels.
   max_vertical_delta_px: 20
 
 # stereo-net: the detector above runs on the left image only; a host dense-stereo
@@ -53,8 +91,21 @@ open_vocab:
 # The model/weights/device are configured on the host, not here. `name` below
 # is only the fallback recorded when the service does not report a name.
 stereo-net:
+  # Fallback dense depth model name recorded when the service omits one.
   name: lite_any_stereo
+
+  # Base URL of the host depth service. Overridden by STEREO_SERVICE_URL in the
+  # container or the launch argument stereo_service_url.
   service_url: http://localhost:5007
+
+  # HTTP timeout in seconds for each /depth request; model inference can be slow.
   timeout_s: 180
-  window_radius_px: 3       # box-only detectors: median over (2r+1)^2 pixels
-  max_disparity: 192        # upper bound on dense disparity samples
+
+  # For box-only detectors, radius in pixels of the square box-centre window
+  # whose disparity samples are medianed: (2 * radius + 1)^2 pixels. YOLOE-26
+  # instead uses all pixels of the detected instance mask.
+  window_radius_px: 3
+
+  # Upper bound in pixels passed to the dense-stereo service when sampling
+  # disparity; larger values allow nearer objects but cost more computation.
+  max_disparity: 192
