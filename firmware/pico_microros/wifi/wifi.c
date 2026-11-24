@@ -22,10 +22,6 @@
 #define WIFI_CONNECT_TIMEOUT_MS 15000
 #endif
 
-#ifndef WIFI_CONNECT_RETRIES
-#define WIFI_CONNECT_RETRIES 3
-#endif
-
 #ifndef WIFI_CONNECT_RETRY_DELAY_MS
 #define WIFI_CONNECT_RETRY_DELAY_MS 1000
 #endif
@@ -170,9 +166,9 @@ const char *wifi_ip_address(void) {
  * Initialize the CYW43 chip and join the configured access point.
  *
  * Initializes the driver once, enables station mode, and retries the join up
- * to WIFI_CONNECT_RETRIES times. Starts the UDP log mirror after a successful
- * join. Returns false when the credentials are still placeholders or every
- * attempt fails; the rest of the firmware can keep running either way.
+ * until the network connects. Starts the UDP log mirror after a successful
+ * join. Returns false when the credentials are still placeholders; the rest of
+ * the firmware can keep running either way.
  */
 bool wifi_init(void) {
   if (!wifi_initialized) {

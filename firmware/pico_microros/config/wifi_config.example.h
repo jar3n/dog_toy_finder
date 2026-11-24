@@ -13,16 +13,11 @@
 // CYW43_AUTH_WPA_WPA2_PSK for a mixed WPA/WPA2 network.
 #define WIFI_AUTH CYW43_AUTH_WPA2_AES_PSK
 
-// Connection tuning. Timeouts are per attempt; retries are 1-based.
+// Connection tuning. The Pico retries indefinitely; these control one wait.
 #define WIFI_CONNECT_TIMEOUT_MS 15000
-#define WIFI_CONNECT_RETRIES 3
 #define WIFI_CONNECT_RETRY_DELAY_MS 1000
 
 // Log mirror over UDP. The default broadcast address requires no knowledge of
 // the computer's IP as long as it is on the same network. Set this to the
 // computer's IPv4 address for unicast (more reliable through firewalls).
 #define WIFI_LOG_TARGET_IP "255.255.255.255"
-// Wi-Fi heartbeat sent over UDP after a successful boot. The message and
-// period are configurable here; the period is in milliseconds.
-#define WIFI_HEARTBEAT_MESSAGE "im alive"
-#define WIFI_HEARTBEAT_PERIOD_MS 5000

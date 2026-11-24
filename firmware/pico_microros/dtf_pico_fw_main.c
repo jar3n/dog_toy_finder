@@ -13,6 +13,7 @@ Dog Toy Finder Pico 2 W firmware Main file
 #include "config/encoder_config.h"
 #include "config/ir_obstacle_config.h"
 #include "config/pinout.h"
+#include "config/timing_config.h"
 #include "config/wifi_config.h"
 #include "encoder/encoder_ros.h"
 #include "imu/bno055.h"
@@ -26,14 +27,7 @@ Dog Toy Finder Pico 2 W firmware Main file
 #include "wifi/wifi.h"
 #include "wifi/wifi_log.h"
 
-#ifndef WIFI_HEARTBEAT_PERIOD_MS
-#define WIFI_HEARTBEAT_PERIOD_MS 5000
-#endif
-#ifndef WIFI_HEARTBEAT_MESSAGE
-#define WIFI_HEARTBEAT_MESSAGE "im alive"
-#endif
-
-#define IMU_PUBLISH_PERIOD_MS 20
+#define IMU_PUBLISH_PERIOD_MS CONTROL_PERIOD_MS
 #define IMU_LOG_PERIOD_MS 500
 
 
@@ -169,7 +163,6 @@ int main(void){
     absolute_time_t next_cmd_vel = get_absolute_time();
     absolute_time_t next_ir_obstacle_publish = get_absolute_time();
     absolute_time_t next_ir_log = get_absolute_time();
-    absolute_time_t next_heartbeat = get_absolute_time();
 
     while (true) {
         status_led_task();

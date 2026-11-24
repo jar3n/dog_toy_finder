@@ -3,6 +3,8 @@
 // Encoder geometry, direction, filtering, and ROS settings. Edit this file in
 // place. Wiring (GPIO numbers) lives in config/pinout.h.
 
+#include "config/timing_config.h"
+
 // ---------------------------------------------------------------------------
 // TT encoded gearmotor geometry
 // ---------------------------------------------------------------------------
@@ -53,6 +55,7 @@
 #define ENCODER_LEFT_JOINT_NAME "left_wheel_joint"
 #define ENCODER_RIGHT_JOINT_NAME "right_wheel_joint"
 
-// Publish and log periods in milliseconds. 20 ms = 50 Hz.
-#define ENCODER_PUBLISH_PERIOD_MS 20
+// Publish and log periods in milliseconds. Publishing uses the shared 50 Hz
+// tick defined in config/timing_config.h.
+#define ENCODER_PUBLISH_PERIOD_MS CONTROL_PERIOD_MS
 #define ENCODER_LOG_PERIOD_MS 1000

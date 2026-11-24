@@ -1,5 +1,7 @@
 #pragma once
 
+#include "config/timing_config.h"
+
 // These settings describe how ROS 2 Twist commands map to the two wheel
 // motors. Edit this file in place. Electrical motor settings live in
 // config/motor_config.h.
@@ -26,9 +28,9 @@
 // Set to 0 to disable the watchdog. Disabling it is not recommended.
 #define CMD_VEL_TIMEOUT_MS 500
 
-// How often the subscriber is serviced and motor duty is refreshed. 20 ms
-// gives a 50 Hz control rate, matching the IMU and encoder publish rate.
-#define CMD_VEL_UPDATE_PERIOD_MS 20
+// How often the subscriber is serviced and motor duty is refreshed. Uses the
+// shared 50 Hz tick so it matches the IMU and encoder publish rates.
+#define CMD_VEL_UPDATE_PERIOD_MS CONTROL_PERIOD_MS
 
 // Timeout stop behaviour: 1 = active short brake, 0 = coast.
 #define CMD_VEL_STOP_BRAKE 1

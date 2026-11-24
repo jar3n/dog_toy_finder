@@ -24,10 +24,8 @@
 #define ROS_LOG_QUEUE_DEPTH 10
 #define ROS_LOG_MAX_MESSAGE_LENGTH 512
 
-// The firmware now probes the agent indefinitely (no attempt limit and no
-// automatic reset); ROS_INIT_ATTEMPTS is retained for compatibility only.
-// ROS_INIT_RETRY_DELAY_MS is the delay between probes.
-#define ROS_INIT_ATTEMPTS 0
+// The firmware probes the agent indefinitely (no attempt limit and no
+// automatic reset). ROS_INIT_RETRY_DELAY_MS is the delay between probes.
 #define ROS_INIT_RETRY_DELAY_MS 1000
 #define ROS_AGENT_PING_TIMEOUT_MS 500
 
