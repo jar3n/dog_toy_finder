@@ -15,8 +15,12 @@ wheel_odometry:
     wheel_radius: 0.0325
     wheel_separation: 0.133
 
-    # Flip a side when its JointState position decreases while the robot drives
-    # forward. This mirrors ENCODER_LEFT_INVERT / ENCODER_RIGHT_INVERT.
+    # Flip a side only if its /joint_states position still decreases while the
+    # robot drives forward. This is applied after the firmware's
+    # ENCODER_LEFT_INVERT / ENCODER_RIGHT_INVERT, which already correct the raw
+    # quadrature counts. The Pico has ENCODER_RIGHT_INVERT 1, so the right wheel
+    # arrives positive and needs no second flip here; setting this true would
+    # double-invert it and corrupt wheel odometry.
     invert_left: false
     invert_right: false
 
