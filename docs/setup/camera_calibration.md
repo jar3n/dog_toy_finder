@@ -91,6 +91,23 @@ right JPEGs. Check that both eyes show the full board with no glare, blur, or
 clipped corners, then press Enter to accept, `r` to recapture that pair, or `q`
 to quit. Set `DTF_CALIB_PREVIEW=0` to disable the preview on a headless host.
 
+To recapture one numbered pose, use `scripts/capture_one_pair.sh 4` for pair 4,
+or `scripts/capture_one_pair.sh 9 /path/to/dir` for pair 9 in another directory.
+The number matches the table below; the script overwrites that pair's JPEGs and
+uses the same camera URL and preview settings.
+
+If a pair needs a different distance or tilt, pass overrides:
+
+```bash
+scripts/capture_one_pair.sh 4 --distance 1.2
+scripts/capture_one_pair.sh 9 --yaw 15 --pitch -10
+scripts/capture_one_pair.sh 10 --distance 0.8 --yaw -15 --pitch 10
+```
+
+The overrides change the displayed pose only; the pair number still selects
+the output filenames. After recapturing, rerun `scripts/calibrate_stereo.py` as
+normal: it reads the numbered JPEGs and does not need the override values.
+
 Between pairs, move the board to different distances and positions and tilt it
 moderately in both axes. Keep the whole board visible in **both** images and
 hold it still while the two captures are taken; the ESP32-CAMs are not

@@ -81,11 +81,14 @@ class OfflineEvalTests(unittest.TestCase):
         for eye, image in (("left", left), ("right", right)):
             Image.fromarray(image).save(
                 os.path.join(self.capture_dir, "%s.jpg" % eye))
+        fx = float(config["camera"]["fx"])
+        baseline_m = float(config["camera"]["baseline_m"])
+        expected_distance = fx * baseline_m / disparity
         truth = {
             "target_visible": visible,
             "lateral_bearing_deg": vision_config.lateral_bearing_deg(
                 center_x, config) if visible else 0.0,
-            "distance_m": 1.0 if visible else 0.0,
+            "distance_m": expected_distance if visible else 0.0,
             "size": "small" if visible else "none",
             "obstacle_ahead": "none",
         }
@@ -165,7 +168,9 @@ class OfflineEvalTests(unittest.TestCase):
         self.assertAlmostEqual(
             entry["lateral_bearing_deg"],
             meta["ground_truth"]["lateral_bearing_deg"], delta=0.5)
-        self.assertAlmostEqual(entry["distance_m"], 1.0, places=2)
+        self.assertAlmostEqual(
+            entry["distance_m"],
+            meta["ground_truth"]["distance_m"], places=2)
 
         row = llm_trials.vision_row(
             result, entry, "fake-world", "run1",
@@ -194,9 +199,13 @@ class OfflineEvalTests(unittest.TestCase):
                 "depth_sample_pixels": [],
             }], "fake-world"
 
+        expected_distance = (
+            float(self.config["camera"]["fx"])
+            * float(self.config["camera"]["baseline_m"]) / 20.0)
+
         def sample_depth(left, right, spec, config):
             return {
-                "model": "fake-stereo", "depth_m": 1.0,
+                "model": "fake-stereo", "depth_m": expected_distance,
                 "disparity_px": 20.0, "sample_source": spec["sample_source"],
                 "sample_count": 49, "valid_count": 49,
             }
@@ -211,7 +220,7 @@ class OfflineEvalTests(unittest.TestCase):
         self.assertEqual(entry["method"], "stereo-net")
         self.assertEqual(entry["distance_source"], "dense_stereo_depth")
         self.assertTrue(entry["target_visible"])
-        self.assertAlmostEqual(entry["distance_m"], 1.0, places=2)
+        self.assertAlmostEqual(entry["distance_m"], expected_distance, places=2)
 
         row = llm_trials.vision_row(
             result, entry, entry["model"], "run1",

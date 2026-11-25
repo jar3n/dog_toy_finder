@@ -145,8 +145,9 @@ class HostServiceTests(unittest.TestCase):
         self.assertEqual(result["depth_m"], 1.0)
         self.assertEqual(sample_mock.call_args.kwargs["points"],
                          [[100, 120], [101, 120]])
-        self.assertEqual(sample_mock.call_args.kwargs["config"]["camera"]["fx"],
-                         250.0)
+        self.assertEqual(
+            sample_mock.call_args.kwargs["config"]["camera"]["fx"],
+            config["camera"]["fx"])
 
     def test_invalid_requests_are_rejected(self):
         with self.assertRaises(ValueError):

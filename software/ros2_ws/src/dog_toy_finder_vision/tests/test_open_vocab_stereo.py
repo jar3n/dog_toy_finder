@@ -5,6 +5,7 @@ plain-Python detection dictionaries the host service would return for the red
 disc in each synthetic image.
 """
 
+import copy
 import io
 import os
 import sys
@@ -20,6 +21,25 @@ from dog_toy_finder_vision import open_vocab_stereo  # noqa: E402
 from dog_toy_finder_vision import vision_config  # noqa: E402
 
 
+def _test_config():
+    """Use fixed placeholder geometry so tests do not depend on local YAML."""
+    config = copy.deepcopy(vision_config.DEFAULTS)
+    config["camera"].update({
+        "width": 320,
+        "height": 240,
+        "fx": 250.0,
+        "fy": 250.0,
+        "cx": 160.0,
+        "cy": 120.0,
+        "baseline_m": 0.08,
+        "depth_min_m": 0.25,
+        "depth_max_m": 3.0,
+    })
+    config["config_path"] = "test-config"
+    vision_config.validate_config(config)
+    return config
+
+
 def _detection(u, v=120, label="red ball", confidence=0.95, width=12,
                center_source="box_center"):
     return {"label": label, "confidence": confidence, "u": u, "v": v,
@@ -33,7 +53,7 @@ def _detection(u, v=120, label="red ball", confidence=0.95, width=12,
 
 
 def _stereo_jpegs(left_x=90, disparity=20, right_visible=True):
-    config = vision_config.load_config()
+    config = _test_config()
     width = int(config["camera"]["width"])
     height = int(config["camera"]["height"])
     images = []
@@ -84,7 +104,7 @@ class TargetClassTests(unittest.TestCase):
         self.assertEqual(open_vocab_stereo.target_classes("  "), [])
 
     def test_model_name_prefers_service_then_config_then_default(self):
-        config = vision_config.load_config()
+        config = _test_config()
         self.assertEqual(open_vocab_stereo.model_name(config, "live-world"),
                          "live-world")
         self.assertEqual(open_vocab_stereo.model_name(config),
@@ -96,7 +116,7 @@ class TargetClassTests(unittest.TestCase):
 
 class TriangulationTests(unittest.TestCase):
     def setUp(self):
-        self.config = vision_config.load_config()
+        self.config = _test_config()
 
     def test_detects_and_triangulates_matched_pair(self):
         left, right = _stereo_jpegs(left_x=90, disparity=20)
@@ -151,7 +171,7 @@ class TriangulationTests(unittest.TestCase):
 
 class MatchFilterTests(unittest.TestCase):
     def setUp(self):
-        self.config = vision_config.load_config()
+        self.config = _test_config()
 
     def _match(self, left_u, right_u, **kwargs):
         return open_vocab_stereo._match(

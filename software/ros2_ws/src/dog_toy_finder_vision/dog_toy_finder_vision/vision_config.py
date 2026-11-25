@@ -40,10 +40,6 @@ DEFAULTS = {
         "left_rectified_topic": "/stereo/left/image_rect_color",
         "right_rectified_topic": "/stereo/right/image_rect_color",
     },
-    "target": {
-        "known_width_m": 0.075,
-        "known_height_m": 0.075,
-    },
     "open_vocab": {
         "name": "yolov8s-world",
         "service_url": "http://localhost:5006",
@@ -145,9 +141,6 @@ def validate_config(config):
     maximum = float(camera.get("depth_max_m", 0.0))
     if minimum <= 0.0 or maximum <= minimum:
         raise ValueError("camera.depth_min_m/depth_max_m are inconsistent")
-    target = config.get("target", {})
-    if float(target.get("known_width_m", 0.0)) <= 0.0:
-        raise ValueError("target.known_width_m must be measured and positive")
     return config
 
 

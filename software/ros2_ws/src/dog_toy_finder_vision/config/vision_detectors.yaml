@@ -24,16 +24,16 @@ camera:
   # Focal lengths in pixels. fx drives stereo triangulation
   # (distance = fx * baseline_m / disparity) and lateral bearing; fy is used in
   # the CameraInfo published for rectification.
-  fx: 250.0
-  fy: 250.0
+  fx: 299.72
+  fy: 300.92
 
   # Principal point in pixels. cx is the optical axis for
   # bearing = atan((cx - u) / fx); positive bearing is robot-left (ROS +y).
-  cx: 160.0
-  cy: 120.0
+  cx: 175.61
+  cy: 127.57
 
   # Separation of the two optical centres in metres, from calibration.
-  baseline_m: 0.08
+  baseline_m: 0.0431
 
   # Accepted depth window in metres. Matches outside this range are reported as
   # not visible instead of producing a distance.
@@ -44,13 +44,6 @@ camera:
   # vision_node's left_rect_topic/right_rect_topic parameters can override them.
   left_rectified_topic: /stereo/left/image_rect_color
   right_rectified_topic: /stereo/right/image_rect_color
-
-# Real-world toy measurements in metres. Measure these with a ruler for your
-# actual toy. Kept for older apparent-size tooling; the selectable pipelines
-# derive distance from stereo disparity or dense depth instead.
-target:
-  known_width_m: 0.075
-  known_height_m: 0.075
 
 # open_vocab: an open-vocabulary detector runs on the computer as an HTTP
 # service (scripts/start_yolo_service.sh); this container only sends JPEGs and

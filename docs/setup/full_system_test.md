@@ -11,7 +11,7 @@ using the shared CSV/evaluation tools.
 - PlatformIO (`pio`) for the ESP32-CAM, Pico SDK toolchain for the Pico.
 - A 2.4 GHz Wi-Fi network reachable by the Pico, both ESP32-CAMs and the
   computer.
-- A measured/estimated toy (e.g. a red ball) and a clear floor area.
+- A toy (e.g. a red ball) and a clear floor area.
 
 Build the ROS 2 image once:
 
@@ -408,7 +408,7 @@ Calibrate the stereo pair first with
 baseline in the detector YAML. `scripts/full_system_eval.conf` reads them from
 that file for the launch arguments.
 
-For vision, set `VISION_DETECTOR_CONFIG` to your measured camera/toy YAML and
+For vision, set `VISION_DETECTOR_CONFIG` to your measured camera YAML and
 `VISION_PIPELINE` to `open_vocab` or `stereo-net` (or select it with
 `pipeline:=...` on the launch command). Use the same `DETECTOR_MODEL` for both
 pipelines: `open_vocab` needs only the host detector service; `stereo-net` also
@@ -512,7 +512,7 @@ for `stereo-net` rows.
 
 The autonomous and toy-search nodes are one-shot: each launch runs one search
 and exits. The search stops by itself when the target is found (visible and
-medium/large, or within `found_distance`), printing `found: True` and writing
+within `found_distance`), printing `found: True` and writing
 its CSV. The ROSA planner (section 5.1) is interactive instead — the operator
 drives and stops it.
 

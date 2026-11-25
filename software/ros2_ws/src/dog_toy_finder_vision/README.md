@@ -68,7 +68,7 @@ software/ros2_ws/src/dog_toy_finder_vision/config/vision_detectors.yaml
 
 The path is set once in `scripts/full_system_eval.conf` as
 `VISION_DETECTOR_CONFIG` and forwarded through the launch file. Put your
-measured camera and toy values there:
+measured camera values there:
 
 - `pipeline` — `open_vocab` (default) or `stereo-net`
 - `open_vocab.service_url` — host detector service URL (default
@@ -92,13 +92,10 @@ measured camera and toy values there:
 - `camera.baseline_m` — spacing between the two optical centres
 - `camera.depth_min_m`, `depth_max_m` — valid metric depth range
 - `camera.{left,right}_rectified_topic` — detector image inputs
-- `target.known_width_m`, `known_height_m` — retained for older tooling;
-  `open_vocab` triangulates from disparity rather than apparent size
 
 `full_system_eval.conf` reads `camera.width`, `height`, `fx`, `fy`, `cx`, `cy`,
 and `baseline_m` from this YAML into the launch arguments, so edit them here
-only. The defaults are placeholders until you calibrate the cameras and measure
-the toy.
+only. The defaults are placeholders until you calibrate the cameras.
 
 The bearing convention is `atan((cx - u) / fx)` in degrees, where `u` is the
 target's horizontal pixel centre. Positive values mean the target is left of
