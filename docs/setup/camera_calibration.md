@@ -16,8 +16,8 @@ and the offline evaluator can read them.
 This procedure uses the cameras' HTTP `/capture` endpoints and OpenCV on the
 **host**. The ROS 2 image has `camera_calibration_parsers`, `image_proc`, and
 `stereo_image_proc`, but not the interactive `camera_calibration` package, and
-its system `cv2` does not import with the image's NumPy 2. Do not try to run the
-calibration Python below inside the container.
+its system `cv2` does not import with the image's NumPy 2. Do not try to run
+`scripts/calibrate_stereo.py` inside the container.
 
 ## Where the calibrated numbers go
 
@@ -54,18 +54,26 @@ the same venv later; that file already includes `opencv-python-headless`.
 
 ## 2. Print and measure a checkerboard
 
-- Use a flat, rigid checkerboard with **8 columns and 7 rows of squares**, which
-  gives **7 x 6 inner corners**. The script below defaults to that pattern.
-- Measure one square with a ruler. For a 25 mm square, use `--square 0.025`.
-  The absolute scale matters: it sets the baseline and therefore all depths.
+- Use a flat, rigid checkerboard with **9 columns and 12 rows of squares**,
+  which gives **8 x 11 inner corners**. At 20 mm per square the pattern is
+  180 x 240 mm, centered on US Letter paper (216 x 279 mm). That leaves 18 mm
+  side margins and 19.5 mm top/bottom margins; a 20 mm grid cannot make all
+  four margins exactly 18 mm. The script defaults to that block.
+- Measure a run of ten squares with a ruler and divide by ten. For a 20 mm
+  square, use `--square 0.020`. Print at 100% / actual size and do not let the
+  printer scale to fit. The absolute scale matters: it sets the baseline and
+  therefore all depths.
+- Keep the margin white and clear. A black frame that merges with the outer
+  black squares can shift or break corner detection, so cover or crop any
+  touching border.
 - Tape the board to something rigid and light it evenly. Avoid glare and motion
   blur.
 
 ## 3. Capture a calibration set
 
 Use the same resolution the node publishes (by default 320 x 240; the ESP32-CAMs
-may stream a larger JPEG and the node resizes it). Capture 12-20 left/right
-pairs from both eyes:
+may stream a larger JPEG and the node resizes it). Capture the 15 left/right
+pairs below from both eyes:
 
 ```bash
 mkdir -p /tmp/dtf_calib/left /tmp/dtf_calib/right
@@ -79,8 +87,74 @@ done
 Between pairs, move the board to different distances and positions and tilt it
 moderately in both axes. Keep the whole board visible in **both** images and
 hold it still while the two captures are taken; the ESP32-CAMs are not
-hardware-synchronised, so each pair is only approximately simultaneous. Skip
-and recapture any pair where a corner is cut off or blurred.
+hardware-synchronised, so each pair is only approximately simultaneous.
+
+How to hold the sheet:
+
+- Keep the printed side facing the cameras and hold it in **portrait** orientation:
+  9 columns across, 12 rows down. The default `8x11` inner-corner pattern
+  assumes this. Cover or crop any extra rows, columns, or border decorations so
+  only the 9 x 12 square block is visible. A 90 degree rotation will not be
+  detected unless you pass `--pattern 11x8`.
+- Tape or clip the paper to a flat, rigid backing such as cardboard or foam
+  board, and hold the backing rather than the paper corners. A curled sheet
+  gives unreliable corners.
+- Keep the top edge up and the grid roughly aligned with the image rows and
+  columns. Do not let one edge of the board hide another.
+- Leave a visible border around the whole pattern in **each** eye. If any outer
+  corner is closer than about 10 px to an image edge, move the sheet back.
+- Capture one pair for each pose below. All sheet poses are defined in the
+  **camera frame**, from the cameras' point of view (POV), not in the robot or
+  world frame. Put the origin at the midpoint between the two lens optical
+  centres. Distance is along the cameras' optical axis away from the cameras,
+  and left/right/up/down mean image-left/image-right/image-up/image-down in
+  the camera view. The floor or table is not part of this frame. If a thick
+  backing leaves the bottom square row about 1 cm above the ground, that is
+  fine: measure to the sheet centre, not the backing edge or the floor, and
+  do not change `--square` for the backing thickness. Just make sure the
+  backing does not hide any square and the full pattern is visible in both
+  eyes.
+- The angle signs are camera-relative too: yaw rotates about the image-vertical
+  axis (`+` = right edge farther from the cameras) and pitch tilts about the
+  image-horizontal axis (`+` = top edge farther). Offsets move the sheet centre
+  within the camera image plane.
+
+  The table is grouped: a distance sweep at neutral pose, an angle sweep at
+  1.0 m covering all four yaw/pitch sign combinations, then an offset sweep
+  at 1.0 m.
+
+  | # | Set | Distance | Offset | Yaw | Pitch |
+  |---:|---|---:|---|---:|---:|
+  | 1 | Distance | 0.6 m | center | 0° | 0° |
+  | 2 | Distance | 0.8 m | center | 0° | 0° |
+  | 3 | Distance | 1.0 m | center | 0° | 0° |
+  | 4 | Distance | 1.5 m | center | 0° | 0° |
+  | 5 | Angle | 1.0 m | center | +20° | 0° |
+  | 6 | Angle | 1.0 m | center | -20° | 0° |
+  | 7 | Angle | 1.0 m | center | 0° | +15° |
+  | 8 | Angle | 1.0 m | center | 0° | -15° |
+  | 9 | Angle | 1.0 m | center | +20° | -15° |
+  | 10 | Angle | 1.0 m | center | -20° | +15° |
+  | 11 | Angle | 1.0 m | center | +20° | +15° |
+  | 12 | Angle | 1.0 m | center | -20° | -15° |
+  | 13 | Offset | 1.0 m | 0.20 m left | 0° | 0° |
+  | 14 | Offset | 1.0 m | 0.20 m right | 0° | 0° |
+  | 15 | Offset | 1.0 m | 0.20 m up | 0° | 0° |
+
+  If any corner comes within about 10 px of an image edge at a listed pose,
+  move that pose farther away and recapture it rather than cropping or editing
+  the JPEG.
+
+  A downward offset is intentionally omitted: a thick backing resting on the
+  floor cannot move lower without lifting the cameras. The angle sweep covers
+  that variation instead.
+- Freeze the sheet just before the left `curl` and keep it still until the
+  right `curl` finishes. Moving between the two captures breaks the stereo
+  correspondence because the cameras are not hardware-synchronised.
+- Avoid glare and hard shadows. If squares are washed out, change the sheet
+  angle or the lighting rather than editing the JPEGs.
+- Check both JPEGs immediately. Recapture any pair where an inner corner is cut
+  off, out of focus, blurred, or where the board is visible in only one eye.
 
 ## 4. Solve for intrinsics and baseline
 
@@ -90,89 +164,12 @@ both eyes share the same intrinsics). It resizes each capture to the launch
 resolution first, so the result describes the images the node actually
 processes.
 
+From the repository root, run `scripts/calibrate_stereo.py` with the host venv:
+
 ```bash
-software/host_vision/.venv/bin/python - \
+software/host_vision/.venv/bin/python scripts/calibrate_stereo.py \
     --left /tmp/dtf_calib/left --right /tmp/dtf_calib/right \
-    --pattern 7x6 --square 0.025 --width 320 --height 240 <<'PY'
-import argparse
-import glob
-import os
-import sys
-
-import cv2
-import numpy as np
-
-p = argparse.ArgumentParser()
-p.add_argument("--left", default="/tmp/dtf_calib/left")
-p.add_argument("--right", default="/tmp/dtf_calib/right")
-p.add_argument("--pattern", default="7x6", help="inner corners: cols x rows")
-p.add_argument("--square", type=float, default=0.025, help="square size, metres")
-p.add_argument("--width", type=int, default=320)
-p.add_argument("--height", type=int, default=240)
-a = p.parse_args()
-
-cols, rows = (int(v) for v in a.pattern.lower().split("x"))
-object_template = np.zeros((cols * rows, 3), np.float32)
-object_template[:, :2] = (
-    np.mgrid[0:cols, 0:rows].T.reshape(-1, 2) * a.square)
-criteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 100, 1e-5)
-
-
-def grey(path):
-    image = cv2.imread(path)
-    if image is None:
-        return None
-    image = cv2.resize(image, (a.width, a.height), interpolation=cv2.INTER_AREA)
-    return cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-
-
-object_points, left_points, right_points = [], [], []
-left_paths = sorted(glob.glob(os.path.join(a.left, "*.jpg")))
-right_paths = sorted(glob.glob(os.path.join(a.right, "*.jpg")))
-if len(left_paths) != len(right_paths) or not left_paths:
-    sys.exit("capture the same number of left and right JPEGs first")
-
-for left_path, right_path in zip(left_paths, right_paths):
-    gl, gr = grey(left_path), grey(right_path)
-    if gl is None or gr is None:
-        continue
-    found_l, corners_l = cv2.findChessboardCorners(gl, (cols, rows), None)
-    found_r, corners_r = cv2.findChessboardCorners(gr, (cols, rows), None)
-    if not (found_l and found_r):
-        print("skip", os.path.basename(left_path), os.path.basename(right_path))
-        continue
-    corners_l = cv2.cornerSubPix(gl, corners_l, (5, 5), (-1, -1), criteria)
-    corners_r = cv2.cornerSubPix(gr, corners_r, (5, 5), (-1, -1), criteria)
-    object_points.append(object_template)
-    left_points.append(corners_l)
-    right_points.append(corners_r)
-
-if len(object_points) < 8:
-    sys.exit("need at least 8 valid pairs; recapture with the board fully visible")
-
-size = (a.width, a.height)
-guess_k = np.array([[500.0, 0.0, size[0] / 2.0],
-                    [0.0, 500.0, size[1] / 2.0],
-                    [0.0, 0.0, 1.0]], dtype=np.float64)
-zero_d = np.zeros((5, 1), dtype=np.float64)
-# The node publishes zero distortion and one shared K for both eyes.
-fixed_zero_distortion = (
-    cv2.CALIB_FIX_K1 | cv2.CALIB_FIX_K2 | cv2.CALIB_FIX_K3 |
-    cv2.CALIB_FIX_TANGENT_DIST)
-
-rms, k1, d1, k2, d2, rotation, translation, _, _ = cv2.stereoCalibrate(
-    object_points, left_points, right_points,
-    guess_k.copy(), zero_d.copy(), guess_k.copy(), zero_d.copy(), size,
-    criteria=criteria, flags=fixed_zero_distortion)
-
-baseline = abs(float(translation[0]))
-print("valid pairs: %d, reprojection RMS: %.2f px" % (len(object_points), rms))
-print("fx: %.2f" % k1[0, 0])
-print("fy: %.2f" % k1[1, 1])
-print("cx: %.2f" % k1[0, 2])
-print("cy: %.2f" % k1[1, 2])
-print("baseline_m: %.4f" % baseline)
-PY
+    --pattern 8x11 --square 0.020 --width 320 --height 240
 ```
 
 Aim for a reprojection RMS of a couple of pixels or less at 320 x 240. If it is
