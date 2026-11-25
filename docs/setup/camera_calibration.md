@@ -72,17 +72,24 @@ the same venv later; that file already includes `opencv-python-headless`.
 ## 3. Capture a calibration set
 
 Use the same resolution the node publishes (by default 320 x 240; the ESP32-CAMs
-may stream a larger JPEG and the node resizes it). Capture the 15 left/right
-pairs below from both eyes:
+may stream a larger JPEG and the node resizes it). The capture script prompts
+before each pose so you can hold the sheet still, then captures both eyes when
+you press Enter:
 
 ```bash
-mkdir -p /tmp/dtf_calib/left /tmp/dtf_calib/right
-for i in $(seq -w 1 15); do
-    curl -fsS http://esp32cam-left.local/capture  -o /tmp/dtf_calib/left/$i.jpg
-    curl -fsS http://esp32cam-right.local/capture -o /tmp/dtf_calib/right/$i.jpg
-    sleep 0.5
-done
+scripts/capture_calibration_pairs.sh
 ```
+
+It writes `01.jpg` through `15.jpg` under `/tmp/dtf_calib/left` and
+`/tmp/dtf_calib/right`. Use `scripts/capture_calibration_pairs.sh 15 /path/to/dir`
+for a different directory, and set `DTF_LEFT_CAPTURE_URL` /
+`DTF_RIGHT_CAPTURE_URL` if the camera URLs differ. Type `q` at a prompt to stop
+early; a failed capture is retried at the same pair number.
+
+After each pair, the script opens a temporary side-by-side view of the left and
+right JPEGs. Check that both eyes show the full board with no glare, blur, or
+clipped corners, then press Enter to accept, `r` to recapture that pair, or `q`
+to quit. Set `DTF_CALIB_PREVIEW=0` to disable the preview on a headless host.
 
 Between pairs, move the board to different distances and positions and tilt it
 moderately in both axes. Keep the whole board visible in **both** images and
@@ -148,13 +155,14 @@ How to hold the sheet:
   A downward offset is intentionally omitted: a thick backing resting on the
   floor cannot move lower without lifting the cameras. The angle sweep covers
   that variation instead.
-- Freeze the sheet just before the left `curl` and keep it still until the
-  right `curl` finishes. Moving between the two captures breaks the stereo
-  correspondence because the cameras are not hardware-synchronised.
+- Freeze the sheet before pressing Enter at the capture prompt and keep it
+  still until both JPEGs are saved. Moving between the two captures breaks the
+  stereo correspondence because the cameras are not hardware-synchronised.
 - Avoid glare and hard shadows. If squares are washed out, change the sheet
   angle or the lighting rather than editing the JPEGs.
-- Check both JPEGs immediately. Recapture any pair where an inner corner is cut
-  off, out of focus, blurred, or where the board is visible in only one eye.
+- Use the preview after each capture to confirm both eyes show the full board.
+  Recapture any pair where an inner corner is cut off, out of focus, blurred,
+  or where the board is visible in only one eye.
 
 ## 4. Solve for intrinsics and baseline
 
