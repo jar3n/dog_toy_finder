@@ -38,7 +38,7 @@ camera:
   # Accepted depth window in metres. Matches outside this range are reported as
   # not visible instead of producing a distance.
   depth_min_m: 0.25
-  depth_max_m: 3.0
+  depth_max_m: 1.5
 
   # Rectified colour image topics consumed by vision_node and vision_capture.
   # vision_node's left_rect_topic/right_rect_topic parameters can override them.
