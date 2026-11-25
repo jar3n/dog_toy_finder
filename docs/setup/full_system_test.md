@@ -512,7 +512,8 @@ for `stereo-net` rows.
 
 The autonomous and toy-search nodes are one-shot: each launch runs one search
 and exits. The search stops by itself when the target is found (visible and
-within `found_distance`), printing `found: True` and writing
+either medium/large in the image or within `found_distance`), printing
+`found: True` and writing
 its CSV. The ROSA planner (section 5.1) is interactive instead — the operator
 drives and stops it.
 
