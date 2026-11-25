@@ -82,7 +82,7 @@ class FakeVision(Node):
                   else dict(self.answers[-1]))
         result = {"id": req.get("id", "fake"), "target": req.get("target", ""),
                   "target_visible": False,
-                  "size": "none", "distance_m": 0.0, "obstacle_ahead": "none",
+                  "distance_m": 0.0, "obstacle_ahead": "none",
                   "path_clear": True, "seconds": 0.01}
         result.update(answer)
         self.result_pub.publish(String(data=json.dumps(result)))
@@ -105,7 +105,7 @@ class FakeVisionPerTarget(FakeVision):
         answer = dict(script[idx] if idx < len(script) else script[-1])
         result = {"id": req.get("id", "f"), "target": target,
                   "target_visible": False,
-                  "size": "none", "distance_m": 0.0,
+                  "distance_m": 0.0,
                   "obstacle_ahead": "none", "path_clear": True,
                   "seconds": 0.01}
         result.update(answer)

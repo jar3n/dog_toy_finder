@@ -5,9 +5,12 @@
 - [`setup/full_system_test.md`](setup/full_system_test.md) - full test and
   evaluation flow: flashing, bringup, manual drive, search modes, map viewer,
   reset, metrics, and tests.
-- [`setup/llm_comparison_guide.md`](setup/llm_comparison_guide.md) - step-by-step
-  vision and planning model comparison with the `dog_toy_finder_data` trial
-  tools.
+- [`setup/vision_comparison_guide.md`](setup/vision_comparison_guide.md) -
+  step-by-step capture-first comparison of the two vision pipelines.
+- [`setup/planning_comparison_guide.md`](setup/planning_comparison_guide.md) -
+  step-by-step live ROSA planning-model comparison.
+- [`setup/llm_comparison_guide.md`](setup/llm_comparison_guide.md) - index of
+  both comparison guides and their shared trial tools.
 
 Other reference material lives next to the code:
 

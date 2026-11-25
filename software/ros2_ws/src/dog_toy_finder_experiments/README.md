@@ -14,7 +14,8 @@ ros2 launch dog_toy_finder_experiments toy_search.launch.py \
 ```
 
 The node drives an expanding square, asking the vision node for the target after
-every side, and stops early when the target is seen as medium/large.
+every side, and stops early when the estimated distance is within
+`found_distance`.
 
 ## Evaluate
 

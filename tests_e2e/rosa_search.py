@@ -37,19 +37,19 @@ MODE = os.environ.get("MODE", "one")
 if MODE == "one":
     ANSWERS = [
         {"target_visible": False},
-        {"target_visible": True, "lateral_bearing_deg": 0.0, "size": "medium",
-         "distance_m": 0.5},
+        {"target_visible": True, "lateral_bearing_deg": 0.0,
+         "distance_m": 0.3},
     ]
 elif MODE == "all":
     ANSWERS = [
         {"target_visible": False},
-        {"target_visible": True, "lateral_bearing_deg": 15.0, "size": "small",
+        {"target_visible": True, "lateral_bearing_deg": 15.0,
          "distance_m": 0.6},
-        {"target_visible": True, "lateral_bearing_deg": 15.0, "size": "small",
+        {"target_visible": True, "lateral_bearing_deg": 15.0,
          "distance_m": 0.3},
         {"target_visible": False},
-        {"target_visible": True, "lateral_bearing_deg": -15.0, "size": "medium",
-         "distance_m": 1.0},
+        {"target_visible": True, "lateral_bearing_deg": -15.0,
+         "distance_m": 0.3},
         {"target_visible": False},
         {"target_visible": False},
         {"target_visible": False},
@@ -80,8 +80,8 @@ if MODE == "multi":
         "red ball": [{"target_visible": False}],
         "blue bone": [
             {"target_visible": False},
-            {"target_visible": True, "lateral_bearing_deg": 0.0, "size": "medium",
-             "distance_m": 0.5},
+            {"target_visible": True, "lateral_bearing_deg": 0.0,
+             "distance_m": 0.3},
             # Repeats after this, so the toy is seen once and the find-all
             # search does not record the same toy from every later pose.
             {"target_visible": False},

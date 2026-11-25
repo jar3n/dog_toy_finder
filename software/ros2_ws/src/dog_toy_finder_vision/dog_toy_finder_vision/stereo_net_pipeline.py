@@ -62,7 +62,6 @@ def _not_visible(description, config, name, detector, confidence, seconds,
         "description": description,
         "target_visible": False,
         "lateral_bearing_deg": 0.0,
-        "size": "none",
         "distance_m": 0.0,
         "obstacle_ahead": "none",
     }, config)
@@ -154,6 +153,9 @@ def detect(left_jpeg, right_jpeg, target, config, client=None,
     image_width = open_vocab_stereo.jpeg_size(left_jpeg)[0]
     bearing = vision_config.lateral_bearing_deg(
         detection["u"], config, image_width)
+    distance_m = round(float(depth_m), 3)
+    center_offset = vision_config.center_offset_m(
+        detection["u"], distance_m, config, image_width)
     answer = vision_answer.tidy({
         "description": (
             "Detected '%s' in the left rectified image at u=%.1f, v=%.1f px; "
@@ -163,9 +165,8 @@ def detect(left_jpeg, right_jpeg, target, config, client=None,
                details["depth_valid_count"], source)),
         "target_visible": True,
         "lateral_bearing_deg": bearing,
-        "size": open_vocab_stereo._size(
-            float(detection.get("width_px", 0.0)), image_width),
-        "distance_m": round(float(depth_m), 3),
+        "center_offset_m": center_offset,
+        "distance_m": distance_m,
         "obstacle_ahead": "none",
     }, config)
     answer.update(details)

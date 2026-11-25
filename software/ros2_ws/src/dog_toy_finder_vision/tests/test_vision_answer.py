@@ -54,17 +54,26 @@ class AnswerTests(unittest.TestCase):
         self.assertEqual(answer["disparity_px"], 20.0)
         self.assertEqual(answer["bbox_px"], [10, 20, 30, 40])
 
+    def test_tidy_drops_legacy_categorical_size(self):
+        answer = vision_answer.tidy({
+            "target_visible": True,
+            "lateral_bearing_deg": 4.0,
+            "distance_m": 1.0,
+            "size": "medium",
+        }, self.config)
+        self.assertNotIn("size", answer)
+
     def test_tidy_keeps_numeric_bearing(self):
         answer = vision_answer.tidy({
             "description": "toy",
             "target_visible": True,
             "lateral_bearing_deg": 28.0,
-            "size": "small",
             "distance_m": 1.2,
             "obstacle_ahead": "",
         }, self.config)
         self.assertEqual(answer["lateral_bearing_deg"], 28.0)
         self.assertTrue(answer["path_clear"])
+        self.assertNotIn("size", answer)
 
     def test_tidy_defaults_missing_bearing_to_zero(self):
         answer = vision_answer.tidy({
@@ -81,6 +90,24 @@ class AnswerTests(unittest.TestCase):
         }, self.config)
         self.assertEqual(answer["lateral_bearing_deg"], 0.0)
         self.assertEqual(answer["distance_m"], 0.0)
+        self.assertEqual(answer["center_offset_m"], 0.0)
+
+    def test_tidy_derives_center_offset_from_distance_and_bearing(self):
+        answer = vision_answer.tidy({
+            "target_visible": True,
+            "lateral_bearing_deg": 28.0,
+            "distance_m": 1.2,
+        }, self.config)
+        self.assertAlmostEqual(answer["center_offset_m"], 0.638, places=2)
+
+    def test_tidy_preserves_explicit_center_offset(self):
+        answer = vision_answer.tidy({
+            "target_visible": True,
+            "lateral_bearing_deg": 12.0,
+            "center_offset_m": 0.244,
+            "distance_m": 1.15,
+        }, self.config)
+        self.assertEqual(answer["center_offset_m"], 0.244)
 
 
 if __name__ == "__main__":

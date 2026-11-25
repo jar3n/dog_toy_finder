@@ -1,6 +1,7 @@
 """Tests for pipeline selection and both selectable vision pipelines."""
 
 import io
+import math
 import os
 import sys
 import unittest
@@ -104,6 +105,11 @@ class RunPipelineTests(unittest.TestCase):
         self.assertEqual(entry["depth_sample_count"], 9)
         self.assertTrue(entry["target_visible"])
         self.assertAlmostEqual(entry["distance_m"], 1.0)
+        self.assertAlmostEqual(
+            entry["center_offset_m"],
+            entry["distance_m"] * math.tan(
+                math.radians(entry["lateral_bearing_deg"])),
+            places=2)
         self.assertEqual(entry["center_source"], "box_center")
 
     def test_stereo_net_reports_no_detection_without_calling_depth(self):

@@ -41,32 +41,37 @@ captures offline:
 
 ```bash
 cd /workspace
-source scripts/full_system_eval.conf
 
 ros2 run dog_toy_finder_vision vision_capture \
-    --target "$VISION_CAPTURE_TARGET" \
-    --run-id "$VISION_CAPTURE_RUN_ID" --capture-id ball_115m_b12 \
-    --output-dir "$VISION_CAPTURE_DIR" --config "$VISION_DETECTOR_CONFIG"
+    --target "red ball" \
+    --run-id "capture_run1" \
+    --output-dir "/workspace/data/vision/captures" --config "/workspace/software/ros2_ws/src/dog_toy_finder_vision/config/vision_detectors.yaml"
 
 ros2 run dog_toy_finder_vision vision_eval \
-    --captures-dir "$VISION_CAPTURE_DIR" --pipeline "$VISION_PIPELINE" \
-    --tolerance "$VISION_EVAL_TOLERANCE" \
-    --bearing-tolerance "$VISION_EVAL_BEARING_TOLERANCE" \
-    --output-csv "$VISION_EVAL_CSV" --results-json "$VISION_EVAL_JSONL" \
-    --summary-json "$VISION_EVAL_SUMMARY_JSON"
+    --captures-dir "/workspace/data/vision/captures" --pipeline "open_vocab" \
+    --tolerance "0.25" \
+    --bearing-tolerance "5.0" \
+    --output-csv "/workspace/data/vision/vision_eval_trials.csv" --results-json "/workspace/data/vision/vision_eval_results.jsonl" \
+    --summary-json "/workspace/data/vision/vision_eval_summary.json"
 ```
 
-The capture command is interactive: it prompts for `distance_m (metres)` and
-`lateral_bearing_deg (+left)`; type the operator-measured values. For scripts,
-pass `--depth-m` and `--bearing-deg` explicitly instead.
+The capture command is interactive: it prompts for
+`center_offset_m along optical plane (+left)` and `distance_m along optical
+axis (normal)`, computes `lateral_bearing_deg`, then suggests a `capture_id`
+from the toy name and measurements (for example `red_ball_d1p15_op0p244`).
+Press Enter to accept it or type a custom ID. `--capture-id` is not a
+command-line flag; non-interactive callers get the same generated ID and must
+pass `--depth-m` and `--center-offset-m` explicitly. `--bearing-deg` is still
+accepted for older scripts.
 
 Each capture stores `left.jpg`, `right.jpg`, and `meta.json` under
-`$VISION_CAPTURE_DIR/<run_id>/<capture_id>/`. The `gt_*` columns in
-`$VISION_EVAL_CSV` are copied from `meta.json`, including
-`gt_lateral_bearing_deg`; no spreadsheet annotation is required. Lateral
-bearing is in degrees from the optical axis, positive to the robot's left
-(ROS `+y`); it is the sole lateral measurement, and no coarse side label is
-emitted or accepted.
+`/workspace/data/vision/captures/capture_run1/<capture_id>/`. The `gt_*` columns in
+`/workspace/data/vision/vision_eval_trials.csv` are copied from `meta.json`, including
+`gt_center_offset_m` and `gt_lateral_bearing_deg`; no spreadsheet annotation is
+required. Both pipelines also emit `distance_m`, `center_offset_m`, and
+`lateral_bearing_deg` on every live answer. Lateral offset and bearing are
+positive to the robot's left (ROS `+y`); no coarse side label is emitted or
+accepted.
 
 `vision_eval` writes one scored row per capture per invocation, with the columns
 already filled. The `model` column is the detector name for `open_vocab` or the
@@ -74,28 +79,9 @@ dense depth model name for `stereo-net`. Its summary manifest records the select
 pipeline, the `shuffle_seed`, and the resulting `capture_order`, so the same
 captures can be replayed in the same order by both pipelines.
 
-A live `/vision/ask` path is still available for robot control and optional
-live trials:
-
-```bash
-ros2 launch dog_toy_finder_vision stereo_vision.launch.py \
-    pipeline:="$VISION_PIPELINE"
-ros2 launch dog_toy_finder_data collect_llm_trials.launch.py \
-    output_dir:=/workspace/data/vision run_id:=vision1 \
-    bearing_tolerance:=$LLM_TRIAL_BEARING_TOLERANCE
-python3 /workspace/scripts/vision_test.py "red ball" --gt-json gt.json
-```
-
-```json
-{"target_visible": true, "lateral_bearing_deg": 12.0,
- "size": "medium", "distance_m": [0.7, 0.72], "obstacle_ahead": "none"}
-```
-
-`distance_m` also accepts a single number; a list stores repeated measurements
-of the same target and scoring uses their mean. Without ground truth, fill the
-`gt_*` columns in a spreadsheet after the run. Capture-first is preferred for
-fair comparison because each selected pipeline replays the same saved images in
-the same recorded order.
+A live `/vision/ask` path remains available for robot control, but it does not
+record comparison trials. Use `vision_capture` and `vision_eval` for measured,
+repeatable comparisons.
 
 ### Planning trials
 
@@ -121,8 +107,8 @@ Create an empty template when the automated data is collected another way:
 
 ```bash
 ros2 run dog_toy_finder_data llm_trials template --kind vision \
-    --models yolov8s-world --target "red ball" --run-id vision1 \
-    --output /workspace/data/vision/vision1/vision_trials.csv
+    --models yolov8s-world --target "red ball" --run-id capture_run1 \
+    --output /workspace/data/vision/manual_vision_trials.csv
 ros2 run dog_toy_finder_data llm_trials template --kind planning \
     --models llama3.2,mistral --prompt "Drive forward 1 meter." \
     --run-id plan1 \
@@ -133,7 +119,7 @@ Score after entering the ground truth (offline `vision_eval` output is already
 scored, but re-scoring is safe after manual annotation):
 
 ```bash
-ros2 run dog_toy_finder_data llm_trials score "$VISION_EVAL_CSV"
+ros2 run dog_toy_finder_data llm_trials score "/workspace/data/vision/vision_eval_trials.csv"
 ros2 run dog_toy_finder_data llm_trials score \
     /workspace/data/planning/plan1/planning_trials.csv --tolerance 0.3
 ros2 run dog_toy_finder_data llm_trials aggregate \
@@ -148,10 +134,10 @@ writing a file.
 After collection and annotation, run statistical analysis:
 
 ```bash
-ros2 run dog_toy_finder_data llm_trials analyze "$VISION_EVAL_CSV" \
-    --tolerance "$VISION_EVAL_TOLERANCE" \
-    --bearing-tolerance "$VISION_EVAL_BEARING_TOLERANCE" \
-    --output "$VISION_EVAL_ANALYSIS_JSON"
+ros2 run dog_toy_finder_data llm_trials analyze "/workspace/data/vision/vision_eval_trials.csv" \
+    --tolerance "0.25" \
+    --bearing-tolerance "5.0" \
+    --output "/workspace/data/vision/vision_eval_analysis.json"
 ```
 
 This writes `<name>_analysis.json` with per-model mean/median/std/confidence
@@ -162,7 +148,7 @@ t-test, Holm-adjusted p-value, effect size, and win/tie/loss counts. Use
 to override matching.
 
 Vision metrics: `visible_correct`, `lateral_bearing_deg`, `bearing_error_deg`,
-`bearing_within_tolerance`, `size_correct`, `distance_error_m`,
-`distance_within_tolerance`, `obstacle_correct`, `score`.
+`bearing_within_tolerance`, `distance_error_m`, `distance_within_tolerance`,
+`obstacle_correct`, `score`.
 Planning metrics: `action_mentioned`, `args_mentioned`, and `score` (from
 `gt_success` when recorded).

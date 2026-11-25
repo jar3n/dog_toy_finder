@@ -92,7 +92,6 @@ def _match(left, right, config):
                 "v_left": left_detection["v"],
                 "bbox_px": left_detection["bbox_px"],
                 "bbox_right_px": right_detection["bbox_px"],
-                "width_px": left_detection["width_px"],
                 "center_source": (left_source if left_source == right_source
                                   else "mixed"),
                 "mask_centroid_px": left_detection.get("mask_centroid_px"),
@@ -104,16 +103,6 @@ def _match(left, right, config):
         return None
     return max(pairs, key=lambda pair: (pair["confidence"],
                                         -abs(pair["v_left"] - 120.0)))
-
-
-def _size(width_px, image_width):
-    """Map a box width to the legacy small/medium/large label."""
-    fraction = float(width_px) / max(1, int(image_width))
-    if fraction < 0.10:
-        return "small"
-    if fraction > 0.25:
-        return "large"
-    return "medium"
 
 
 def _entry(answer, name, confidence, seconds, distance_source):
@@ -140,7 +129,6 @@ def detect(left_jpeg, right_jpeg, target, config, client=None):
             "description": "No text target supplied; nothing to detect.",
             "target_visible": False,
             "lateral_bearing_deg": 0.0,
-            "size": "none",
             "distance_m": 0.0,
             "obstacle_ahead": "none",
         }, config)
@@ -159,7 +147,6 @@ def detect(left_jpeg, right_jpeg, target, config, client=None):
                            % classes[0],
             "target_visible": False,
             "lateral_bearing_deg": 0.0,
-            "size": "none",
             "distance_m": 0.0,
             "obstacle_ahead": "none",
         }, config)
@@ -167,6 +154,9 @@ def detect(left_jpeg, right_jpeg, target, config, client=None):
 
     bearing = vision_config.lateral_bearing_deg(
         pair["u_left"], config, image_width)
+    distance_m = round(pair["distance_m"], 3)
+    center_offset = vision_config.center_offset_m(
+        pair["u_left"], distance_m, config, image_width)
     answer = vision_answer.tidy({
         "description": (
             "Detected '%s' in both rectified images at u=%.1f, v=%.1f px; "
@@ -175,8 +165,8 @@ def detect(left_jpeg, right_jpeg, target, config, client=None):
                pair["disparity_px"])),
         "target_visible": True,
         "lateral_bearing_deg": bearing,
-        "size": _size(pair["width_px"], image_width),
-        "distance_m": round(pair["distance_m"], 3),
+        "center_offset_m": center_offset,
+        "distance_m": distance_m,
         "obstacle_ahead": "none",
     }, config)
     answer.update({

@@ -103,9 +103,10 @@ arg `pipeline:=open_vocab|stereo-net`, the `VISION_PIPELINE` environment variabl
 or the top-level `pipeline` key in `vision_detectors.yaml` (`vision_eval` also
 has `--pipeline`). Both pipelines are implemented; `stereo-net` uses one-image
 detection plus dense-stereo depth so the two approaches can be compared. Vision
-answers report a numeric `lateral_bearing_deg` = `atan((cx - u) / fx)` in degrees
-(positive = robot-left / ROS `+y`) as the only lateral measure; no coarse side
-label is emitted or accepted. For comparison,
+answers report `distance_m` along the optical axis, signed `center_offset_m`
+from the optical-axis center, and `lateral_bearing_deg` =
+`atan(center_offset_m / distance_m)` in degrees (positive = robot-left / ROS
+`+y`); no coarse side label is emitted or accepted. For comparison,
 `vision_capture` saves rectified pairs with operator-measured ground truth and
 `vision_eval` replays them offline through the configured pipeline in a shuffled,
 seed-recorded order.

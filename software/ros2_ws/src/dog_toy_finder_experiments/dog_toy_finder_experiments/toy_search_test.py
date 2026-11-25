@@ -168,14 +168,12 @@ class ToySearchTest(Mover):
     def _is_found(self, result):
         """Decide whether the target counts as found.
 
-        Found when the target is visible and either looks medium/large in the
-        image or the vision pipeline estimates it within found_distance metres.
+        Found when the target is visible and the vision pipeline estimates it
+        within found_distance metres.
         """
         entry = self._entry(result)
         if not entry.get("target_visible"):
             return False
-        if entry.get("size") in ("medium", "large"):
-            return True
         try:
             distance = float(entry.get("distance_m") or 0.0)
         except (TypeError, ValueError):
@@ -243,13 +241,11 @@ class ToySearchTest(Mover):
         vision_seconds = None
         target_visible = False
         bearing = 0.0
-        size = "none"
         obstacle = "none"
         path_clear = True
         if result is not None:
             target_visible = bool(result.get("target_visible", False))
             bearing = toy_geometry.bearing_deg(result) if target_visible else 0.0
-            size = result.get("size", "none")
             obstacle = result.get("obstacle_ahead", "none")
             path_clear = bool(result.get("path_clear", True))
             vision_seconds = result.get("seconds")
@@ -263,7 +259,6 @@ class ToySearchTest(Mover):
             "target": self.target,
             "target_visible": target_visible,
             "lateral_bearing_deg": round(bearing, 2),
-            "size": size,
             "obstacle_ahead": obstacle,
             "path_clear": path_clear,
             "vision_seconds": vision_seconds,
@@ -304,7 +299,7 @@ class ToySearchTest(Mover):
                            if result and result.get("target_visible") else 0.0)
                 self.get_logger().info(
                     f"step {step}: found={found_now} visible={result.get('target_visible') if result else None} "
-                    f"bearing={bearing:+.1f} size={result.get('size') if result else None}")
+                    f"bearing={bearing:+.1f}")
                 if self.found:
                     self.stop()
                     self._write_csv()
@@ -324,7 +319,7 @@ class ToySearchTest(Mover):
     def _write_csv(self):
         os.makedirs(os.path.dirname(os.path.abspath(self.output_csv)), exist_ok=True)
         fieldnames = ["run_id", "step", "t_sec", "x", "y", "theta_deg", "target",
-                      "target_visible", "lateral_bearing_deg", "size", "obstacle_ahead",
+                      "target_visible", "lateral_bearing_deg", "obstacle_ahead",
                       "path_clear", "vision_seconds", "found"]
         with open(self.output_csv, "w", newline="") as f:
             writer = csv.DictWriter(f, fieldnames=fieldnames)

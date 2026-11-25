@@ -34,10 +34,12 @@ def tidy(answer, config=None):
     """Normalise an answer while preserving pipeline-specific extra fields.
 
     The numeric bearing is clamped to +/-90 degrees and rounded; a missing or
-    non-numeric bearing defaults to zero.
+    non-numeric bearing defaults to zero. ``center_offset_m`` is preserved when
+    supplied, otherwise derived from optical-axis distance and bearing.
     """
     result = dict(answer)
     result.pop("position", None)
+    result.pop("size", None)
     obstacle = str(result.get("obstacle_ahead") or "").strip().strip(".")
     if obstacle.lower() in ("", "none", "nothing", "no", "n/a"):
         obstacle = "none"
@@ -55,7 +57,14 @@ def tidy(answer, config=None):
     result["lateral_bearing_deg"] = round(bearing, 2)
 
     if not result["target_visible"]:
-        result["size"] = "none"
         result["distance_m"] = 0.0
         result["lateral_bearing_deg"] = 0.0
+
+    offset = _as_float(result.get("center_offset_m"))
+    if offset is None:
+        offset = (result["distance_m"] *
+                  math.tan(math.radians(result["lateral_bearing_deg"])))
+    if not result["target_visible"]:
+        offset = 0.0
+    result["center_offset_m"] = round(offset, 3)
     return result

@@ -2,7 +2,7 @@
 
 Covers the autonomous (single-target) and find-all demo workflows:
 
-  SCENARIO=size        search stops when the toy looks medium (homing path)
+  SCENARIO=homing      search homes on a far toy and stops when it is close
   SCENARIO=distance    search stops on pipeline distance (<= found_distance)
   SCENARIO=notfound    toy never appears: full coverage, found=False
   SCENARIO=findall     two distinct toys found, search keeps sweeping
@@ -10,7 +10,7 @@ Covers the autonomous (single-target) and find-all demo workflows:
 
 Run one scenario per process (each builds a fresh ROS world):
 
-    SCENARIO=size python3 tests_e2e/search_workflows.py
+    SCENARIO=homing python3 tests_e2e/search_workflows.py
 
 or all of them (see tests_e2e/README.md). Exit code 0 means every check
 passed; each check prints PASS/FAIL.
@@ -38,20 +38,20 @@ def check(name, cond):
 
 
 SCENARIOS = {
-    "size": {
+    "homing": {
         "answers": [
             {"target_visible": False},
-            {"target_visible": True, "lateral_bearing_deg": 0.0, "size": "small",
+            {"target_visible": True, "lateral_bearing_deg": 0.0,
              "distance_m": 1.5},
-            {"target_visible": True, "lateral_bearing_deg": 0.0, "size": "medium",
-             "distance_m": 0.5},
+            {"target_visible": True, "lateral_bearing_deg": 0.0,
+             "distance_m": 0.3},
         ],
         "find_all": False,
     },
     "distance": {
         "answers": [
             {"target_visible": False},
-            {"target_visible": True, "lateral_bearing_deg": 15.0, "size": "small",
+            {"target_visible": True, "lateral_bearing_deg": 15.0,
              "distance_m": 0.3},
         ],
         "find_all": False,
@@ -63,13 +63,13 @@ SCENARIOS = {
     "findall": {
         "answers": [
             {"target_visible": False},
-            {"target_visible": True, "lateral_bearing_deg": 15.0, "size": "small",
+            {"target_visible": True, "lateral_bearing_deg": 15.0,
              "distance_m": 0.6},
-            {"target_visible": True, "lateral_bearing_deg": 15.0, "size": "small",
+            {"target_visible": True, "lateral_bearing_deg": 15.0,
              "distance_m": 0.3},
             {"target_visible": False},
-            {"target_visible": True, "lateral_bearing_deg": -15.0, "size": "medium",
-             "distance_m": 1.0},
+            {"target_visible": True, "lateral_bearing_deg": -15.0,
+             "distance_m": 0.3},
             {"target_visible": False},
             {"target_visible": False},
             {"target_visible": False},
@@ -85,7 +85,7 @@ SCENARIOS = {
             "blue bone": [
                 {"target_visible": False},
                 {"target_visible": True, "lateral_bearing_deg": 0.0,
-                 "size": "medium", "distance_m": 0.5},
+                 "distance_m": 0.3},
                 {"target_visible": False},
             ],
         },
@@ -139,7 +139,7 @@ def run_scenario(name):
     check("CSV written with header", len(rows) >= 1)
     check("run finished quickly (%.1fs < 90s)" % elapsed, elapsed < 90.0)
     found_rows = sum(1 for r in rows if r["found"] == "True")
-    if name in ("size", "distance"):
+    if name in ("homing", "distance"):
         check("found=True", node.found is True)
         check("found_step set", node.found_step is not None)
         check("exactly one CSV found row", found_rows == 1)

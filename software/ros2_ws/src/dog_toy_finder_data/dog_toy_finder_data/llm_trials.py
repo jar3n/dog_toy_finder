@@ -2,25 +2,24 @@
 
 Two kinds of trial are compared with the same tooling:
 
-- ``vision``: one row per vision request and model name produced by the
-  selected pipeline. The ``vision_trial_collector`` node writes these for live
-  runs; ``vision_eval`` writes them when replaying saved stereo captures.
+- ``vision``: one row per saved capture and model name produced by the selected
+  pipeline. ``vision_eval`` writes these when replaying stereo captures.
 - ``planning``: one row per prompt and model. ``rosa_agent --compare`` writes
   these, including the reply and the tools the model called.
 
-Collectors write the automated columns (latency, model answer, tool calls) and
-leave every ``gt_*`` ground-truth column empty. Fill those in a spreadsheet, or
-supply them in the vision ask JSON / ROSA ``--gt-json`` file, then run
-``llm_trials score``. Scoring fills the correctness columns and prints a
-per-model summary.
+Evaluators write the automated columns (latency, model answer, tool calls).
+``vision_eval`` also copies operator ground truth from each capture's
+``meta.json``; for planning, fill ``gt_*`` in a spreadsheet or supply a ROSA
+``--gt-json`` file. Then run ``llm_trials score`` to fill the correctness
+columns and print a per-model summary.
 
 Usage inside the ROS 2 container::
 
-    ros2 run dog_toy_finder_data llm_trials score vision_trials.csv
+    ros2 run dog_toy_finder_data llm_trials score vision_eval_trials.csv
     ros2 run dog_toy_finder_data llm_trials aggregate planning_trials.csv
-    ros2 run dog_toy_finder_data llm_trials analyze vision_trials.csv
+    ros2 run dog_toy_finder_data llm_trials analyze vision_eval_trials.csv
     ros2 run dog_toy_finder_data llm_trials template --kind vision \
-        --models gemma4,minicpm-v4.5 --output vision_trials.csv
+        --models yolov8s-world --output manual_vision_trials.csv
 """
 
 import argparse
@@ -40,10 +39,10 @@ VISION_FIELDS = [
     "trial_id", "kind", "run_id", "t", "ask_id", "target", "model", "method",
     "image",
     "latency_s", "error", "description", "target_visible",
-    "lateral_bearing_deg", "size", "distance_m", "obstacle_ahead", "path_clear",
-    "gt_target_visible", "gt_lateral_bearing_deg", "gt_size",
-    "gt_distance_m", "gt_obstacle_ahead", "gt_notes",
-    "visible_correct", "size_correct", "distance_error_m",
+    "lateral_bearing_deg", "center_offset_m", "distance_m", "obstacle_ahead",
+    "path_clear", "gt_target_visible", "gt_lateral_bearing_deg",
+    "gt_center_offset_m", "gt_distance_m", "gt_obstacle_ahead", "gt_notes",
+    "visible_correct", "distance_error_m",
     "distance_within_tolerance", "bearing_error_deg", "bearing_within_tolerance",
     "obstacle_correct", "score",
 ]
@@ -58,7 +57,7 @@ PLANNING_FIELDS = [
 VISION_GT_FIELDS = [f for f in VISION_FIELDS if f.startswith("gt_")]
 PLANNING_GT_FIELDS = [f for f in PLANNING_FIELDS if f.startswith("gt_")]
 VISION_METRIC_FIELDS = [
-    "visible_correct", "size_correct", "distance_error_m",
+    "visible_correct", "distance_error_m",
     "distance_within_tolerance", "bearing_error_deg", "bearing_within_tolerance",
     "obstacle_correct", "score",
 ]
@@ -150,7 +149,7 @@ def _blank(fields):
 def merged_ground_truth(ground_truth):
     """Map a ground-truth dict to the ``gt_*`` column names.
 
-    Accepts either the short keys used in the vision ask JSON
+    Accepts either the short keys used in vision capture metadata
     (``target_visible``, ``lateral_bearing_deg``, ...) or the actual column names
     (``gt_target_visible``, ...). Unknown keys are ignored. Distance ground
     truth may be a number or a list of repeated measurements; lists are stored
@@ -164,7 +163,7 @@ def merged_ground_truth(ground_truth):
         "lateral_bearing_deg": "gt_lateral_bearing_deg",
         "bearing_deg": "gt_lateral_bearing_deg",
         "lateral_bearing": "gt_lateral_bearing_deg",
-        "size": "gt_size",
+        "center_offset_m": "gt_center_offset_m",
         "distance_m": "gt_distance_m",
         "distance": "gt_distance_m",
         "distances_m": "gt_distance_m",
@@ -219,11 +218,6 @@ def vision_metrics(row, distance_tolerance=0.25, bearing_tolerance=5.0):
             checks.append(metrics["obstacle_correct"])
         metrics["score"] = round(sum(1 for c in checks if c) / len(checks), 3)
         return metrics
-
-    gt_size = _text(row.get("gt_size"))
-    if gt_size and gt_size != "none":
-        metrics["size_correct"] = _text(row.get("size")) == gt_size
-        checks.append(metrics["size_correct"])
 
     gt_distances = [number for number in _as_float_list(
         row.get("gt_distance_m")) if number > 0.0]
@@ -306,7 +300,7 @@ def vision_row(result, entry, model, run_id, distance_tolerance=0.25,
     })
     row["trial_id"] = "%s-%s-%s" % (run_id, ask_id, row["model"])
     for key in ("description", "target_visible", "lateral_bearing_deg",
-                "size", "distance_m", "obstacle_ahead",
+                "center_offset_m", "distance_m", "obstacle_ahead",
                 "path_clear", "error"):
         if key in entry:
             row[key] = entry[key]
@@ -433,8 +427,6 @@ def aggregate(rows, distance_tolerance=0.25, bearing_tolerance=5.0):
                                if _as_bool(r.get("gt_target_visible")) is not None),
                 "visible_accuracy": _rate(
                     [r.get("visible_correct") for r in model_rows]),
-                "size_accuracy": _rate(
-                    [r.get("size_correct") for r in model_rows]),
                 "distance_mae_m": _mean(
                     [r.get("distance_error_m") for r in model_rows]),
                 "bearing_mae_deg": _mean(

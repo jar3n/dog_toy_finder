@@ -35,6 +35,38 @@ class TestVisionConfig(unittest.TestCase):
         self.assertNotIn("target", config)
         self.assertEqual(config["camera"]["fx"], 299.72)
 
+    def test_bearing_from_center_offset_is_signed(self):
+        bearing = vision_config.bearing_deg_from_center_offset(0.24, 1.0)
+        self.assertAlmostEqual(bearing, 13.5, places=1)
+        self.assertAlmostEqual(
+            vision_config.bearing_deg_from_center_offset(-0.24, 1.0),
+            -13.5, places=1)
+        self.assertEqual(
+            vision_config.bearing_deg_from_center_offset(0.0, 1.0), 0.0)
+
+    def test_bearing_from_center_offset_is_capped_at_zero_depth(self):
+        self.assertEqual(
+            vision_config.bearing_deg_from_center_offset(0.1, 0.0), 90.0)
+        self.assertEqual(
+            vision_config.bearing_deg_from_center_offset(-0.1, 0.0), -90.0)
+
+    def test_center_offset_m_is_signed_and_scales_with_depth(self):
+        config = self._load({"camera": {"fx": 250.0, "cx": 160.0}})
+        self.assertAlmostEqual(
+            vision_config.center_offset_m(90.0, 1.0, config, 320), 0.28)
+        self.assertAlmostEqual(
+            vision_config.center_offset_m(230.0, 2.0, config, 320), -0.56)
+
+    def test_center_offset_m_matches_bearing_geometry(self):
+        config = self._load({"camera": {"fx": 299.72, "cx": 175.61}})
+        depth = 1.15
+        u_px = 120.0
+        bearing = vision_config.lateral_bearing_deg(u_px, config, 320)
+        offset = vision_config.center_offset_m(u_px, depth, config, 320)
+        self.assertAlmostEqual(
+            vision_config.bearing_deg_from_center_offset(offset, depth),
+            bearing, delta=0.05)
+
 
 if __name__ == "__main__":
     unittest.main()

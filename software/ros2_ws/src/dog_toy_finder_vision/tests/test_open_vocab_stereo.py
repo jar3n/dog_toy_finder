@@ -138,12 +138,14 @@ class TriangulationTests(unittest.TestCase):
         self.assertAlmostEqual(entry["disparity_px"], 20.0, delta=1.5)
         # atan((cx - u) / fx) = atan((160 - 90) / 250) about 15.6 deg, +left.
         self.assertAlmostEqual(entry["lateral_bearing_deg"], 15.64, delta=0.5)
+        # distance_m * (cx - u) / fx = 1.0 * 70 / 250 = 0.28 m to the left.
+        self.assertAlmostEqual(entry["center_offset_m"], 0.28, places=2)
         self.assertIn("bbox_px", entry)
         self.assertIn("bbox_right_px", entry)
         self.assertEqual(entry["center_source"], "mask_centroid")
         self.assertAlmostEqual(entry["mask_centroid_px"][0], 90.0, delta=1.0)
         self.assertEqual(entry["mask_area_px"], 100)
-        self.assertEqual(entry["size"], "small")
+        self.assertNotIn("size", entry)
 
     def test_unmatched_target_reports_not_visible(self):
         left, right = _stereo_jpegs(right_visible=False)
@@ -153,6 +155,7 @@ class TriangulationTests(unittest.TestCase):
         self.assertEqual(entry["distance_source"], "none")
         self.assertEqual(entry["distance_m"], 0.0)
         self.assertEqual(entry["lateral_bearing_deg"], 0.0)
+        self.assertEqual(entry["center_offset_m"], 0.0)
         self.assertEqual(entry["center_source"], "none")
 
     def test_empty_target_does_not_call_the_service(self):

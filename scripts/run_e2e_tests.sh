@@ -5,7 +5,7 @@
 #   ./scripts/run_e2e_tests.sh [scenario ...]
 #
 # With no arguments it runs every scenario. Or pick some, e.g.:
-#   ./scripts/run_e2e_tests.sh note_found size distance
+#   ./scripts/run_e2e_tests.sh note_found homing distance
 #
 # The tests use a fake robot (integrates /cmd_vel_auto into /odometry/filtered)
 # and scripted fake vision, so no hardware, cameras, or vision model are needed. The
@@ -16,7 +16,7 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 TESTS=("$@")
 if [ ${#TESTS[@]} -eq 0 ]; then
-    TESTS=(note_found size distance notfound findall multitarget
+    TESTS=(note_found homing distance notfound findall multitarget
            rosa_one rosa_all rosa_multi)
 fi
 
@@ -29,7 +29,7 @@ run_one() {
                 bash -lc 'source /opt/ros/humble/setup.bash;
                           source install/setup.bash;
                           python3 -u /workspace/tests_e2e/note_found.py' ;;
-        size|distance|notfound|findall|multitarget)
+        homing|distance|notfound|findall|multitarget)
             docker run --rm --network host -v "$REPO_ROOT":/workspace \
                 -w /workspace/software/ros2_ws docker-ros2:latest \
                 bash -lc "source /opt/ros/humble/setup.bash;

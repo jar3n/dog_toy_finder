@@ -148,12 +148,6 @@ MAP_CMD="$MAP_CMD toy_occupancy_radius:=$TOY_OCCUPANCY_RADIUS"
 
 WEB_CMD="ros2 run dog_toy_finder_mapping map_webserver --ros-args -p port:=$WEBMAP_PORT"
 
-TRIALS_CMD="ros2 launch dog_toy_finder_data collect_llm_trials.launch.py"
-TRIALS_CMD="$TRIALS_CMD output_dir:=$VISION_TRIAL_DIR"
-TRIALS_CMD="$TRIALS_CMD run_id:=$VISION_TRIAL_RUN_ID"
-TRIALS_CMD="$TRIALS_CMD distance_tolerance:=$LLM_TRIAL_DISTANCE_TOLERANCE"
-TRIALS_CMD="$TRIALS_CMD bearing_tolerance:=$LLM_TRIAL_BEARING_TOLERANCE"
-
 MANUAL_CMD="ros2 run dog_toy_finder_motion manual_drive --ros-args"
 MANUAL_CMD="$MANUAL_CMD -p linear_speed:=${MANUAL_LINEAR_SPEED:-0.12}"
 MANUAL_CMD="$MANUAL_CMD -p angular_speed:=${MANUAL_ANGULAR_SPEED:-0.5}"
@@ -174,11 +168,6 @@ if [ "$DRY_RUN" -eq 1 ]; then
     echo "vision:  $VISION_CMD"
     echo "mapping: $MAP_CMD"
     echo "webmap:  $WEB_CMD"
-    if is_true "${LLM_TRIALS:-false}"; then
-        echo "trials:  $TRIALS_CMD"
-    else
-        echo "trials:  disabled (set LLM_TRIALS=true to record vision trials)"
-    fi
     echo "manual:  $MANUAL_CMD"
     echo "rosa:    cd <repo>/software/rosa_agent && $ROSA_CMD"
     if is_true "${MANUAL_DRIVE:-false}"; then
@@ -203,9 +192,6 @@ if is_true "$USE_KONSOLE"; then
             printf 'vision\t%s; %s\n' "$ROS_SETUP" "$VISION_CMD"
             printf 'mapping\t%s; %s\n' "$ROS_SETUP" "$MAP_CMD"
             printf 'webmap\t%s; %s\n' "$ROS_SETUP" "$WEB_CMD"
-            if is_true "${LLM_TRIALS:-false}"; then
-                printf 'trials\t%s; %s\n' "$ROS_SETUP" "$TRIALS_CMD"
-            fi
             printf 'rosa\t%s; cd %s/software/rosa_agent && %s\n' "$ROS_SETUP" "$REPO" "$ROSA_CMD"
             if is_true "${MANUAL_DRIVE:-false}"; then
                 printf 'manual\t%s; %s\n' "$ROS_SETUP" "$MANUAL_CMD"
@@ -226,9 +212,6 @@ if is_true "$USE_KONSOLE"; then
             printf 'vision\tcd %s && docker compose -f %s run --rm ros2 bash -lc '"'"'source /opt/ros/humble/setup.bash; source /workspace/software/ros2_ws/install/setup.bash; %s'"'"'\n' "$REPO_ROOT" "$COMPOSE" "$VISION_CMD"
             printf 'mapping\tcd %s && docker compose -f %s run --rm ros2 bash -lc '"'"'source /opt/ros/humble/setup.bash; source /workspace/software/ros2_ws/install/setup.bash; %s'"'"'\n' "$REPO_ROOT" "$COMPOSE" "$MAP_CMD"
             printf 'webmap\tcd %s && docker compose -f %s run --rm ros2 bash -lc '"'"'source /opt/ros/humble/setup.bash; source /workspace/software/ros2_ws/install/setup.bash; %s'"'"'\n' "$REPO_ROOT" "$COMPOSE" "$WEB_CMD"
-            if is_true "${LLM_TRIALS:-false}"; then
-                printf 'trials\tcd %s && docker compose -f %s run --rm ros2 bash -lc '"'"'source /opt/ros/humble/setup.bash; source /workspace/software/ros2_ws/install/setup.bash; %s'"'"'\n' "$REPO_ROOT" "$COMPOSE" "$TRIALS_CMD"
-            fi
             printf 'rosa\tcd %s && docker compose -f %s run --rm ros2 bash -lc '"'"'source /opt/ros/humble/setup.bash; source /workspace/software/ros2_ws/install/setup.bash; cd /workspace/software/rosa_agent && %s'"'"'\n' "$REPO_ROOT" "$COMPOSE" "$ROSA_CMD"
             if is_true "${MANUAL_DRIVE:-false}"; then
                 printf 'manual\tcd %s && docker compose -f %s run --rm ros2 bash -lc '"'"'source /opt/ros/humble/setup.bash; source /workspace/software/ros2_ws/install/setup.bash; %s'"'"'\n' "$REPO_ROOT" "$COMPOSE" "$MANUAL_CMD"
@@ -257,10 +240,6 @@ if [ -f /opt/ros/humble/setup.bash ]; then
         "source /opt/ros/humble/setup.bash; source $WS/install/setup.bash; $MAP_CMD"
     tmux new-window -t "$SESSION" -n "webmap" \
         "source /opt/ros/humble/setup.bash; source $WS/install/setup.bash; $WEB_CMD"
-    if is_true "${LLM_TRIALS:-false}"; then
-        tmux new-window -t "$SESSION" -n "trials" \
-            "source /opt/ros/humble/setup.bash; source $WS/install/setup.bash; $TRIALS_CMD"
-    fi
     tmux new-window -t "$SESSION" -n "rosa" \
         "source /opt/ros/humble/setup.bash; source $WS/install/setup.bash; cd $REPO/software/rosa_agent && $ROSA_CMD"
     if is_true "${MANUAL_DRIVE:-false}"; then
@@ -305,9 +284,6 @@ else
     run_in_ros2 "vision"  "$VISION_CMD"
     run_in_ros2 "mapping" "$MAP_CMD"
     run_in_ros2 "webmap"  "$WEB_CMD"
-    if is_true "${LLM_TRIALS:-false}"; then
-        run_in_ros2 "trials" "$TRIALS_CMD"
-    fi
     run_in_ros2 "rosa"    "cd /workspace/software/rosa_agent && $ROSA_CMD"
     if is_true "${MANUAL_DRIVE:-false}"; then
         # The manual window needs the TTY that tmux gives it, so keyboard

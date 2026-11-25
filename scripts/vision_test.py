@@ -8,17 +8,8 @@ running:
     python3 /workspace/scripts/vision_test.py "red ball"
     python3 /workspace/scripts/vision_test.py ""   # describe the scene
 
-Pass --gt-json to attach ground truth to the request so the LLM trial
-collector fills the gt_* columns instead of leaving them for manual entry:
-
-    python3 /workspace/scripts/vision_test.py "red ball" --gt-json gt.json
-
-The JSON object uses the short keys ``target_visible``,
-``lateral_bearing_deg``, ``size``, ``distance_m``, ``obstacle_ahead``, and
-``notes``. Bearing is a numeric angle in degrees from the optical axis,
-positive to the robot's left. ``distance_m`` may be a number or a list of
-repeated measurements, e.g. ``[0.7, 0.72]``; score uses their mean.
-``distances_m`` is accepted as an alias for the repeated measurements.
+This is a live query tool only. For scored comparison runs, use
+``vision_capture`` and ``vision_eval`` with saved stereo pairs.
 """
 
 import argparse
@@ -32,10 +23,9 @@ from std_msgs.msg import String
 
 
 class VisionTester(Node):
-    def __init__(self, target, ground_truth=None):
+    def __init__(self, target):
         super().__init__("vision_test")
         self.target = target
-        self.ground_truth = ground_truth
         self.result = None
         self.pub = self.create_publisher(String, "/vision/ask", 10)
         self.create_subscription(String, "/vision/result", self._on_result, 10)
@@ -50,10 +40,7 @@ class VisionTester(Node):
 
     def ask(self, timeout=120.0):
         req_id = str(int(time.time() * 1000))
-        payload = {"id": req_id, "target": self.target}
-        if self.ground_truth is not None:
-            payload["ground_truth"] = self.ground_truth
-        payload = json.dumps(payload)
+        payload = json.dumps({"id": req_id, "target": self.target})
         deadline = time.time() + timeout
         last_send = 0.0
         while time.time() < deadline and rclpy.ok():
@@ -74,12 +61,10 @@ class VisionTester(Node):
 
 
 def parse_args(argv=None):
-    """Parse the target and optional ground-truth file."""
+    """Parse the target and timeout."""
     parser = argparse.ArgumentParser(description="Ask the vision node once")
     parser.add_argument("target", nargs="?", default="red ball",
                         help='toy description, or "" to describe the scene')
-    parser.add_argument("--gt-json", "--gt", dest="gt_json", default=None,
-                        help="JSON file with ground truth for this photo")
     parser.add_argument("--timeout", type=float, default=120.0,
                         help="seconds to wait for /vision/result")
     return parser.parse_args(argv)
@@ -87,19 +72,8 @@ def parse_args(argv=None):
 
 def main():
     args = parse_args()
-    ground_truth = None
-    if args.gt_json:
-        try:
-            with open(args.gt_json) as handle:
-                ground_truth = json.load(handle)
-        except (OSError, json.JSONDecodeError) as error:
-            print("Could not read --gt-json: %s" % error, file=sys.stderr)
-            sys.exit(2)
-        if not isinstance(ground_truth, dict):
-            print("--gt-json must contain a JSON object", file=sys.stderr)
-            sys.exit(2)
     rclpy.init()
-    node = VisionTester(args.target, ground_truth)
+    node = VisionTester(args.target)
     try:
         result = node.ask(timeout=args.timeout)
     finally:

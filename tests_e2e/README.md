@@ -17,7 +17,7 @@ From the repo root (builds are cached after the first run):
 Or one scenario at a time:
 
 ```bash
-./scripts/run_e2e_tests.sh note_found size
+./scripts/run_e2e_tests.sh note_found homing
 ```
 
 The full suite takes several minutes; `rosa_all` / `rosa_multi` drive the
@@ -26,7 +26,7 @@ full 3-loop search and take ~2 minutes each.
 Manual equivalent (one scenario):
 
 ```bash
-docker run --rm --network host -v "$PWD":/workspace \
+docker run --rm --network host -v .:/workspace \
   -w /workspace/software/ros2_ws docker-ros2:latest bash -lc '
   source /opt/ros/humble/setup.bash
   source install/setup.bash
@@ -38,7 +38,7 @@ docker run --rm --network host -v "$PWD":/workspace \
 | Scenario | What it proves |
 |---|---|
 | `note_found` | Fast unit checks: single-target latching, find-all counting, position dedupe, invisible case (both nodes) |
-| `size` | Search homes on a `small` toy and stops when it looks `medium` |
+| `homing` | Search homes on a far toy and stops once distance is within `found_distance` |
 | `distance` | Search stops on vision `distance_m` within `found_distance` |
 | `notfound` | Toy never appears: full 4-side coverage, `found=False` |
 | `findall` | Two distinct toys found; keeps sweeping (no early exit); exactly two CSV found rows |

@@ -29,10 +29,12 @@ are rectified.
 
 Comparison is **capture-first**. `vision_capture` saves a rectified
 left/right pair with operator-measured ground truth, and `vision_eval` later
-replays those saved pairs through the configured pipeline. Lateral position is a
-numeric `lateral_bearing_deg` (degrees from the optical axis, positive =
-robot-left / ROS `+y`); it is the sole lateral measurement, and no coarse side
-label is emitted or accepted.
+replays those saved pairs through the configured pipeline. Each live answer
+reports `distance_m` along the optical axis, `center_offset_m` as the signed
+lateral distance from the optical-axis center (positive = robot-left / ROS
+`+y`), and `lateral_bearing_deg` in degrees from the optical axis. They satisfy
+`center_offset_m = distance_m * tan(lateral_bearing_deg)`. No coarse side label
+is emitted or accepted.
 
 ## Topics
 
@@ -146,7 +148,7 @@ Each answer uses this schema:
   "description": "...",
   "target_visible": true,
   "lateral_bearing_deg": 12.0,
-  "size": "small | medium | large | none",
+  "center_offset_m": 0.244,
   "distance_m": 1.15,
   "obstacle_ahead": "none",
   "bbox_px": [140, 96, 176, 132],
@@ -205,9 +207,9 @@ centre and convention as `open_vocab`. The answer reports `method: "stereo-net"`
 `distance_source: "dense_stereo_depth"`, the dense model name in `model`, the
 detector name in `detector_model`, and `depth_sample_source`,
 `depth_sample_count`, `depth_valid_count`, and `depth_disparity_px` describing
-the depth read. The trial CSV schema is unchanged: the `model` column (dense
-model name) distinguishes Lite Any Stereo, Fast Foundation Stereo, and
-RT-IGEV++ runs.
+the depth read. The trial CSV fields are the same for both pipelines: the
+`model` column (dense model name) distinguishes Lite Any Stereo, Fast
+Foundation Stereo, and RT-IGEV++ runs.
 
 ## Result fields
 
@@ -220,9 +222,9 @@ Every entry has:
 | `method` | `open_vocab` or `stereo-net` (`ml` only on legacy rows) |
 | `detector_model` | detector used for the single-image detection (`stereo-net` only) |
 | `target_visible` | whether the requested target was found |
-| `lateral_bearing_deg` | sole lateral measurement: numeric bearing from the optical axis in degrees, positive = robot-left / ROS `+y` |
-| `size` | `small`, `medium`, `large`, or `none` |
-| `distance_m` | distance to the target in metres, `0` if unknown/not visible |
+| `distance_m` | optical-axis distance (normal to the optical plane) in metres, `0` if unknown/not visible |
+| `center_offset_m` | signed lateral distance from the optical-axis center in metres, positive = robot-left / ROS `+y`, `0` if not visible |
+| `lateral_bearing_deg` | numeric bearing from the optical axis in degrees, positive = robot-left / ROS `+y`; `atan(center_offset_m / distance_m)` |
 | `obstacle_ahead` | object blocking the centre of the path, or `none` |
 | `path_clear` | `true` when `obstacle_ahead` is `none` |
 | `description` | human-readable detector summary |
@@ -240,9 +242,8 @@ Every entry has:
 | `depth_disparity_px` | median disparity used for dense depth (`stereo-net` only) |
 
 The mapping node consumes all entries and fuses visible toys by median bearing
-and distance. The trial collector writes one CSV row per entry. For fair
-offline comparison, prefer `vision_capture` + `vision_eval` below: each selected
-pipeline sees the exact same saved images.
+and distance. For fair offline comparison, use `vision_capture` + `vision_eval`
+below: each selected pipeline sees the exact same saved images.
 
 ## Capture-first comparison
 
@@ -251,22 +252,26 @@ or `/vision/ask` is involved:
 
 ```bash
 cd /workspace
-source scripts/full_system_eval.conf
 
 ros2 run dog_toy_finder_vision vision_capture \
-    --target "$VISION_CAPTURE_TARGET" \
-    --run-id "$VISION_CAPTURE_RUN_ID" \
-    --capture-id ball_115m_b12 \
-    --output-dir "$VISION_CAPTURE_DIR" \
-    --config "$VISION_DETECTOR_CONFIG"
+    --target "red ball" \
+    --run-id "capture_run1" \
+    --output-dir "/workspace/data/vision/captures" \
+    --config "/workspace/software/ros2_ws/src/dog_toy_finder_vision/config/vision_detectors.yaml"
 ```
 
-Leaving out `--depth-m` and `--bearing-deg` makes `vision_capture` prompt in the
-TTY for `distance_m (metres)` and `lateral_bearing_deg (+left)`; type the values
-you measured. Pass those flags explicitly only in non-interactive scripts.
-Each capture writes `left.jpg`, `right.jpg`, and `meta.json` under
+In a TTY, `vision_capture` prompts (unless the flags are given) for
+`center_offset_m along optical plane (+left)` and `distance_m along optical
+axis (normal)`, computes `lateral_bearing_deg`, then suggests a `capture_id`
+from the toy name and measurements, such as `red_ball_d1p15_op0p244`. Press
+Enter to accept the suggestion or type a custom ID; absent targets suggest
+`<toy>_absent`. `--capture-id` is not a command-line flag: non-interactive
+callers get the same generated ID and must pass `--depth-m` plus
+`--center-offset-m` (or, for older scripts, `--bearing-deg`). Each capture writes
+`left.jpg`, `right.jpg`, and `meta.json` under
 `<output_dir>/<run_id>/<capture_id>/`. `meta.json` holds the operator's ground
-truth, including `lateral_bearing_deg`; use `--not-visible` for an empty frame.
+truth, including the entered `center_offset_m` and computed
+`lateral_bearing_deg`; use `--not-visible` for an empty frame.
 `vision_capture` waits for a fresh matched rectified pair, so it works with the
 non-hardware-synchronised ESP32-CAMs.
 
@@ -281,13 +286,13 @@ output paths for each run so the first result is not overwritten:
 
 ```bash
 ros2 run dog_toy_finder_vision vision_eval \
-    --captures-dir "$VISION_CAPTURE_DIR" \
+    --captures-dir "/workspace/data/vision/captures" \
     --pipeline open_vocab \
-    --output-csv "$VISION_EVAL_CSV" \
-    --results-json "$VISION_EVAL_JSONL" \
-    --summary-json "$VISION_EVAL_SUMMARY_JSON" \
-    --tolerance "$VISION_EVAL_TOLERANCE" \
-    --bearing-tolerance "$VISION_EVAL_BEARING_TOLERANCE"
+    --output-csv "/workspace/data/vision/vision_eval_trials.csv" \
+    --results-json "/workspace/data/vision/vision_eval_results.jsonl" \
+    --summary-json "/workspace/data/vision/vision_eval_summary.json" \
+    --tolerance "0.25" \
+    --bearing-tolerance "5.0"
 
 # start the host depth service, then replay the same captures with:
 #   --pipeline stereo-net --output-csv .../stereo-net_trials.csv ...
@@ -300,8 +305,8 @@ summary manifest. Captures are processed in shuffled order (`--limit` applies
 after the shuffle); a random `shuffle_seed` is generated unless `--seed` is
 given, and both the seed and `capture_order` are saved in the summary manifest
 so the order can be reproduced. Useful flags include `--run-id`, `--capture`,
-`--limit`, and `--seed`. See
-[`docs/setup/llm_comparison_guide.md`](../../../../docs/setup/llm_comparison_guide.md)
+`--limit`, and `--seed`. See the
+[vision comparison guide](../../../../docs/setup/vision_comparison_guide.md)
 for the full experiment workflow.
 
 ## Run

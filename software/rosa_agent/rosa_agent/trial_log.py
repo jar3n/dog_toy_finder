@@ -1,8 +1,8 @@
 """Persist ROSA planning trials for LLM comparison.
 
-The vision side is recorded automatically by ``vision_trial_collector``. This
-module does the same job for the planner: it turns one ROSA reply into one row
-of the shared ``planning_trials.csv`` schema from
+The vision side is recorded by ``vision_eval`` when it replays saved captures.
+This module does the same job for the planner: it turns one ROSA reply into one
+row of the shared ``planning_trials.csv`` schema from
 ``dog_toy_finder_data.llm_trials``.
 
 Ground truth is optional at collection time. Without it the row still records

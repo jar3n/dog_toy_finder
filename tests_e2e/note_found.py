@@ -21,7 +21,7 @@ def check(name, cond):
 
 
 FOUND = {"target_visible": True, "lateral_bearing_deg": 0.0,
-         "size": "medium", "distance_m": 0.5}
+         "distance_m": 0.3}
 
 rclpy.init()
 
@@ -51,8 +51,8 @@ for cls, name in ((AutonomousSearch, "auto"), (ToySearchTest, "toy")):
     check(f"{name} find_all: _note_found True", node2._note_found(FOUND) is True)
     check(f"{name} find_all: found stays False", node2.found is False)
     check(f"{name} find_all: toy recorded", len(node2.toys) == 1)
-    check(f"{name} find_all: estimate 0.5 m ahead",
-          abs(node2.toys[0][0] - 0.5) < 1e-6
+    check(f"{name} find_all: estimate 0.3 m ahead",
+          abs(node2.toys[0][0] - 0.3) < 1e-6
           and abs(node2.toys[0][1]) < 1e-6)
     check(f"{name}: invisible is not found",
           node2._note_found({"target_visible": False}) is False)

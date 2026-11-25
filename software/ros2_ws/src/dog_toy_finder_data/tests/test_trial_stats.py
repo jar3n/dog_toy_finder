@@ -95,6 +95,11 @@ class AnalyzeTests(unittest.TestCase):
                        if row["metric"] == "elapsed_s")
         self.assertAlmostEqual(elapsed["mean_diff"], -1.0)
 
+    def test_categorical_size_metric_is_excluded(self):
+        self.assertNotIn("size_correct", trial_stats.VISION_METRICS)
+        for row in trial_stats.analyze(self._vision_rows())["descriptives"]:
+            self.assertNotEqual(row["metric"], "size_correct")
+
     def test_legacy_position_metric_is_excluded(self):
         self.assertNotIn("position_correct", trial_stats.VISION_METRICS)
         analysis = trial_stats.analyze(self._vision_rows())

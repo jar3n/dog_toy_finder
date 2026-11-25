@@ -35,8 +35,8 @@ def build_prompts() -> RobotSystemPrompts:
             "fused estimate and reports the measured result. "
             "describe_scene() looks at the stereo camera and describes what is ahead. "
             "find_toy(target) reports whether a toy is visible, its lateral "
-            "bearing in degrees (positive to the left), its size, and an "
-            "estimated distance. "
+            "bearing in degrees (positive to the left), and an estimated "
+            "distance. "
             "is_path_clear() checks whether the path ahead is blocked. "
             "The arm is not connected yet."
         ),

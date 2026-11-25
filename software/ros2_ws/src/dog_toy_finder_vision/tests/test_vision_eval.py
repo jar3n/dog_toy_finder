@@ -88,8 +88,9 @@ class OfflineEvalTests(unittest.TestCase):
             "target_visible": visible,
             "lateral_bearing_deg": vision_config.lateral_bearing_deg(
                 center_x, config) if visible else 0.0,
+            "center_offset_m": vision_config.center_offset_m(
+                center_x, expected_distance, config, width) if visible else 0.0,
             "distance_m": expected_distance if visible else 0.0,
-            "size": "small" if visible else "none",
             "obstacle_ahead": "none",
         }
         meta = {
@@ -171,13 +172,22 @@ class OfflineEvalTests(unittest.TestCase):
         self.assertAlmostEqual(
             entry["distance_m"],
             meta["ground_truth"]["distance_m"], places=2)
+        self.assertAlmostEqual(
+            entry["center_offset_m"],
+            meta["ground_truth"]["center_offset_m"], places=2)
 
         row = llm_trials.vision_row(
             result, entry, "fake-world", "run1",
             ground_truth=meta["ground_truth"], bearing_tolerance=5.0)
         self.assertEqual(row["method"], "open_vocab")
+        self.assertNotIn("size", row)
+        self.assertNotIn("gt_size", row)
         self.assertEqual(row["gt_lateral_bearing_deg"],
                          meta["ground_truth"]["lateral_bearing_deg"])
+        self.assertAlmostEqual(row["center_offset_m"],
+                               entry["center_offset_m"], places=2)
+        self.assertAlmostEqual(row["gt_center_offset_m"],
+                               meta["ground_truth"]["center_offset_m"], places=2)
         self.assertTrue(row["bearing_within_tolerance"])
         self.assertAlmostEqual(row["bearing_error_deg"], 0.0, delta=0.5)
 
@@ -221,6 +231,7 @@ class OfflineEvalTests(unittest.TestCase):
         self.assertEqual(entry["distance_source"], "dense_stereo_depth")
         self.assertTrue(entry["target_visible"])
         self.assertAlmostEqual(entry["distance_m"], expected_distance, places=2)
+        self.assertIn("center_offset_m", entry)
 
         row = llm_trials.vision_row(
             result, entry, entry["model"], "run1",

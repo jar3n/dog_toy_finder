@@ -94,17 +94,12 @@ def resolve_config_path(path=None):
 def default_capture_dir():
     """Return the capture root used by both the capture and replay tools.
 
-    ``VISION_CAPTURE_DIR`` wins; otherwise an older ``VISION_TRIAL_DIR`` maps to
-    its ``captures`` child. Outside those overrides the repository's
+    ``VISION_CAPTURE_DIR`` wins. Outside that override the repository's
     ``data/vision/captures`` directory is used when the checkout is visible.
     """
     override = os.environ.get("VISION_CAPTURE_DIR")
     if override:
         return os.path.abspath(os.path.expanduser(override))
-    trial_dir = os.environ.get("VISION_TRIAL_DIR")
-    if trial_dir:
-        return os.path.join(os.path.abspath(os.path.expanduser(trial_dir)),
-                            "captures")
     # Source checkout: <repo>/software/ros2_ws/src/<pkg>/<pkg>/this_file.py
     source_root = os.path.abspath(os.path.join(
         os.path.dirname(os.path.abspath(__file__)),
@@ -175,3 +170,35 @@ def lateral_bearing_deg(u_px, config, image_width=None):
         return 0.0
     bearing = math.degrees(math.atan((cx - float(u_px)) / fx))
     return round(max(-90.0, min(90.0, bearing)), 2)
+
+
+def bearing_deg_from_center_offset(center_offset_m, depth_m):
+    """Return bearing from a signed lateral offset and optical-axis depth.
+
+    ``center_offset_m`` is measured in the optical plane from the point where
+    the optical axis meets it; positive means robot-left. ``depth_m`` is the
+    distance along the normal to that plane (the pipeline's ``distance_m``).
+    This is the same bearing convention as ``lateral_bearing_deg``:
+    ``atan(offset / depth)`` in degrees, clamped to +/-90.
+    """
+    offset = float(center_offset_m)
+    depth = max(0.0, float(depth_m))
+    bearing = math.degrees(math.atan2(offset, depth))
+    return round(max(-90.0, min(90.0, bearing)), 2)
+
+
+def center_offset_m(u_px, depth_m, config, image_width=None):
+    """Return signed lateral distance from the optical axis, in metres.
+
+    Positive means robot-left, matching ``lateral_bearing_deg``. The result is
+    ``depth_m * (cx - u_px) / fx``: the lateral distance in the optical plane
+    at the target's measured optical-axis depth.
+    """
+    camera = config.get("camera", {}) if isinstance(config, dict) else {}
+    width = float(image_width or camera.get("width", 320))
+    cx = float(camera.get("cx", width / 2.0))
+    fx = float(camera.get("fx", 250.0))
+    if fx <= 0.0:
+        return 0.0
+    offset = float(depth_m) * (cx - float(u_px)) / fx
+    return round(offset, 3)

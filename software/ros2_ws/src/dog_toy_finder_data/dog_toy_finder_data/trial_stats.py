@@ -26,7 +26,7 @@ except ImportError:  # direct import from the package directory in tests
 
 VISION_METRICS = [
     "latency_s", "score", "visible_correct",
-    "size_correct", "distance_within_tolerance", "distance_error_m",
+    "distance_within_tolerance", "distance_error_m",
     "bearing_within_tolerance", "bearing_error_deg", "obstacle_correct",
 ]
 PLANNING_METRICS = [

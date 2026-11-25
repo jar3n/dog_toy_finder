@@ -158,8 +158,7 @@ selects a `manual` pane/window without editing the config; setting
 `MANUAL_DRIVE=true` in the config does the same for every launch.
 `./scripts/launch_all.sh --dry-run` prints the exact commands without starting
 anything. `--konsole` / `--tmux` force the launcher; `KONSOLE=true` in the
-config makes Konsole the default. Set `LLM_TRIALS=true` to add a `trials`
-pane/window that records vision comparison rows (section 5.5).
+config makes Konsole the default.
 
 Konsole mode needs the security-sensitive D-Bus API enabled so panes can run
 their commands:
@@ -199,7 +198,7 @@ ros2 launch dog_toy_finder_bringup robot.launch.py
 ros2 launch dog_toy_finder_vision stereo_vision.launch.py \
     left_url:=http://esp32cam-left.local/capture \
     right_url:=http://esp32cam-right.local/capture \
-    config_path:=$VISION_DETECTOR_CONFIG \
+    config_path:=/workspace/software/ros2_ws/src/dog_toy_finder_vision/config/vision_detectors.yaml \
     pipeline:="open_vocab"   # or set VISION_PIPELINE in the config file
 ```
 
@@ -294,13 +293,13 @@ The Pico's IR reflex still brakes in front of an obstacle and the 500 ms
 
 ## 5. Run the full test evaluation
 
-All evaluation parameters (target, search sizes, run IDs, CSV paths, data
-collection) live in `scripts/full_system_eval.conf`. Source it first so the
-commands below expand to the configured values:
+All evaluation parameters (target, search step distances, run IDs, CSV paths,
+and data collection) have defaults in `scripts/full_system_eval.conf`. The
+commands below show those defaults literally; edit the config or substitute your
+own values for a different run. Run them from the repo root:
 
 ```bash
 cd /workspace
-source scripts/full_system_eval.conf
 ```
 
 ### 5.1 LLM (ROSA) planner
@@ -315,14 +314,14 @@ position.
 ```bash
 cd /workspace/software/rosa_agent
 # compare several models on one prompt and save the comparison rows:
-python3 -m rosa_agent --compare "$ROSA_COMPARE" --prompt "$ROSA_PROMPT" \
-    --output-csv "$ROSA_OUTPUT_CSV" --run-id "$ROSA_RUN_ID"
-# add planning ground truth now (optional):
-python3 -m rosa_agent --compare "$ROSA_COMPARE" --prompt "$ROSA_PROMPT" \
-    --output-csv "$ROSA_OUTPUT_CSV" --run-id "$ROSA_RUN_ID" \
-    --gt-json "$ROSA_GT_JSON"
+python3 -m rosa_agent --compare "llama3.2,mistral,qwen2.5" --prompt "Find the red ball." \
+    --output-csv "/workspace/data/planning/plan1/planning_trials.csv" --run-id "plan1"
+# add planning ground truth from gt_planning.json (optional):
+python3 -m rosa_agent --compare "llama3.2,mistral,qwen2.5" --prompt "Find the red ball." \
+    --output-csv "/workspace/data/planning/plan1/planning_trials.csv" --run-id "plan1" \
+    --gt-json "gt_planning.json"
 # or interactive:
-python3 -m rosa_agent --output-csv "$ROSA_OUTPUT_CSV" --run-id "$ROSA_RUN_ID"
+python3 -m rosa_agent --output-csv "/workspace/data/planning/plan1/planning_trials.csv" --run-id "plan1"
 ```
 
 In the interactive session, ask for a search ("Search for the red ball and
@@ -338,28 +337,28 @@ data collector (5.4) records poses and images for offline analysis.
 
 ```bash
 ros2 launch dog_toy_finder_planning autonomous_search.launch.py \
-    target:="$AUTO_TARGET" side:=$AUTO_SIDE \
-    side_increment:=$AUTO_SIDE_INCREMENT loops:=$AUTO_LOOPS \
-    max_time:=$AUTO_MAX_TIME output_csv:=$AUTO_OUTPUT_CSV \
-    run_id:=$AUTO_RUN_ID found_distance:=$AUTO_FOUND_DISTANCE \
-    find_all:=$AUTO_FIND_ALL \
-    toy_forward_distance:=$AUTO_TOY_FORWARD_DISTANCE \
-    toy_merge_radius:=$AUTO_TOY_MERGE_RADIUS \
-    escape_distance:=$AUTO_ESCAPE_DISTANCE
+    target:="red ball" side:=0.5 \
+    side_increment:=0.5 loops:=3 \
+    max_time:=120.0 output_csv:=/tmp/autonomous_search.csv \
+    run_id:=auto1 found_distance:=0.4 \
+    find_all:=false \
+    toy_forward_distance:=0.6 \
+    toy_merge_radius:=0.15 \
+    escape_distance:=0.3
 ```
 
 ### 5.3 Toy-search harness (baseline)
 
 ```bash
 ros2 launch dog_toy_finder_experiments toy_search.launch.py \
-    target:="$TOY_TARGET" pattern:=$TOY_PATTERN side:=$TOY_SIDE \
-    side_increment:=$TOY_SIDE_INCREMENT loops:=$TOY_LOOPS \
-    max_time:=$TOY_MAX_TIME output_csv:=$TOY_OUTPUT_CSV \
-    run_id:=$TOY_RUN_ID found_distance:=$TOY_FOUND_DISTANCE \
-    find_all:=$TOY_FIND_ALL \
-    toy_forward_distance:=$TOY_TOY_FORWARD_DISTANCE \
-    toy_merge_radius:=$TOY_TOY_MERGE_RADIUS \
-    escape_distance:=$TOY_ESCAPE_DISTANCE
+    target:="red ball" pattern:=square side:=0.5 \
+    side_increment:=0.5 loops:=3 \
+    max_time:=120.0 output_csv:=/tmp/toy_search.csv \
+    run_id:=run1 found_distance:=0.4 \
+    find_all:=false \
+    toy_forward_distance:=0.6 \
+    toy_merge_radius:=0.15 \
+    escape_distance:=0.3
 ```
 
 ### 5.3.1 Demo: find all toys
@@ -384,10 +383,10 @@ the start, restart bringup/mapping, new `run_id`/`output_csv`).
 
 ```bash
 ros2 launch dog_toy_finder_data collect.launch.py \
-    output_dir:=$COLLECT_OUTPUT_DIR run_id:=$COLLECT_RUN_ID \
-    record_images:=$COLLECT_RECORD_IMAGES \
-    image_every:=$COLLECT_IMAGE_EVERY \
-    record_disparity:=$COLLECT_RECORD_DISPARITY
+    output_dir:=/tmp/dog_toy_dataset run_id:=run1 \
+    record_images:=true \
+    image_every:=5 \
+    record_disparity:=false
 ```
 
 ### 5.5 LLM comparison trials
@@ -395,8 +394,10 @@ ros2 launch dog_toy_finder_data collect.launch.py \
 Vision and planning comparisons share the `dog_toy_finder_data.llm_trials` CSV
 schema and scoring tools. **Vision comparison is capture-first**: save each
 rectified left/right pair with operator-measured ground truth, then replay all
-captures offline. See [`llm_comparison_guide.md`](llm_comparison_guide.md) for
-the full step-by-step workflow.
+captures offline. See the
+[vision comparison guide](vision_comparison_guide.md) for the full step-by-step
+workflow; live planning-model comparison is covered in the
+[planning comparison guide](planning_comparison_guide.md).
 
 Trial data is stored in the repository's `data/` folder, next to `hardware/`
 and `software/`: `data/vision/captures/`, `data/vision/vision_eval_*.csv/json`
@@ -408,9 +409,10 @@ Calibrate the stereo pair first with
 baseline in the detector YAML. `scripts/full_system_eval.conf` reads them from
 that file for the launch arguments.
 
-For vision, set `VISION_DETECTOR_CONFIG` to your measured camera YAML and
-`VISION_PIPELINE` to `open_vocab` or `stereo-net` (or select it with
-`pipeline:=...` on the launch command). Use the same `DETECTOR_MODEL` for both
+For vision, use your measured camera YAML at
+`/workspace/software/ros2_ws/src/dog_toy_finder_vision/config/vision_detectors.yaml`
+and select `open_vocab` or `stereo-net` (or use `pipeline:=...` on the launch
+command). Use the same `DETECTOR_MODEL` for both
 pipelines: `open_vocab` needs only the host detector service; `stereo-net` also
 needs the host dense-stereo depth service, with one depth model at a time. The
 live vision node is not needed for capture; terminate it (or launch
@@ -419,36 +421,41 @@ pipeline running. Then save a labelled pair:
 
 ```bash
 cd /workspace
-source scripts/full_system_eval.conf
 
 ros2 run dog_toy_finder_vision vision_capture \
-    --target "$VISION_CAPTURE_TARGET" \
-    --size medium \
-    --run-id "$VISION_CAPTURE_RUN_ID" \
-    --capture-id ball_115m_b12 \
-    --output-dir "$VISION_CAPTURE_DIR" \
-    --config "$VISION_DETECTOR_CONFIG" \
-    --timeout "$VISION_CAPTURE_TIMEOUT"
+    --target "red ball" \
+    --run-id "capture_run1" \
+    --output-dir "/workspace/data/vision/captures" \
+    --config "/workspace/software/ros2_ws/src/dog_toy_finder_vision/config/vision_detectors.yaml" \
+    --timeout "20.0"
 ```
 
 `vision_capture` waits for a fresh matched `/stereo/{left,right}/image_rect_color`
-pair. Measure depth from the cameras with a tape measure and lateral bearing
-from the optical axis; positive bearing means robot-left (ROS `+y`). The command
-above is interactive: it prompts for `distance_m (metres)` and
-`lateral_bearing_deg (+left)`; type the measured values. Use `--not-visible`
-for an empty frame (no prompts), plus `--obstacle` and `--notes` where needed.
-For scripts or non-interactive shells, pass `--depth-m` and `--bearing-deg`
-explicitly instead. Each call writes:
+pair. Measure `distance_m` along the optical axis (normal to the optical plane)
+and `center_offset_m` from the optical-axis center in that plane; positive
+offset means robot-left (ROS `+y`). The command above is interactive: it prompts
+for `center_offset_m along optical plane (+left)` and `distance_m along optical
+axis (normal)`, computes `lateral_bearing_deg = atan(offset / depth)`, then
+suggests a `capture_id` built from the toy name and those measurements (for
+example `red_ball_d1p15_op0p244`). Press Enter to accept the suggestion or type
+a custom ID. Use `--not-visible` for an empty frame (the suggestion becomes
+`red_ball_absent`), plus `--obstacle` and `--notes` where needed. For
+non-interactive scripts, `--capture-id` is not available; the same generated ID
+is used automatically, and `--depth-m` plus `--center-offset-m` are required for
+a visible target. `--bearing-deg` is still accepted for older scripts instead of
+the offset. Each call writes:
 
 ```text
-$VISION_CAPTURE_DIR/<run_id>/<capture_id>/left.jpg
-$VISION_CAPTURE_DIR/<run_id>/<capture_id>/right.jpg
-$VISION_CAPTURE_DIR/<run_id>/<capture_id>/meta.json
+/workspace/data/vision/captures/capture_run1/<capture_id>/left.jpg
+/workspace/data/vision/captures/capture_run1/<capture_id>/right.jpg
+/workspace/data/vision/captures/capture_run1/<capture_id>/meta.json
 ```
 
-`meta.json` contains the operator's ground truth, including
-`lateral_bearing_deg`, the sole lateral measurement. Repeat with a new
-`--capture-id` for each scene. After the capture phase, replay every
+`meta.json` contains the operator's ground truth: `distance_m` along the
+optical axis, `center_offset_m` from the optical-axis center, and the computed
+`lateral_bearing_deg`. Both pipelines emit those same three values in every
+live answer. Repeat with a new suggested or custom `capture_id` for each scene. After
+the capture phase, replay every
 saved pair offline with no camera topics or ROS graph. Run **one pipeline per
 invocation**. To compare both, use distinct output paths and pass the same
 `--seed` to each run so they process the randomized captures in the same order;
@@ -457,23 +464,23 @@ a seed is printed and recorded in the summary when omitted:
 ```bash
 # Add --seed N to both commands (use a recorded seed for identical order).
 ros2 run dog_toy_finder_vision vision_eval \
-    --captures-dir "$VISION_CAPTURE_DIR" \
+    --captures-dir "/workspace/data/vision/captures" \
     --pipeline open_vocab \
-    --tolerance "$VISION_EVAL_TOLERANCE" \
-    --bearing-tolerance "$VISION_EVAL_BEARING_TOLERANCE" \
-    --output-csv "$DATA_DIR/vision/open_vocab_trials.csv" \
-    --results-json "$DATA_DIR/vision/open_vocab_results.jsonl" \
-    --summary-json "$DATA_DIR/vision/open_vocab_summary.json"
+    --tolerance "0.25" \
+    --bearing-tolerance "5.0" \
+    --output-csv "/workspace/data/vision/open_vocab_trials.csv" \
+    --results-json "/workspace/data/vision/open_vocab_results.jsonl" \
+    --summary-json "/workspace/data/vision/open_vocab_summary.json"
 
 # detector + depth service must be running for this second invocation
 ros2 run dog_toy_finder_vision vision_eval \
-    --captures-dir "$VISION_CAPTURE_DIR" \
+    --captures-dir "/workspace/data/vision/captures" \
     --pipeline stereo-net \
-    --tolerance "$VISION_EVAL_TOLERANCE" \
-    --bearing-tolerance "$VISION_EVAL_BEARING_TOLERANCE" \
-    --output-csv "$DATA_DIR/vision/stereo-net_trials.csv" \
-    --results-json "$DATA_DIR/vision/stereo-net_results.jsonl" \
-    --summary-json "$DATA_DIR/vision/stereo-net_summary.json"
+    --tolerance "0.25" \
+    --bearing-tolerance "5.0" \
+    --output-csv "/workspace/data/vision/stereo-net_trials.csv" \
+    --results-json "/workspace/data/vision/stereo-net_results.jsonl" \
+    --summary-json "/workspace/data/vision/stereo-net_summary.json"
 ```
 
 One scored row is written per capture per invocation; the trial CSV schema is
@@ -487,7 +494,7 @@ immediately. Each summary manifest (`vision_eval_summary.json`) records the
 pipeline, `shuffle_seed`, and `capture_order` (paths relative to
 `--captures-dir`) so an order can be reproduced.
 
-Planning rows are written by ROSA (section 5.1) to `$ROSA_OUTPUT_CSV`. The
+Planning rows are written by ROSA (section 5.1) to `/workspace/data/planning/plan1/planning_trials.csv`. The
 `gt_*` columns stay blank unless `ROSA_GT_JSON` points at a JSON file. A flat
 object applies to every model; the per-model/prompt form is documented in
 `software/rosa_agent/README.md`.
@@ -495,9 +502,9 @@ object applies to every model; the per-model/prompt form is documented in
 Score a trial CSV after any manual ground-truth annotation:
 
 ```bash
-ros2 run dog_toy_finder_data llm_trials score "$VISION_EVAL_CSV"
-ros2 run dog_toy_finder_data llm_trials score "$ROSA_OUTPUT_CSV"
-ros2 run dog_toy_finder_data llm_trials aggregate "$ROSA_OUTPUT_CSV" --json
+ros2 run dog_toy_finder_data llm_trials score "/workspace/data/vision/vision_eval_trials.csv"
+ros2 run dog_toy_finder_data llm_trials score "/workspace/data/planning/plan1/planning_trials.csv"
+ros2 run dog_toy_finder_data llm_trials aggregate "/workspace/data/planning/plan1/planning_trials.csv" --json
 ```
 
 `score` writes `<name>_scored.csv` and prints per-model latency, error count,
@@ -511,9 +518,8 @@ for `stereo-net` rows.
 ## 6. Reset and run again
 
 The autonomous and toy-search nodes are one-shot: each launch runs one search
-and exits. The search stops by itself when the target is found (visible and
-either medium/large in the image or within `found_distance`), printing
-`found: True` and writing
+and exits. The search stops by itself when the target is found (visible and within
+`found_distance`), printing `found: True` and writing
 its CSV. The ROSA planner (section 5.1) is interactive instead — the operator
 drives and stops it.
 
@@ -534,18 +540,18 @@ To run the test again from the same starting spot:
 ## 7. Evaluate
 
 ```bash
-ros2 run dog_toy_finder_experiments evaluate_runs "$TOY_OUTPUT_CSV" "$AUTO_OUTPUT_CSV"
-ros2 run dog_toy_finder_data dataset_summary "$COLLECT_OUTPUT_DIR/$COLLECT_RUN_ID"
-ros2 run dog_toy_finder_data llm_trials score "$ROSA_OUTPUT_CSV"
-ros2 run dog_toy_finder_data llm_trials score "$VISION_EVAL_CSV"
+ros2 run dog_toy_finder_experiments evaluate_runs "/tmp/toy_search.csv" "/tmp/autonomous_search.csv"
+ros2 run dog_toy_finder_data dataset_summary "/tmp/dog_toy_dataset/run1"
+ros2 run dog_toy_finder_data llm_trials score "/workspace/data/planning/plan1/planning_trials.csv"
+ros2 run dog_toy_finder_data llm_trials score "/workspace/data/vision/vision_eval_trials.csv"
 
 # Post-collection statistics (paired comparisons across models)
-ros2 run dog_toy_finder_data llm_trials analyze "$ROSA_OUTPUT_CSV" \
-    --confidence "$LLM_TRIAL_CONFIDENCE" --output "$PLANNING_ANALYSIS_JSON"
-ros2 run dog_toy_finder_data llm_trials analyze "$VISION_EVAL_CSV" \
-    --tolerance "$VISION_EVAL_TOLERANCE" \
-    --bearing-tolerance "$VISION_EVAL_BEARING_TOLERANCE" \
-    --confidence "$LLM_TRIAL_CONFIDENCE" --output "$VISION_EVAL_ANALYSIS_JSON"
+ros2 run dog_toy_finder_data llm_trials analyze "/workspace/data/planning/plan1/planning_trials.csv" \
+    --confidence "0.95" --output "/workspace/data/planning/plan1/planning_analysis.json"
+ros2 run dog_toy_finder_data llm_trials analyze "/workspace/data/vision/vision_eval_trials.csv" \
+    --tolerance "0.25" \
+    --bearing-tolerance "5.0" \
+    --confidence "0.95" --output "/workspace/data/vision/vision_eval_analysis.json"
 
 # repeat the vision score/analyze commands for the other pipeline CSV
 ```
@@ -620,7 +626,7 @@ needed) live in `tests_e2e/`:
 
 ```bash
 ./scripts/run_e2e_tests.sh                 # everything (several minutes)
-./scripts/run_e2e_tests.sh note_found size # just two scenarios
+./scripts/run_e2e_tests.sh note_found homing # just two scenarios
 ```
 
 ## Notes

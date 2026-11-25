@@ -261,8 +261,8 @@ a tape measure (no motion stack or Pico needed):
 
 1. Put the toy at a known distance, for example 1.00 m from the camera baseline,
    and near the optical axis.
-2. Save a capture with the interactive `vision_capture` procedure in
-   [llm_comparison_guide.md](llm_comparison_guide.md#a2-capture-a-vision-dataset-step-by-step).
+2. Save a capture with the interactive `vision_capture` procedure in the
+   [vision comparison guide](vision_comparison_guide.md#capture-a-vision-dataset-step-by-step).
 3. Replay it with `vision_eval` and compare the reported depth with the tape
    measure. A systematic ratio means `baseline_m` or `fx` is still wrong; a
    constant angular offset means `cx` is wrong.

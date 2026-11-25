@@ -145,7 +145,7 @@ python3 -m rosa_agent --model mistral
 | `check_failsafe` | none | whether the Pico IR failsafe sees an obstacle now |
 | `stop_robot` | none | publishes zero `/cmd_vel_auto` (mux forwards it) |
 | `describe_scene` | none | describe what the stereo camera sees |
-| `find_toy` | `target` | whether a toy is visible, where, size, distance |
+| `find_toy` | `target` | whether a toy is visible, bearing, distance |
 | `is_path_clear` | none | whether the path ahead is blocked |
 
 Every move uses fresh `/odometry/filtered` (EKF) feedback and reports what the

@@ -178,14 +178,12 @@ class AutonomousSearch(Mover):
     def _is_found(self, result):
         """Decide whether the target counts as found.
 
-        Found when the target is visible and either looks medium/large in the
-        image or the vision pipeline estimates it within found_distance metres.
+        Found when the target is visible and the vision pipeline estimates it
+        within found_distance metres.
         """
         entry = self._entry(result)
         if not entry.get("target_visible"):
             return False
-        if entry.get("size") in ("medium", "large"):
-            return True
         distance = self._distance(entry)
         return distance is not None and distance <= self.found_distance
 
@@ -247,7 +245,6 @@ class AutonomousSearch(Mover):
     def log_step(self, action, result, found_now, t0):
         x, y, theta = self.current_pose()
         target_visible = False
-        size = "none"
         obstacle = "none"
         path_clear = True
         vision_seconds = None
@@ -256,7 +253,6 @@ class AutonomousSearch(Mover):
             entry = self._entry(result)
             target_visible = bool(entry.get("target_visible", False))
             bearing = toy_geometry.bearing_deg(entry) if target_visible else 0.0
-            size = entry.get("size", "none")
             obstacle = entry.get("obstacle_ahead", "none")
             path_clear = bool(entry.get("path_clear", True))
             vision_seconds = entry.get("seconds", result.get("seconds"))
@@ -270,7 +266,6 @@ class AutonomousSearch(Mover):
             "target": self.target,
             "target_visible": target_visible,
             "lateral_bearing_deg": round(bearing, 2),
-            "size": size,
             "obstacle_ahead": obstacle,
             "path_clear": path_clear,
             "vision_seconds": vision_seconds,
@@ -279,7 +274,7 @@ class AutonomousSearch(Mover):
         })
         self.get_logger().info(
             f"step {self.step} [{action}]: found={found_now} visible={target_visible} "
-            f"bearing={bearing:+.1f} size={size} obstacle={obstacle}")
+            f"bearing={bearing:+.1f} obstacle={obstacle}")
 
     def home_on_target(self, result, t0):
         """Turn toward a visible target and drive a short step."""
@@ -293,11 +288,10 @@ class AutonomousSearch(Mover):
         # Drive a short step toward the target. Shrink the step as the vision pipeline
         # distance shrinks so homing slows down near the toy.
         distance = self._distance(entry)
-        size = entry.get("size", "none")
         if distance is not None:
             step_dist = max(0.05, min(0.2, distance / 2.0))
         else:
-            step_dist = 0.2 if size in ("small", "none") else 0.1
+            step_dist = 0.2
         self.straight(step_dist)
         self.step += 1
         if self.failsafe_hit():
@@ -379,7 +373,7 @@ class AutonomousSearch(Mover):
         os.makedirs(os.path.dirname(os.path.abspath(self.output_csv)), exist_ok=True)
         fieldnames = ["run_id", "step", "t_sec", "x", "y", "theta_deg", "target",
                       "target_visible", "lateral_bearing_deg",
-                      "size", "obstacle_ahead", "path_clear", "vision_seconds",
+                      "obstacle_ahead", "path_clear", "vision_seconds",
                       "found", "action"]
         with open(self.output_csv, "w", newline="") as f:
             writer = csv.DictWriter(f, fieldnames=fieldnames)
