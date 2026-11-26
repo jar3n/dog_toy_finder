@@ -122,6 +122,21 @@ class HostServiceTests(unittest.TestCase):
         self.assertEqual(sample_mock.call_args.kwargs["config"]["camera"]["fx"],
                          250.0)
 
+    def test_depth_reuses_loaded_backend_on_later_requests(self):
+        load, disparity, sample = self._patch_backend()
+        body = {
+            "images": [_jpeg(), _jpeg()],
+            "window": {"u": 100, "v": 120, "radius": 3},
+        }
+        with load as load_mock, disparity as disparity_mock, sample:
+            service.depth(body)
+            self.assertEqual(load_mock.call_count, 1)
+            self.assertEqual(service._BACKEND, dense_stereo.LITE_ANY_STEREO)
+            service.depth(body)
+        self.assertEqual(load_mock.call_count, 1,
+                         "the model must load only once per service process")
+        self.assertEqual(disparity_mock.call_count, 2)
+
     def test_http_round_trip_with_container_client(self):
         load, disparity, sample = self._patch_backend()
         with load, disparity, sample as sample_mock:

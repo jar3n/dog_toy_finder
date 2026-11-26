@@ -79,7 +79,7 @@ def _request_config(body):
 
 def depth(body):
     """Compute a dense disparity map and sample it at the requested pixels."""
-    global _MODEL
+    global _BACKEND, _MODEL
     images = body.get("images")
     if not isinstance(images, list) or len(images) != 2:
         raise ValueError("'images' must be a list of two base64 JPEGs")
