@@ -1,6 +1,7 @@
 import os
 import tempfile
 import unittest
+from unittest import mock
 
 import yaml
 
@@ -66,6 +67,23 @@ class TestVisionConfig(unittest.TestCase):
         self.assertAlmostEqual(
             vision_config.bearing_deg_from_center_offset(offset, depth),
             bearing, delta=0.05)
+
+    def test_pilot_capture_dir_is_a_sibling_of_captures(self):
+        with mock.patch.dict(os.environ, {}, clear=True):
+            normal = vision_config.default_capture_dir()
+            pilot = vision_config.default_capture_dir(pilot=True)
+        self.assertEqual(os.path.basename(normal), "captures")
+        self.assertEqual(os.path.basename(pilot), "pilot_captures")
+        self.assertEqual(os.path.dirname(normal), os.path.dirname(pilot))
+
+    def test_pilot_capture_dir_ignores_capture_dir_override(self):
+        with mock.patch.dict(os.environ,
+                             {"VISION_CAPTURE_DIR": "/tmp/custom_captures"},
+                             clear=False):
+            self.assertEqual(vision_config.default_capture_dir(),
+                             "/tmp/custom_captures")
+            self.assertNotEqual(vision_config.default_capture_dir(pilot=True),
+                                "/tmp/custom_captures")
 
 
 if __name__ == "__main__":

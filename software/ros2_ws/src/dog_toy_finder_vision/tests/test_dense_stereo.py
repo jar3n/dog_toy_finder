@@ -62,6 +62,30 @@ class ModelSelectionTests(unittest.TestCase):
         self.assertIs(model, fake)
         self.assertEqual(dense_stereo.resolve_device(config), "cpu")
 
+    def test_timm_compat_adds_identity_activation(self):
+        class FakeFeature:
+            pass
+
+        class FakeIdentity:
+            pass
+
+        class FakeNn:
+            Identity = FakeIdentity
+
+        class FakeTorch:
+            nn = FakeNn()
+
+        class FakeTimm:
+            def __init__(self):
+                self.create_model = lambda *args, **kwargs: FakeFeature()
+
+        timm = FakeTimm()
+        create_model, original = dense_stereo._timm_create_model_with_act1(
+            FakeTorch, timm)
+        feature = create_model()
+        self.assertIsInstance(feature.act1, FakeIdentity)
+        self.assertIs(timm.create_model, original)
+
 
 class DepthSamplingTests(unittest.TestCase):
     def setUp(self):

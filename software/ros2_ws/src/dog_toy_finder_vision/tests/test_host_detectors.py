@@ -62,6 +62,20 @@ class FakeProcessor:
         }]
 
 
+class FakeModernProcessor(FakeProcessor):
+    """Current transformers uses ``threshold`` instead of ``box_threshold``."""
+
+    def post_process_grounded_object_detection(self, outputs, input_ids,
+                                               threshold, text_threshold,
+                                               target_sizes):
+        self.thresholds = (threshold, text_threshold, target_sizes)
+        return [{
+            "boxes": [[80.0, 110.0, 100.0, 130.0]],
+            "scores": [0.91],
+            "labels": ["red ball"],
+        }]
+
+
 class FakeDinoModel:
     def __init__(self, path):
         self.path = path
@@ -254,6 +268,20 @@ class DetectionConversionTests(unittest.TestCase):
         self.assertAlmostEqual(entries[0]["u"], 90.0)
         self.assertAlmostEqual(entries[0]["confidence"], 0.91)
         self.assertEqual(entries[0]["center_source"], "box_center")
+
+    def test_grounding_dino_accepts_modern_threshold_keyword(self):
+        torch, _, _ = fake_modules()
+        processor = FakeModernProcessor("fake-id")
+        network = FakeDinoModel("fake-id")
+        rgb = np.zeros((240, 320, 3), dtype=np.uint8)
+        with mock.patch.dict(sys.modules, {"torch": torch}):
+            entries = detectors.detections_for_image(
+                (detectors.GROUNDING_DINO, (processor, network)), rgb,
+                ["Red Ball"], {"confidence_threshold": 0.4,
+                               "text_threshold": 0.3, "device": "cpu"})
+        self.assertEqual(processor.thresholds, (0.4, 0.3, [(240, 320)]))
+        self.assertEqual(len(entries), 1)
+        self.assertEqual(entries[0]["label"], "Red Ball")
 
 
 if __name__ == "__main__":

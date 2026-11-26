@@ -10,6 +10,9 @@ builds, flashing, and first run. For the full test/evaluation flow see
 - Docker + Docker Compose
 - PlatformIO (`pio`) for the ESP32-CAM (optional but recommended)
 - Pico SDK toolchain for the Pico firmware (handled by the build script)
+- Python development headers matching the host Python (`python3-devel` on Fedora/RHEL,
+  `python3-dev` on Debian/Ubuntu), needed when `fast_foundation_stereo` compiles
+  its `@torch.compile` kernels through TorchInductor
 
 Clone the repo:
 

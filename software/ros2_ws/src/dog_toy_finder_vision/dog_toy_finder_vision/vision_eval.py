@@ -18,9 +18,12 @@ Usage inside the ROS 2 container::
 Scenes are shuffled first, then the shots within each scene are shuffled. Use
 ``--seed`` to reproduce an order; the generated seed, scene order, and shot
 order are recorded in the summary manifest. Both multi-shot scenes and legacy
-flat captures are discovered.
+flat captures are discovered. ``--pilot`` selects
+``/workspace/data/vision/pilot_captures`` for both replay input and default
+outputs, keeping trial data out of the normal captures tree; explicit paths win.
 
-Outputs (defaults next to the captures directory)::
+Outputs (defaults next to the captures directory, or inside the pilot root with
+``--pilot``)::
 
     vision_eval_trials.csv     one scored row per shot and model name
     vision_eval_results.jsonl  full /vision/result-style entries for inspection
@@ -245,7 +248,11 @@ def _capture_root(path):
 def _build_parser():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--captures-dir", default=None,
-                        help="capture root (default: data/vision/captures)")
+                        help="capture root (default: data/vision/captures, "
+                             "or data/vision/pilot_captures with --pilot)")
+    parser.add_argument("--pilot", action="store_true",
+                        help="read pilot captures and write default outputs "
+                             "inside the pilot root (explicit paths win)")
     parser.add_argument("--capture", default=None,
                         help="evaluate one shot directory or a whole scene "
                              "directory with all of its shots")
@@ -282,8 +289,10 @@ def main(argv=None):
     elif args.capture:
         root = _capture_root(args.capture)
     else:
-        root = vision_config.default_capture_dir()
-    output_root = os.path.dirname(root.rstrip(os.sep))
+        root = vision_config.default_capture_dir(pilot=args.pilot)
+    # Pilot outputs stay inside the pilot tree; normal outputs stay beside the
+    # captures tree so they share one data/vision directory.
+    output_root = root if args.pilot else os.path.dirname(root.rstrip(os.sep))
     output_csv = args.output_csv or _default_output(
         output_root, "vision_eval_trials.csv")
     results_json = args.results_json or _default_output(

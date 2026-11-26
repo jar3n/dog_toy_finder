@@ -45,6 +45,9 @@ rosa_agent/memory/*.db
 data/vision/*
 data/planning/*
 !data/vision/.gitkeep
+!data/vision/pilot_captures/
+data/vision/pilot_captures/*
+!data/vision/pilot_captures/.gitkeep
 !data/planning/.gitkeep
 
 # Accidental colcon output if built from software/ instead of software/ros2_ws/

@@ -402,7 +402,10 @@ workflow; live planning-model comparison is covered in the
 Trial data is stored in the repository's `data/` folder, next to `hardware/`
 and `software/`: `data/vision/captures/`, `data/vision/vision_eval_*.csv/json`
 and `data/planning/<run_id>/`. Inside the ROS 2 container those paths are under
-`/workspace/data`.
+`/workspace/data`. Pilot runs use the sibling
+`/workspace/data/vision/pilot_captures/` directory instead; add `--pilot` to
+both `vision_capture` and `vision_eval` to keep pilot captures and their default
+outputs separate. Explicit output paths still override the pilot defaults.
 
 Calibrate the stereo pair first with
 [camera_calibration.md](camera_calibration.md); put the measured intrinsics and

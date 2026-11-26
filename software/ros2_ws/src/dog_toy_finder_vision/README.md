@@ -261,6 +261,12 @@ ros2 run dog_toy_finder_vision vision_capture \
     --config "/workspace/software/ros2_ws/src/dog_toy_finder_vision/config/vision_detectors.yaml"
 ```
 
+Add `--pilot` to capture pilot scenes under
+`/workspace/data/vision/pilot_captures` instead of
+`/workspace/data/vision/captures`. An explicit `--output-dir` still wins; use
+the same `--pilot` flag on `vision_eval` so its default trial outputs stay in
+that pilot tree.
+
 In a TTY, `vision_capture` prompts (unless the flags are given) once per scene
 for `center_offset_m along optical plane (+left)` and `distance_m along optical
 axis (normal)`, computes `lateral_bearing_deg`, then suggests a `capture_id`
@@ -315,7 +321,8 @@ random `shuffle_seed` is generated unless `--seed` is given, and the seed,
 `shot_order`, `scene_order`, and `shots_per_scene` are saved in the summary
 manifest so the order can be reproduced. `--capture` accepts either one shot
 directory or a whole scene
-directory. Other useful flags include `--run-id`, `--limit`, and `--seed`. See
+directory. Other useful flags include `--pilot`, `--run-id`, `--limit`, and
+`--seed`. See
 the
 [vision comparison guide](../../../../docs/setup/vision_comparison_guide.md)
 for the full experiment workflow.

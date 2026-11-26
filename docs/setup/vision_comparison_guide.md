@@ -185,6 +185,13 @@ run=capture_run1
 target=red ball
 ```
 
+For a pilot run, add `--pilot` to both `vision_capture` and `vision_eval`. That
+uses `/workspace/data/vision/pilot_captures` as the capture root and writes the
+default trial CSV/JSON files inside that same pilot directory, keeping pilot
+data out of `/workspace/data/vision/captures`. An explicit `--output-dir`,
+`--captures-dir`, `--output-csv`, `--results-json`, or `--summary-json` still
+wins.
+
 `scripts/full_system_eval.conf` defines these defaults. The YAML at `config`
 must be the same file whose `fx`, `cx`, and baseline you checked above;
 `vision_capture` copies those values into each `meta.json`. The config also
@@ -445,6 +452,11 @@ Without the output overrides, each run writes to the same default paths:
 /workspace/data/vision/vision_eval_results.jsonl
 /workspace/data/vision/vision_eval_summary.json
 ```
+
+With `--pilot`, those three defaults move to
+`/workspace/data/vision/pilot_captures/vision_eval_trials.csv`,
+`/workspace/data/vision/pilot_captures/vision_eval_results.jsonl`, and
+`/workspace/data/vision/pilot_captures/vision_eval_summary.json`.
 
 One scored row is written per model per shot (one answer per shot), so a scene
 captured with `--shots "3"` contributes three rows. Its `ask_id` is

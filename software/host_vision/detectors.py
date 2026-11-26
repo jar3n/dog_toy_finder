@@ -25,6 +25,7 @@ Heavy imports are lazy so ``--help``, health checks, and tests do not load torch
 Tests can inject fakes with ``load_detector(config, model=fake)``.
 """
 
+import inspect
 import io
 
 import numpy as np
@@ -256,8 +257,19 @@ def _dino_detections(loaded, rgb, classes, config):
                        return_tensors="pt").to(device)
     with torch.no_grad():
         outputs = network(**inputs)
-    results = processor.post_process_grounded_object_detection(
-        outputs, inputs.input_ids, box_threshold=confidence,
+    post_process = processor.post_process_grounded_object_detection
+    parameters = inspect.signature(post_process).parameters
+    # transformers renamed box_threshold -> threshold. Support both so the
+    # service keeps working across the versions accepted by requirements.txt.
+    if "threshold" in parameters:
+        threshold_key = "threshold"
+    elif "box_threshold" in parameters:
+        threshold_key = "box_threshold"
+    else:
+        raise TypeError(
+            "GroundingDino post-processing has no confidence threshold")
+    results = post_process(
+        outputs, inputs.input_ids, **{threshold_key: confidence},
         text_threshold=text_threshold,
         target_sizes=[(int(rgb.shape[0]), int(rgb.shape[1]))])[0]
     detections = []

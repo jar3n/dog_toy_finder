@@ -24,6 +24,8 @@ class CaptureIdTests(unittest.TestCase):
         self.assertNotIn("--capture-id", options)
         self.assertIn("--run-id", options)
         self.assertIn("--shots", options)
+        self.assertIn("--pilot", options)
+        self.assertFalse(parser.get_default("pilot"))
         self.assertEqual(parser.get_default("shots"), 3)
 
     def test_shot_directory_names_are_zero_padded(self):

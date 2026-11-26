@@ -154,6 +154,24 @@ def _torch_load(torch, path, device, weights_only=False):
         return torch.load(path, map_location=device)
 
 
+def _timm_create_model_with_act1(torch, timm):
+    """Return a create_model wrapper for newer timm feature extractors.
+
+    IGEV++'s real-time feature network expects ``model.act1``. Recent timm
+    versions fold that ReLU6 into ``model.bn1`` instead. Adding an identity
+    module keeps the upstream forward pass valid without changing checkpoints.
+    """
+    original = timm.create_model
+
+    def create_model(*args, **kwargs):
+        feature_model = original(*args, **kwargs)
+        if not hasattr(feature_model, "act1"):
+            feature_model.act1 = torch.nn.Identity()
+        return feature_model
+
+    return create_model, original
+
+
 def load_model(config, model=None):
     """Load and cache one dense stereo backend, importing torch lazily."""
     name = model_name(config)
@@ -192,12 +210,19 @@ def load_model(config, model=None):
         network.args.max_disp = max_disparity(config)
     else:
         _require_repo(name, config)
-        from core_rt.rt_igev_stereo import IGEVStereo
-        args = SimpleNamespace(
-            hidden_dim=96, corr_levels=2, corr_radius=4, n_downsample=2,
-            n_gru_layers=3, max_disp=max_disparity(config),
-            mixed_precision=False, precision_dtype="float32")
-        network = IGEVStereo(args)
+        import timm
+        patched_create_model, original_create_model = (
+            _timm_create_model_with_act1(torch, timm))
+        timm.create_model = patched_create_model
+        try:
+            from core_rt.rt_igev_stereo import IGEVStereo
+            args = SimpleNamespace(
+                hidden_dim=96, corr_levels=2, corr_radius=4, n_downsample=2,
+                n_gru_layers=3, max_disp=max_disparity(config),
+                mixed_precision=False, precision_dtype="float32")
+            network = IGEVStereo(args)
+        finally:
+            timm.create_model = original_create_model
         state = _torch_load(torch, path, "cpu")
         if isinstance(state, dict) and "state_dict" in state:
             state = state["state_dict"]

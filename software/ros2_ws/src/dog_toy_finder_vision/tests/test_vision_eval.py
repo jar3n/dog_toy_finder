@@ -225,6 +225,32 @@ class OfflineEvalTests(unittest.TestCase):
         self.assertEqual(sorted(summary["shot_order"]), sorted(
             os.path.relpath(path, self.root) for path in shot_dirs))
 
+    def test_main_pilot_mode_keeps_default_outputs_in_pilot_root(self):
+        self._write_synthetic_pair()
+        self._write_multi_shot_scene()
+        shutil.rmtree(self.capture_dir)
+        original = vision_eval.evaluate_capture
+
+        def evaluate_with_fake_client(path, config, pipeline=None, client=None,
+                                      depth_client=None):
+            return original(path, config, pipeline, FakeClient())
+
+        with mock.patch.object(vision_config, "default_capture_dir",
+                               return_value=self.root) as default_dir, \
+             mock.patch.object(vision_eval, "evaluate_capture",
+                               evaluate_with_fake_client), \
+             contextlib.redirect_stdout(io.StringIO()):
+            code = vision_eval.main([
+                "--pilot", "--pipeline", "open_vocab", "--seed", "42"])
+        self.assertEqual(code, 0)
+        default_dir.assert_called_once_with(pilot=True)
+        for name in ("vision_eval_trials.csv", "vision_eval_results.jsonl",
+                     "vision_eval_summary.json"):
+            self.assertTrue(os.path.isfile(os.path.join(self.root, name)), name)
+        with open(os.path.join(self.root, "vision_eval_summary.json")) as handle:
+            summary = json.load(handle)
+        self.assertEqual(summary["captures_dir"], self.root)
+
     def test_main_records_randomized_scene_and_shot_order(self):
         self._write_synthetic_pair()
         self._write_multi_shot_scene("sceneA", 3)

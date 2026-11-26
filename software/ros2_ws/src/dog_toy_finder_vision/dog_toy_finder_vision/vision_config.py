@@ -91,23 +91,26 @@ def resolve_config_path(path=None):
         "Vision detector config not found; tried: %s" % ", ".join(candidates))
 
 
-def default_capture_dir():
+def default_capture_dir(pilot=False):
     """Return the capture root used by both the capture and replay tools.
 
-    ``VISION_CAPTURE_DIR`` wins. Outside that override the repository's
-    ``data/vision/captures`` directory is used when the checkout is visible.
+    ``VISION_CAPTURE_DIR`` wins for normal captures. ``pilot=True`` selects the
+    sibling ``data/vision/pilot_captures`` directory instead and ignores that
+    override, unless the caller supplies an explicit path on the command line.
     """
-    override = os.environ.get("VISION_CAPTURE_DIR")
-    if override:
-        return os.path.abspath(os.path.expanduser(override))
+    if not pilot:
+        override = os.environ.get("VISION_CAPTURE_DIR")
+        if override:
+            return os.path.abspath(os.path.expanduser(override))
+    name = "pilot_captures" if pilot else "captures"
     # Source checkout: <repo>/software/ros2_ws/src/<pkg>/<pkg>/this_file.py
     source_root = os.path.abspath(os.path.join(
         os.path.dirname(os.path.abspath(__file__)),
         "..", "..", "..", "..", ".."))
-    candidate = os.path.join(source_root, "data", "vision", "captures")
+    candidate = os.path.join(source_root, "data", "vision", name)
     if os.path.isdir(os.path.dirname(candidate)):
         return candidate
-    return os.path.join(os.getcwd(), "data", "vision", "captures")
+    return os.path.join(os.getcwd(), "data", "vision", name)
 
 
 def load_config(path=None):

@@ -6,6 +6,9 @@
 #   fast_foundation_stereo   NVIDIA Fast-FoundationStereo 23-36-37
 #   rt_igevpp                IGEV++ real-time network (core_rt, 6 iterations)
 #
+# fast_foundation_stereo uses @torch.compile; TorchInductor needs Python.h from
+# the host's python3-devel/python3-dev package for its first inference compile.
+#
 # The ROS container only sends JPEGs and sample coordinates over HTTP. Torch,
 # the upstream GitHub repositories, and the weights live here on the computer.
 # The first run creates a local venv, installs dependencies, clones the selected

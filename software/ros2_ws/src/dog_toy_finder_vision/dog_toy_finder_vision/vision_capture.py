@@ -23,7 +23,9 @@ and ``meta.json`` directly in the scene directory. ``vision_eval`` discovers
 either layout and writes one row per model per shot.
 
 ``output_dir`` defaults to ``$VISION_CAPTURE_DIR`` when set, otherwise the
-repository's ``data/vision/captures`` directory. In a TTY the operator enters
+repository's ``data/vision/captures`` directory. ``--pilot`` selects the sibling
+``data/vision/pilot_captures`` directory instead; an explicit ``--output-dir``
+still wins. In a TTY the operator enters
 the signed offset from the optical-axis centre in the optical plane (positive =
 robot-left) and the distance along the normal to that plane; the lateral bearing
 is computed as ``atan(offset / depth)``. These are operator measurements, not
@@ -244,7 +246,12 @@ def _build_parser():
     parser.add_argument("--run-id", default=datetime.now().strftime("run_%Y%m%d"),
                         help="dataset run label (a directory below output-dir)")
     parser.add_argument("--output-dir", default=None,
-                        help="capture root (default: %s)" % vision_config.default_capture_dir())
+                        help="capture root (default: %s, or %s with --pilot)"
+                             % (vision_config.default_capture_dir(),
+                                vision_config.default_capture_dir(pilot=True)))
+    parser.add_argument("--pilot", action="store_true",
+                        help="use the pilot capture root next to captures "
+                             "(an explicit --output-dir wins)")
     parser.add_argument("--config", default=None, help="detector YAML path")
     parser.add_argument("--left-topic", default=None,
                         help="override the left rectified-color topic")
@@ -264,7 +271,7 @@ def main(argv=None):
         raise SystemExit("--shots must be at least 1")
     config = vision_config.load_config(args.config)
     output_dir = os.path.abspath(os.path.expanduser(
-        args.output_dir or vision_config.default_capture_dir()))
+        args.output_dir or vision_config.default_capture_dir(pilot=args.pilot)))
 
     interactive = sys.stdin.isatty()
     if interactive and not args.not_visible:

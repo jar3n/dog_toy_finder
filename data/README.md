@@ -19,6 +19,12 @@ data/
             ...
           shot_03/
             ...
+    pilot_captures/
+      <run_id>/
+        <capture_id>/
+          scene.json
+          shot_01/
+            ...
     vision_eval_trials.csv
     vision_eval_trials_scored.csv
     vision_eval_results.jsonl
@@ -36,6 +42,10 @@ data/
   target, intrinsics, image timestamps, and `ground_truth` (including the
   entered `center_offset_m` and computed `lateral_bearing_deg`). `--shots 1`
   keeps the older flat layout with one pair directly in `<capture_id>/`.
+- `vision/pilot_captures/` is the pilot-only sibling of `vision/captures/`.
+  Add `--pilot` to `vision_capture` and `vision_eval` to keep pilot scenes and
+  their default `vision_eval_*` outputs out of the normal captures tree;
+  explicit `--output-dir`, `--captures-dir`, and output paths still win.
 - `vision_eval_*` files are written by `dog_toy_finder_vision vision_eval`,
   which replays every shot through one selected vision pipeline per invocation.
   `vision_eval_trials.csv` has one scored row per model per shot, with ground
