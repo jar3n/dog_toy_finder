@@ -42,8 +42,9 @@ data/
   truth and scored columns already filled; multi-shot `ask_id` values end in
   `_shot_NN`. The `model` column is the detector name for `open_vocab` or the
   dense depth model name for `stereo-net`. `vision_eval_summary.json` records
-  the selected pipeline, `shuffle_seed`, `shot_order`, `scene_order`,
-  `shots_per_scene`, and the per-model summary. The trial CSV schema is
+  the selected pipeline, `shuffle_seed`, randomized `scene_order`, `shot_order`
+  within each scene, `shots_per_scene`, and the per-model summary. The trial CSV
+  schema is
   unchanged: new vision rows use `method=open_vocab` or `method=stereo-net`,
   while `method=ml` only appears on legacy rows.
 - `planning/` is written by `rosa_agent --compare --output-csv` (and the

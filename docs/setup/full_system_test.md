@@ -466,8 +466,8 @@ three values in every live answer. Repeat with a new suggested or custom
 `capture_id` for each scene. After the capture phase, replay every saved shot
 offline with no camera topics or ROS graph. Run **one pipeline per invocation**.
 To compare both, use distinct output paths and pass the same `--seed` to each run
-so they process the randomized shots in the same order; a seed is printed and
-recorded in the summary when omitted:
+so they process the randomized scene order and per-scene shot order identically;
+a seed is printed and recorded in the summary when omitted:
 
 ```bash
 # Add --seed N to both commands (use a recorded seed for identical order).
@@ -502,7 +502,8 @@ one-image detector, and answers carry `method=stereo-net` plus
 Ground truth is copied from each shot's `meta.json`, and scored columns are
 written immediately. Each summary manifest (`vision_eval_summary.json`) records
 the pipeline, `shuffle_seed`, `shot_order` (paths relative to `--captures-dir`),
-`scene_order`, and `shots_per_scene` so an order can be reproduced.
+`scene_order`, and `shots_per_scene` so the shuffled scene order and the shot
+order inside each scene can be reproduced.
 
 Planning rows are written by ROSA (section 5.1) to `/workspace/data/planning/plan1/planning_trials.csv`. The
 `gt_*` columns stay blank unless `ROSA_GT_JSON` points at a JSON file. A flat
@@ -574,8 +575,8 @@ matches, latency, errors, and a mean score. `llm_trials analyze` adds confidence
 intervals and paired comparisons so differences can be judged after all trials
 are collected. For captured trials, `ask_id` is the per-shot ID (scene ID plus
 `_shot_NN` for multi-shot scenes), so each pipeline is compared on the same saved
-shot; use the recorded `shuffle_seed` and `shot_order` to keep replay order
-identical across pipelines.
+shot; use the recorded `shuffle_seed`, `scene_order`, and `shot_order` to keep
+replay order identical across pipelines.
 
 ## 8. Viewing the map
 

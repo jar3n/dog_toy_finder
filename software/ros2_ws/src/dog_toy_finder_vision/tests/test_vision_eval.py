@@ -225,6 +225,41 @@ class OfflineEvalTests(unittest.TestCase):
         self.assertEqual(sorted(summary["shot_order"]), sorted(
             os.path.relpath(path, self.root) for path in shot_dirs))
 
+    def test_main_records_randomized_scene_and_shot_order(self):
+        self._write_synthetic_pair()
+        self._write_multi_shot_scene("sceneA", 3)
+        self._write_multi_shot_scene("sceneB", 3)
+        shutil.rmtree(self.capture_dir)
+        original = vision_eval.evaluate_capture
+
+        def evaluate_with_fake_client(path, config, pipeline=None, client=None,
+                                      depth_client=None):
+            return original(path, config, pipeline, FakeClient())
+
+        summary_path = os.path.join(self.temp.name, "shuffled_scenes.json")
+        with mock.patch.object(vision_eval, "evaluate_capture",
+                               evaluate_with_fake_client), \
+             contextlib.redirect_stdout(io.StringIO()):
+            code = vision_eval.main([
+                "--captures-dir", self.root, "--pipeline", "open_vocab",
+                "--seed", "1",
+                "--output-csv", os.path.join(self.temp.name,
+                                             "shuffled_scenes.csv"),
+                "--results-json", os.path.join(self.temp.name,
+                                               "shuffled_scenes.jsonl"),
+                "--summary-json", summary_path])
+        self.assertEqual(code, 0)
+
+        with open(summary_path) as handle:
+            summary = json.load(handle)
+        expected_order = list(vision_eval.iter_captures(
+            self.root, rng=random.Random(1)))
+        self.assertEqual(summary["shot_order"], [
+            os.path.relpath(path, self.root) for path in expected_order])
+        self.assertEqual(summary["scene_order"], ["sceneB", "sceneA"])
+        self.assertEqual(summary["shots_per_scene"],
+                         {"sceneA": 3, "sceneB": 3})
+
     def test_iter_captures_finds_complete_directories(self):
         self._write_synthetic_pair()
         incomplete = os.path.join(self.root, "run1", "bad")
@@ -243,6 +278,36 @@ class OfflineEvalTests(unittest.TestCase):
                 self.assertCountEqual(found, expected)
                 self.assertNotEqual(found, expected,
                                     "seeded RNG must change processing order")
+
+    def test_iter_captures_shuffles_scenes_then_shots_within_each_scene(self):
+        self._write_synthetic_pair()
+        _, first = self._write_multi_shot_scene("sceneA", 3)
+        _, second = self._write_multi_shot_scene("sceneB", 3)
+        shutil.rmtree(self.capture_dir)
+
+        found = list(vision_eval.iter_captures(
+            self.root, rng=random.Random(1)))
+        repeated = list(vision_eval.iter_captures(
+            self.root, rng=random.Random(1)))
+        self.assertEqual(found, repeated)
+        self.assertCountEqual(found, first + second)
+
+        seen_scenes = []
+        for path in found:
+            scene = os.path.basename(os.path.dirname(path))
+            if scene not in seen_scenes:
+                seen_scenes.append(scene)
+        self.assertEqual(seen_scenes, ["sceneB", "sceneA"])
+
+        grouped = []
+        for scene in seen_scenes:
+            ordered = [path for path in found
+                       if os.path.basename(os.path.dirname(path)) == scene]
+            self.assertEqual(len(ordered), 3)
+            self.assertNotEqual(ordered, sorted(ordered),
+                                "shots inside a scene must be shuffled")
+            grouped.extend(ordered)
+        self.assertEqual(found, grouped, "each scene must stay contiguous")
 
     def test_capture_order_repeatable_by_seed_and_changes_with_seed(self):
         self._write_synthetic_pair()

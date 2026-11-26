@@ -286,8 +286,9 @@ invocation with `--pipeline open_vocab` or `--pipeline stereo-net` (or set
 pipeline is not run. Keep the same host `DETECTOR_MODEL` for both: `open_vocab`
 uses the detector service only, while `stereo-net` also needs the depth service
 (one depth model at a time). Use the same `--seed` for both runs so they process
-the randomized captures in identical order. To compare both, use different
-output paths for each run so the first result is not overwritten:
+the randomized scene order and per-scene shot order identically. To compare
+both, use different output paths for each run so the first result is not
+overwritten:
 
 ```bash
 ros2 run dog_toy_finder_vision vision_eval \
@@ -308,11 +309,12 @@ using the model name produced by the selected pipeline (detector name for
 `open_vocab`, dense depth model name for `stereo-net`) and records the chosen
 pipeline in the summary manifest. Multi-shot `ask_id` values are
 `<capture_id>_shot_NN`, so every shot pairs across pipelines while sharing its
-scene's operator-measured ground truth. Shots are processed in shuffled order
-(`--limit` applies after the shuffle); a random `shuffle_seed` is generated
-unless `--seed` is given, and the seed, `shot_order`, `scene_order`, and
-`shots_per_scene` are saved in the summary manifest so the order can be
-reproduced. `--capture` accepts either one shot directory or a whole scene
+scene's operator-measured ground truth. Scenes are shuffled first and the shots
+inside each scene are shuffled next (`--limit` applies after both shuffles); a
+random `shuffle_seed` is generated unless `--seed` is given, and the seed,
+`shot_order`, `scene_order`, and `shots_per_scene` are saved in the summary
+manifest so the order can be reproduced. `--capture` accepts either one shot
+directory or a whole scene
 directory. Other useful flags include `--run-id`, `--limit`, and `--seed`. See
 the
 [vision comparison guide](../../../../docs/setup/vision_comparison_guide.md)

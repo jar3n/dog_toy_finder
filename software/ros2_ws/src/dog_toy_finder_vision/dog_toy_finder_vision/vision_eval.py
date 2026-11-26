@@ -15,9 +15,10 @@ Usage inside the ROS 2 container::
         --captures-dir /workspace/data/vision/captures \
         --pipeline open_vocab
 
-Shots are processed in shuffled order. Use ``--seed`` to reproduce an order;
-the generated seed and the resulting shot order are recorded in the summary
-manifest. Both multi-shot scenes and legacy flat captures are discovered.
+Scenes are shuffled first, then the shots within each scene are shuffled. Use
+``--seed`` to reproduce an order; the generated seed, scene order, and shot
+order are recorded in the summary manifest. Both multi-shot scenes and legacy
+flat captures are discovered.
 
 Outputs (defaults next to the captures directory)::
 
@@ -66,9 +67,42 @@ def _read_meta(path):
 
 
 def _meta_run_id(meta, path):
-    """Use the recorded run id, falling back to the legacy parent directory."""
+    """Use the recorded run id, falling back to the parent run directory."""
     value = meta.get("run_id")
-    return str(value) if value else os.path.basename(os.path.dirname(path))
+    if value:
+        return str(value)
+    if path and re.match(r"^shot_\d+$", os.path.basename(path)):
+        return os.path.basename(os.path.dirname(os.path.dirname(path)))
+    return os.path.basename(os.path.dirname(path)) if path else "captures"
+
+
+def _scene_id(meta, path=None):
+    """Return the scene key shared by all shots of one capture scene."""
+    value = meta.get("scene_id") or meta.get("capture_id")
+    if value:
+        return str(value)
+    if path:
+        base = os.path.basename(path)
+        if re.match(r"^shot_\d+$", base):
+            return os.path.basename(os.path.dirname(path))
+        return base
+    return "captures"
+
+
+def _shuffle_scenes_and_shots(selected, rng):
+    """Order shots by shuffled scene, then shuffled shots within each scene."""
+    groups = {}
+    for path, meta in selected:
+        key = (_meta_run_id(meta, path), _scene_id(meta, path))
+        groups.setdefault(key, []).append(path)
+    keys = list(groups)
+    rng.shuffle(keys)
+    ordered = []
+    for key in keys:
+        shots = groups[key]
+        rng.shuffle(shots)
+        ordered.extend(shots)
+    return ordered
 
 
 def _as_int(value, default=1):
@@ -87,9 +121,9 @@ def iter_captures(root, run_id=None, capture=None, rng=None):
     at either one shot directory or a whole scene directory.
 
     Discovery is sorted so the set of shots is deterministic; ``main`` supplies
-    a seeded random generator so the *processing order* is random but
-    reproducible. Callers that omit ``rng`` keep the sorted order (useful for
-    tests and tooling that needs a stable listing).
+    a seeded random generator so scenes and the shots inside each scene are
+    shuffled reproducibly. Callers that omit ``rng`` keep the sorted order
+    (useful for tests and tooling that needs a stable listing).
     """
     if capture:
         start = os.path.abspath(os.path.expanduser(capture))
@@ -118,10 +152,12 @@ def iter_captures(root, run_id=None, capture=None, rng=None):
             continue
         if run_id and _meta_run_id(meta, path) != run_id:
             continue
-        selected.append(path)
-    if rng is not None and len(selected) > 1:
-        rng.shuffle(selected)
-    for path in selected:
+        selected.append((path, meta))
+    if rng is not None:
+        ordered = _shuffle_scenes_and_shots(selected, rng)
+    else:
+        ordered = [path for path, _ in selected]
+    for path in ordered:
         yield path
 
 
@@ -226,8 +262,8 @@ def _build_parser():
     parser.add_argument("--limit", type=int, default=0,
                         help="stop after this many shots (0 = all)")
     parser.add_argument("--seed", type=int, default=None,
-                        help="shot shuffle seed (default: random; recorded "
-                             "in the summary manifest)")
+                        help="scene/shot shuffle seed (default: random; "
+                             "recorded in the summary manifest)")
     parser.add_argument("--output-csv", default=None, help="trial CSV path")
     parser.add_argument("--results-json", default=None, help="full results JSONL")
     parser.add_argument("--summary-json", default=None, help="aggregate JSON path")
@@ -264,7 +300,7 @@ def main(argv=None):
         print("No shots found under %s" % root, file=sys.stderr)
         return 1
     shot_order = [os.path.relpath(path, root) for path in shots]
-    print("Processing %d shot(s) in shuffled order (seed %d)"
+    print("Processing %d shot(s) in randomized scene/shot order (seed %d)"
           % (len(shots), seed))
 
     rows = []

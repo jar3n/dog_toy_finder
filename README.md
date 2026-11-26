@@ -109,7 +109,8 @@ from the optical-axis center, and `lateral_bearing_deg` =
 `+y`); no coarse side label is emitted or accepted. For comparison,
 `vision_capture` saves several rectified shots per scene with operator-measured
 ground truth, and `vision_eval` replays every shot offline through the configured
-pipeline in a shuffled, seed-recorded order.
+pipeline in a seed-recorded order that shuffles scenes and the shots within each
+scene.
 
 ## Running the full system
 

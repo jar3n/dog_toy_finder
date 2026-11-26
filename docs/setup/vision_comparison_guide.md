@@ -411,9 +411,10 @@ for the whole run; the other is not touched. Keep the same host `DETECTOR_MODEL`
 for both pipelines: `open_vocab` uses the detector service only, while `stereo-net`
 also uses the depth service (one depth model at a time). To compare both, replay
 the same shots twice with different output paths so the first run is not
-overwritten. Every shot of every scene is replayed; shots are shuffled before
-replay so directory names do not determine the processing order, and `--limit`
-applies after the shuffle.
+overwritten. Every shot of every scene is replayed; scenes are shuffled first,
+then the shots inside each scene are shuffled, so directory names do not
+determine the processing order. `--limit` applies after this hierarchical
+shuffle.
 
 ```bash
 # Optional: add --seed N to both commands; reuse a recorded seed for identical order.
@@ -458,11 +459,12 @@ the dense depth model name from the host depth service, answers carry
 from the retired path use `method=ml`. Ground truth is copied from each shot's
 `meta.json`, so no spreadsheet annotation is needed. The summary manifest
 (`vision_eval_summary.json`) records the pipeline that produced the rows, the
-`shuffle_seed` used for shot order, the resulting `shot_order` (paths relative
-to `--captures-dir`), `scene_order`, and `shots_per_scene`. When `--seed` is
-omitted, a random seed is generated and printed, then recorded in that manifest;
-pass the same seed to another invocation to replay the exact order. Use the same
-seed for both pipelines when comparing them on identical shot order.
+`shuffle_seed` used for scene/shot order, the resulting `shot_order` (paths
+relative to `--captures-dir`), `scene_order`, and `shots_per_scene`. When
+`--seed` is omitted, a random seed is generated and printed, then recorded in
+that manifest; pass the same seed to another invocation to replay the exact
+scene and per-scene shot order. Use the same seed for both pipelines when
+comparing them on identical order.
 
 Useful options:
 
@@ -471,7 +473,7 @@ Useful options:
 ros2 run dog_toy_finder_vision vision_eval \
     --capture /workspace/data/vision/captures/capture_run1/red_ball_d1p15_op0p244
 
-# explicit pipeline and output paths; --limit applies after the shot shuffle
+# explicit pipeline and output paths; --limit applies after the scene/shot shuffle
 ros2 run dog_toy_finder_vision vision_eval --captures-dir "/workspace/data/vision/captures" \
     --pipeline open_vocab --output-csv "/workspace/data/vision/vision_eval_trials.csv" --limit 10
 
