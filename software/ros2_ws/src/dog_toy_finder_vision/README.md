@@ -27,9 +27,9 @@ The node subscribes only to `/stereo/{left,right}/image_rect_color`. Raw images
 still exist for rectification and the point-cloud pipeline, but detector inputs
 are rectified.
 
-Comparison is **capture-first**. `vision_capture` saves a rectified
-left/right pair with operator-measured ground truth, and `vision_eval` later
-replays those saved pairs through the configured pipeline. Each live answer
+Comparison is **capture-first**. `vision_capture` saves several rectified
+left/right shots per scene with operator-measured ground truth, and `vision_eval`
+later replays every saved shot through the configured pipeline. Each live answer
 reports `distance_m` along the optical axis, `center_offset_m` as the signed
 lateral distance from the optical-axis center (positive = robot-left / ROS
 `+y`), and `lateral_bearing_deg` in degrees from the optical axis. They satisfy
@@ -247,33 +247,38 @@ below: each selected pipeline sees the exact same saved images.
 
 ## Capture-first comparison
 
-With the rectified stereo pipeline running, save a labelled pair. No detector
-or `/vision/ask` is involved:
+With the rectified stereo pipeline running, save several labelled shots of one
+scene. No detector or `/vision/ask` is involved:
 
 ```bash
 cd /workspace
 
 ros2 run dog_toy_finder_vision vision_capture \
     --target "red ball" \
+    --shots "3" \
     --run-id "capture_run1" \
     --output-dir "/workspace/data/vision/captures" \
     --config "/workspace/software/ros2_ws/src/dog_toy_finder_vision/config/vision_detectors.yaml"
 ```
 
-In a TTY, `vision_capture` prompts (unless the flags are given) for
-`center_offset_m along optical plane (+left)` and `distance_m along optical
+In a TTY, `vision_capture` prompts (unless the flags are given) once per scene
+for `center_offset_m along optical plane (+left)` and `distance_m along optical
 axis (normal)`, computes `lateral_bearing_deg`, then suggests a `capture_id`
 from the toy name and measurements, such as `red_ball_d1p15_op0p244`. Press
 Enter to accept the suggestion or type a custom ID; absent targets suggest
 `<toy>_absent`. `--capture-id` is not a command-line flag: non-interactive
 callers get the same generated ID and must pass `--depth-m` plus
-`--center-offset-m` (or, for older scripts, `--bearing-deg`). Each capture writes
-`left.jpg`, `right.jpg`, and `meta.json` under
-`<output_dir>/<run_id>/<capture_id>/`. `meta.json` holds the operator's ground
-truth, including the entered `center_offset_m` and computed
-`lateral_bearing_deg`; use `--not-visible` for an empty frame.
-`vision_capture` waits for a fresh matched rectified pair, so it works with the
-non-hardware-synchronised ESP32-CAMs.
+`--center-offset-m` (or, for older scripts, `--bearing-deg`).
+
+The default `--shots "3"` saves three fresh matched pairs under
+`<output_dir>/<run_id>/<capture_id>/shot_01/` through `shot_03/`, plus
+`scene.json` for the shared ground truth. Each shot directory holds
+`left.jpg`, `right.jpg`, and `meta.json`; each `meta.json` holds the operator's
+ground truth, including the entered `center_offset_m` and computed
+`lateral_bearing_deg`. `--shots "1"` keeps the older flat layout directly in
+`<capture_id>/`. Use `--not-visible` for an empty scene. `vision_capture` waits
+for a new matched rectified pair for every shot, so consecutive shots cannot
+reuse the same camera frames from the non-hardware-synchronised ESP32-CAMs.
 
 After capturing all scenes, replay them offline. Select **one** pipeline per
 invocation with `--pipeline open_vocab` or `--pipeline stereo-net` (or set
@@ -298,14 +303,18 @@ ros2 run dog_toy_finder_vision vision_eval \
 #   --pipeline stereo-net --output-csv .../stereo-net_trials.csv ...
 ```
 
-`vision_eval` needs no ROS graph. It writes one scored row per capture using the
-model name produced by the selected pipeline (detector name for `open_vocab`,
-dense depth model name for `stereo-net`) and records the chosen pipeline in the
-summary manifest. Captures are processed in shuffled order (`--limit` applies
-after the shuffle); a random `shuffle_seed` is generated unless `--seed` is
-given, and both the seed and `capture_order` are saved in the summary manifest
-so the order can be reproduced. Useful flags include `--run-id`, `--capture`,
-`--limit`, and `--seed`. See the
+`vision_eval` needs no ROS graph. It writes one scored row per model per shot
+using the model name produced by the selected pipeline (detector name for
+`open_vocab`, dense depth model name for `stereo-net`) and records the chosen
+pipeline in the summary manifest. Multi-shot `ask_id` values are
+`<capture_id>_shot_NN`, so every shot pairs across pipelines while sharing its
+scene's operator-measured ground truth. Shots are processed in shuffled order
+(`--limit` applies after the shuffle); a random `shuffle_seed` is generated
+unless `--seed` is given, and the seed, `shot_order`, `scene_order`, and
+`shots_per_scene` are saved in the summary manifest so the order can be
+reproduced. `--capture` accepts either one shot directory or a whole scene
+directory. Other useful flags include `--run-id`, `--limit`, and `--seed`. See
+the
 [vision comparison guide](../../../../docs/setup/vision_comparison_guide.md)
 for the full experiment workflow.
 

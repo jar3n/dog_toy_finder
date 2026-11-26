@@ -119,6 +119,112 @@ class OfflineEvalTests(unittest.TestCase):
             json.dump(meta, handle)
         return destination
 
+    def _write_multi_shot_scene(self, capture_id="scene1", shot_count=3,
+                                run_id="run1"):
+        """Copy the synthetic pair into a numbered multi-shot scene."""
+        scene_dir = os.path.join(self.root, run_id, capture_id)
+        os.makedirs(scene_dir, exist_ok=True)
+        with open(os.path.join(self.capture_dir, "meta.json")) as handle:
+            base_meta = json.load(handle)
+        scene_meta = dict(base_meta, capture_id=capture_id, scene_id=capture_id,
+                          run_id=run_id, shot_count=shot_count)
+        with open(os.path.join(scene_dir, "scene.json"), "w") as handle:
+            json.dump(scene_meta, handle)
+        shot_dirs = []
+        for index in range(1, shot_count + 1):
+            shot_dir = os.path.join(scene_dir, "shot_%02d" % index)
+            os.makedirs(shot_dir, exist_ok=True)
+            for name in ("left.jpg", "right.jpg"):
+                shutil.copyfile(os.path.join(self.capture_dir, name),
+                                os.path.join(shot_dir, name))
+            meta = dict(scene_meta, shot_index=index)
+            with open(os.path.join(shot_dir, "meta.json"), "w") as handle:
+                json.dump(meta, handle)
+            shot_dirs.append(shot_dir)
+        return scene_dir, shot_dirs
+
+    def test_iter_captures_finds_all_shots_in_a_scene(self):
+        self._write_synthetic_pair()
+        scene_dir, shot_dirs = self._write_multi_shot_scene()
+        found = list(vision_eval.iter_captures(self.root))
+        self.assertEqual(found, sorted([self.capture_dir] + shot_dirs))
+        self.assertEqual(list(vision_eval.iter_captures(
+            self.root, capture=scene_dir)), shot_dirs)
+        self.assertEqual(vision_eval._capture_root(scene_dir), self.root)
+        self.assertEqual(vision_eval._capture_root(shot_dirs[0]), self.root)
+
+    def test_iter_captures_filters_nested_shots_by_recorded_run_id(self):
+        self._write_synthetic_pair()
+        _, run1_shots = self._write_multi_shot_scene("scene_run1", 2, "run1")
+        _, run2_shots = self._write_multi_shot_scene("scene_run2", 2, "run2")
+        found = list(vision_eval.iter_captures(self.root, run_id="run1"))
+        self.assertIn(self.capture_dir, found)
+        for path in run1_shots:
+            self.assertIn(path, found)
+        for path in run2_shots:
+            self.assertNotIn(path, found)
+
+    def test_evaluate_capture_gives_each_shot_a_unique_pairing_id(self):
+        self._write_synthetic_pair()
+        _, shot_dirs = self._write_multi_shot_scene()
+        result, meta = vision_eval.evaluate_capture(
+            shot_dirs[1], self.config, "open_vocab", client=FakeClient())
+        self.assertEqual(result["id"], "scene1_shot_02")
+        self.assertEqual(result["scene_id"], "scene1")
+        self.assertEqual(result["shot_index"], 2)
+        self.assertEqual(result["shot_count"], 3)
+        self.assertEqual(result["image"],
+                         os.path.join("run1", "scene1", "shot_02", "left.jpg"))
+        self.assertEqual(result["capture_dir"], shot_dirs[1])
+        self.assertEqual(meta["shot_index"], 2)
+
+    def test_main_writes_one_row_per_shot_and_records_scene_counts(self):
+        self._write_synthetic_pair()
+        _, shot_dirs = self._write_multi_shot_scene()
+        shutil.rmtree(self.capture_dir)
+        original = vision_eval.evaluate_capture
+
+        def evaluate_with_fake_client(path, config, pipeline=None, client=None,
+                                      depth_client=None):
+            return original(path, config, pipeline, FakeClient())
+
+        csv_path = os.path.join(self.temp.name, "multi_shot.csv")
+        results_path = os.path.join(self.temp.name, "multi_shot.jsonl")
+        summary_path = os.path.join(self.temp.name, "multi_shot_summary.json")
+        with mock.patch.object(vision_eval, "evaluate_capture",
+                               evaluate_with_fake_client), \
+             contextlib.redirect_stdout(io.StringIO()):
+            code = vision_eval.main([
+                "--captures-dir", self.root, "--pipeline", "open_vocab",
+                "--seed", "42", "--output-csv", csv_path,
+                "--results-json", results_path, "--summary-json", summary_path])
+        self.assertEqual(code, 0)
+
+        rows, _ = llm_trials.read_csv(csv_path)
+        self.assertEqual(len(rows), 3)
+        self.assertEqual({row["ask_id"] for row in rows}, {
+            "scene1_shot_01", "scene1_shot_02", "scene1_shot_03"})
+        self.assertEqual(len({row["trial_id"] for row in rows}), 3)
+        for row in rows:
+            self.assertTrue(row["visible_correct"])
+            self.assertAlmostEqual(float(row["distance_error_m"]), 0.0, delta=0.01)
+
+        with open(results_path) as handle:
+            results = [json.loads(line) for line in handle]
+        self.assertEqual(len(results), 3)
+        self.assertEqual(len({result["id"] for result in results}), 3)
+
+        with open(summary_path) as handle:
+            summary = json.load(handle)
+        self.assertEqual(summary["shots"], 3)
+        self.assertEqual(summary["captures"], 3)
+        self.assertEqual(summary["scenes"], 1)
+        self.assertEqual(summary["scene_order"], ["scene1"])
+        self.assertEqual(summary["shots_per_scene"], {"scene1": 3})
+        self.assertEqual(summary["shuffle_seed"], 42)
+        self.assertEqual(sorted(summary["shot_order"]), sorted(
+            os.path.relpath(path, self.root) for path in shot_dirs))
+
     def test_iter_captures_finds_complete_directories(self):
         self._write_synthetic_pair()
         incomplete = os.path.join(self.root, "run1", "bad")

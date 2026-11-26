@@ -392,9 +392,9 @@ ros2 launch dog_toy_finder_data collect.launch.py \
 ### 5.5 LLM comparison trials
 
 Vision and planning comparisons share the `dog_toy_finder_data.llm_trials` CSV
-schema and scoring tools. **Vision comparison is capture-first**: save each
-rectified left/right pair with operator-measured ground truth, then replay all
-captures offline. See the
+schema and scoring tools. **Vision comparison is capture-first**: save several
+fresh rectified left/right shots of each scene with operator-measured ground
+truth, then replay all shots offline. See the
 [vision comparison guide](vision_comparison_guide.md) for the full step-by-step
 workflow; live planning-model comparison is covered in the
 [planning comparison guide](planning_comparison_guide.md).
@@ -417,24 +417,27 @@ pipelines: `open_vocab` needs only the host detector service; `stereo-net` also
 needs the host dense-stereo depth service, with one depth model at a time. The
 live vision node is not needed for capture; terminate it (or launch
 `stereo_vision.launch.py` with `vision:=false`) and leave the rectified stereo
-pipeline running. Then save a labelled pair:
+pipeline running. Then save several labelled shots of one scene:
 
 ```bash
 cd /workspace
 
 ros2 run dog_toy_finder_vision vision_capture \
     --target "red ball" \
+    --shots "3" \
     --run-id "capture_run1" \
     --output-dir "/workspace/data/vision/captures" \
     --config "/workspace/software/ros2_ws/src/dog_toy_finder_vision/config/vision_detectors.yaml" \
     --timeout "20.0"
 ```
 
-`vision_capture` waits for a fresh matched `/stereo/{left,right}/image_rect_color`
-pair. Measure `distance_m` along the optical axis (normal to the optical plane)
-and `center_offset_m` from the optical-axis center in that plane; positive
-offset means robot-left (ROS `+y`). The command above is interactive: it prompts
-for `center_offset_m along optical plane (+left)` and `distance_m along optical
+`vision_capture` waits for each fresh matched
+`/stereo/{left,right}/image_rect_color` pair; `--shots "3"` saves three pairs,
+each with frames newer than the previous pair. Measure `distance_m` along the
+optical axis (normal to the optical plane) and `center_offset_m` from the
+optical-axis center in that plane; positive offset means robot-left (ROS `+y`).
+The command above is interactive: it prompts once per scene for
+`center_offset_m along optical plane (+left)` and `distance_m along optical
 axis (normal)`, computes `lateral_bearing_deg = atan(offset / depth)`, then
 suggests a `capture_id` built from the toy name and those measurements (for
 example `red_ball_d1p15_op0p244`). Press Enter to accept the suggestion or type
@@ -446,20 +449,25 @@ a visible target. `--bearing-deg` is still accepted for older scripts instead of
 the offset. Each call writes:
 
 ```text
-/workspace/data/vision/captures/capture_run1/<capture_id>/left.jpg
-/workspace/data/vision/captures/capture_run1/<capture_id>/right.jpg
-/workspace/data/vision/captures/capture_run1/<capture_id>/meta.json
+/workspace/data/vision/captures/capture_run1/<capture_id>/scene.json
+/workspace/data/vision/captures/capture_run1/<capture_id>/shot_01/left.jpg
+/workspace/data/vision/captures/capture_run1/<capture_id>/shot_01/right.jpg
+/workspace/data/vision/captures/capture_run1/<capture_id>/shot_01/meta.json
+/workspace/data/vision/captures/capture_run1/<capture_id>/shot_02/...
+/workspace/data/vision/captures/capture_run1/<capture_id>/shot_03/...
 ```
 
-`meta.json` contains the operator's ground truth: `distance_m` along the
-optical axis, `center_offset_m` from the optical-axis center, and the computed
-`lateral_bearing_deg`. Both pipelines emit those same three values in every
-live answer. Repeat with a new suggested or custom `capture_id` for each scene. After
-the capture phase, replay every
-saved pair offline with no camera topics or ROS graph. Run **one pipeline per
-invocation**. To compare both, use distinct output paths and pass the same
-`--seed` to each run so they process the randomized captures in the same order;
-a seed is printed and recorded in the summary when omitted:
+`scene.json` and each shot's `meta.json` contain the operator's ground truth:
+`distance_m` along the optical axis, `center_offset_m` from the optical-axis
+center, and the computed `lateral_bearing_deg`; all shots of a scene share those
+values. `--shots "1"` keeps the older flat layout with `left.jpg`, `right.jpg`,
+and `meta.json` directly in `<capture_id>/`. Both pipelines emit those same
+three values in every live answer. Repeat with a new suggested or custom
+`capture_id` for each scene. After the capture phase, replay every saved shot
+offline with no camera topics or ROS graph. Run **one pipeline per invocation**.
+To compare both, use distinct output paths and pass the same `--seed` to each run
+so they process the randomized shots in the same order; a seed is printed and
+recorded in the summary when omitted:
 
 ```bash
 # Add --seed N to both commands (use a recorded seed for identical order).
@@ -483,16 +491,18 @@ ros2 run dog_toy_finder_vision vision_eval \
     --summary-json "/workspace/data/vision/stereo-net_summary.json"
 ```
 
-One scored row is written per capture per invocation; the trial CSV schema is
-unchanged. For `open_vocab`, `model` is the detector name and matched detections
-carry `method=open_vocab` plus `distance_source=stereo_triangulation`. For
+One scored row is written per model per shot per invocation; a scene captured
+with `--shots "3"` contributes three rows with `ask_id` values ending
+`_shot_01`, `_shot_02`, and `_shot_03`. The trial CSV schema is unchanged. For
+`open_vocab`, `model` is the detector name and matched detections carry
+`method=open_vocab` plus `distance_source=stereo_triangulation`. For
 `stereo-net`, `model` is the dense depth model name, `detector_model` records the
 one-image detector, and answers carry `method=stereo-net` plus
 `distance_source=dense_stereo_depth`. `method=ml` is only used by legacy rows.
-Ground truth is copied from `meta.json`, and scored columns are written
-immediately. Each summary manifest (`vision_eval_summary.json`) records the
-pipeline, `shuffle_seed`, and `capture_order` (paths relative to
-`--captures-dir`) so an order can be reproduced.
+Ground truth is copied from each shot's `meta.json`, and scored columns are
+written immediately. Each summary manifest (`vision_eval_summary.json`) records
+the pipeline, `shuffle_seed`, `shot_order` (paths relative to `--captures-dir`),
+`scene_order`, and `shots_per_scene` so an order can be reproduced.
 
 Planning rows are written by ROSA (section 5.1) to `/workspace/data/planning/plan1/planning_trials.csv`. The
 `gt_*` columns stay blank unless `ROSA_GT_JSON` points at a JSON file. A flat
@@ -562,9 +572,10 @@ vision accuracy per `model` value (detector name for `open_vocab`, dense depth
 model name for `stereo-net`), distance/bearing error, planning action/argument
 matches, latency, errors, and a mean score. `llm_trials analyze` adds confidence
 intervals and paired comparisons so differences can be judged after all trials
-are collected. For captured trials, `ask_id` is the capture ID, so each pipeline
-is compared on the same saved images; use the recorded `shuffle_seed` and
-`capture_order` to keep replay order identical across pipelines.
+are collected. For captured trials, `ask_id` is the per-shot ID (scene ID plus
+`_shot_NN` for multi-shot scenes), so each pipeline is compared on the same saved
+shot; use the recorded `shuffle_seed` and `shot_order` to keep replay order
+identical across pipelines.
 
 ## 8. Viewing the map
 

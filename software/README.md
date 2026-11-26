@@ -48,7 +48,7 @@ ESP32-CAM left/right --HTTP--> stereo_camera_node -> image_proc
                                              |                         +-> occupancy_mapper
                                              |                             -> /map, /detected_toys
                                              |                             -> map_webserver -> browser
-                                             +-> vision_capture -> saved L/R JPEGs + meta.json
+                                             +-> vision_capture -> saved L/R shots + meta.json
                                                                   -> vision_eval (offline)
                                                                       -> vision_eval_trials.csv
 ```
@@ -60,8 +60,8 @@ top-level `pipeline` key in `vision_detectors.yaml`. `open_vocab` triangulates
 two-eye detections; `stereo-net` detects in the left eye and reads depth from a
 dense stereo map. All answers use a numeric `lateral_bearing_deg`
 (`atan((cx - u) / fx)`, positive = robot-left). For fair comparison, capture
-rectified pairs once with `vision_capture` and replay them offline with
-`vision_eval`; no live pose or detector is needed at capture time.
+several rectified shots per scene with `vision_capture` and replay them offline
+with `vision_eval`; no live pose or detector is needed at capture time.
 
 ## Quick start
 

@@ -1,8 +1,8 @@
-"""Capture one fresh rectified stereo pair with operator-entered ground truth.
+"""Capture fresh rectified stereo shots with operator-entered ground truth.
 
-Capturing and evaluating are deliberately separate: this node only waits for a
-new left/right rectified-color pair from the running stereo pipeline and writes
-it to disk. No detector runs at capture time, so the robot can be placed
+Capturing and evaluating are deliberately separate: this node waits for new
+left/right rectified-color pairs from the running stereo pipeline and writes
+them to disk. No detector runs at capture time, so the robot can be placed
 and the target measured without loading a vision model.
 
 Usage inside the ROS 2 container::
@@ -10,21 +10,28 @@ Usage inside the ROS 2 container::
     ros2 run dog_toy_finder_vision vision_capture \
         --target "red ball" --depth-m 1.15 --center-offset-m 0.24 --run-id run1
 
-Each capture is stored as::
+One invocation captures one scene with ``--shots`` fresh pairs (default 3)::
 
     <output_dir>/<run_id>/<capture_id>/
-        left.jpg  right.jpg  meta.json
+        scene.json
+        shot_01/left.jpg  shot_01/right.jpg  shot_01/meta.json
+        shot_02/left.jpg  shot_02/right.jpg  shot_02/meta.json
+        shot_03/left.jpg  shot_03/right.jpg  shot_03/meta.json
+
+``--shots 1`` keeps the legacy flat layout with ``left.jpg``, ``right.jpg``,
+and ``meta.json`` directly in the scene directory. ``vision_eval`` discovers
+either layout and writes one row per model per shot.
 
 ``output_dir`` defaults to ``$VISION_CAPTURE_DIR`` when set, otherwise the
 repository's ``data/vision/captures`` directory. In a TTY the operator enters
 the signed offset from the optical-axis centre in the optical plane (positive =
 robot-left) and the distance along the normal to that plane; the lateral bearing
 is computed as ``atan(offset / depth)``. These are operator measurements, not
-estimates from a detector under test. A suggested ``capture_id`` is then built
-from the toy name and those measured distances; pressing Enter accepts it, and
-the operator may type a different ID. Non-interactive callers get the same
-generated ID, and scripts may pass ``--bearing-deg`` directly instead of the
-offset.
+estimates from a detector under test, and are shared by every shot of the
+scene. A suggested ``capture_id`` is then built from the toy name and those
+measured distances; pressing Enter accepts it, and the operator may type a
+different ID. Non-interactive callers get the same generated ID, and scripts
+may pass ``--bearing-deg`` directly instead of the offset.
 """
 
 import argparse
@@ -33,6 +40,7 @@ import json
 import math
 import os
 import re
+import shutil
 import sys
 import time
 from datetime import datetime
@@ -69,7 +77,7 @@ def _stamp_seconds(msg):
 
 
 class StereoCapture(Node):
-    """Subscribe to rectified stereo and expose the first fresh matched pair."""
+    """Subscribe to rectified stereo and expose fresh matched shot pairs."""
 
     def __init__(self, left_topic, right_topic, pair_tolerance_s=0.5):
         super().__init__("vision_capture")
@@ -88,19 +96,25 @@ class StereoCapture(Node):
     def on_right(self, msg):
         self._right = (time.monotonic(), msg)
 
-    def fresh_pair(self):
-        """Return (left, right, stamps) once both eyes are new and matched."""
+    def fresh_pair(self, after=None):
+        """Return (left, right, stamps, received_at) for a new matched pair.
+
+        ``after`` is the receipt time of the previous shot, so consecutive
+        shots cannot reuse the same camera frames.
+        """
         if self._left is None or self._right is None:
             return None
         left_at, left = self._left
         right_at, right = self._right
         if left_at <= self._started or right_at <= self._started:
             return None
+        if after is not None and (left_at <= after or right_at <= after):
+            return None
         left_stamp, right_stamp = _stamp_seconds(left), _stamp_seconds(right)
         if left_stamp > 0.0 and right_stamp > 0.0:
             if abs(left_stamp - right_stamp) > self._pair_tolerance:
                 return None
-        return left, right, (left_stamp, right_stamp)
+        return left, right, (left_stamp, right_stamp), max(left_at, right_at)
 
 
 def write_capture(directory, left, right, meta):
@@ -117,6 +131,36 @@ def write_capture(directory, left, right, meta):
     with open(os.path.join(directory, "meta.json"), "w") as handle:
         json.dump(meta, handle, indent=2)
     return meta
+
+
+def shot_dir_name(index):
+    """Return the directory name for a numbered shot."""
+    return "shot_%02d" % int(index)
+
+
+def _clear_previous_shots(directory):
+    """Remove numbered shots left by an earlier capture with the same ID."""
+    if not os.path.isdir(directory):
+        return
+    for name in os.listdir(directory):
+        if not re.match(r"^shot_\d+$", name):
+            continue
+        path = os.path.join(directory, name)
+        if os.path.islink(path):
+            os.unlink(path)
+        elif os.path.isdir(path):
+            shutil.rmtree(path)
+
+
+def _wait_for_pair(node, timeout, after=None):
+    """Spin until a fresh matched pair newer than ``after`` arrives."""
+    deadline = time.monotonic() + max(0.0, timeout)
+    while rclpy.ok() and time.monotonic() < deadline:
+        rclpy.spin_once(node, timeout_sec=0.1)
+        pair = node.fresh_pair(after=after)
+        if pair is not None:
+            return pair
+    return None
 
 
 def _prompt_float(label, default=None):
@@ -194,6 +238,9 @@ def _build_parser():
     parser.add_argument("--obstacle", default="none",
                         help="optional operator obstacle label in the centre")
     parser.add_argument("--notes", default="", help="free-form operator notes")
+    parser.add_argument("--shots", type=int, default=3,
+                        help="fresh stereo pairs to capture for this scene "
+                             "(default: 3; 1 keeps the legacy flat layout)")
     parser.add_argument("--run-id", default=datetime.now().strftime("run_%Y%m%d"),
                         help="dataset run label (a directory below output-dir)")
     parser.add_argument("--output-dir", default=None,
@@ -206,20 +253,22 @@ def _build_parser():
     parser.add_argument("--pair-tolerance", type=float, default=0.5,
                         help="maximum timestamp difference between eyes (s)")
     parser.add_argument("--timeout", type=float, default=20.0,
-                        help="how long to wait for a fresh stereo pair (s)")
+                        help="how long to wait for each fresh stereo pair (s)")
     return parser
 
 
 def main(argv=None):
-    """Capture one labelled rectified stereo pair."""
+    """Capture one labelled scene with one or more fresh stereo shots."""
     args = _build_parser().parse_args(argv)
+    if args.shots < 1:
+        raise SystemExit("--shots must be at least 1")
     config = vision_config.load_config(args.config)
     output_dir = os.path.abspath(os.path.expanduser(
         args.output_dir or vision_config.default_capture_dir()))
 
     interactive = sys.stdin.isatty()
     if interactive and not args.not_visible:
-        print("Enter ground truth measured for this capture:")
+        print("Enter ground truth measured for this scene:")
 
     if args.not_visible:
         target_visible = False
@@ -261,7 +310,7 @@ def main(argv=None):
     default_capture_id = capture_id_from_ground_truth(
         args.target, depth, center_offset, target_visible)
     if interactive:
-        print("Enter capture details for this capture:")
+        print("Enter capture details for this scene:")
     capture_id = re.sub(r"[^A-Za-z0-9_.-]+", "_",
                         capture_id_for_run(interactive, default_capture_id))
 
@@ -271,58 +320,80 @@ def main(argv=None):
         config, "camera", "right_rectified_topic")
     run_id = re.sub(r"[^A-Za-z0-9_.-]+", "_", args.run_id)
     directory = os.path.join(output_dir, run_id, capture_id)
+    os.makedirs(directory, exist_ok=True)
+    _clear_previous_shots(directory)
+
+    ground_truth = {
+        "target_visible": target_visible,
+        "lateral_bearing_deg": round(float(bearing), 2),
+        "distance_m": round(float(depth), 3),
+        "obstacle_ahead": args.obstacle or "none",
+        "notes": args.notes,
+    }
+    if target_visible and center_offset is not None:
+        ground_truth["center_offset_m"] = round(float(center_offset), 3)
+    common_meta = {
+        "kind": "vision_capture",
+        "capture_id": capture_id,
+        "scene_id": capture_id,
+        "run_id": run_id,
+        "created_at": datetime.now().isoformat(timespec="seconds"),
+        "target": args.target,
+        "ground_truth": ground_truth,
+        "image_source": "rectified_color",
+        "image_topics": {"left": left_topic, "right": right_topic},
+        "camera": {
+            key: config.get("camera", {}).get(key)
+            for key in ("width", "height", "fx", "fy", "cx", "cy",
+                        "baseline_m")
+        },
+        "config_path": config.get("config_path"),
+        "captured_by": "vision_capture",
+        "shot_count": args.shots,
+    }
+    if args.shots > 1:
+        scene_meta = dict(common_meta, shot_count=args.shots)
+        with open(os.path.join(directory, "scene.json"), "w") as handle:
+            json.dump(scene_meta, handle, indent=2)
 
     rclpy.init()
     node = StereoCapture(left_topic, right_topic, args.pair_tolerance)
+    saved = []
     try:
-        deadline = time.monotonic() + max(0.0, args.timeout)
-        pair = None
-        while rclpy.ok() and time.monotonic() < deadline:
-            rclpy.spin_once(node, timeout_sec=0.1)
-            pair = node.fresh_pair()
-            if pair is not None:
-                break
-        if pair is None:
-            raise RuntimeError(
-                "No fresh matched rectified pair on %s / %s within %.1f s; "
-                "is stereo_vision.launch.py running?"
-                % (left_topic, right_topic, args.timeout))
-        left, right, stamps = pair
-        ground_truth = {
-            "target_visible": target_visible,
-            "lateral_bearing_deg": round(float(bearing), 2),
-            "distance_m": round(float(depth), 3),
-            "obstacle_ahead": args.obstacle or "none",
-            "notes": args.notes,
-        }
-        if target_visible and center_offset is not None:
-            ground_truth["center_offset_m"] = round(float(center_offset), 3)
-        meta = {
-            "kind": "vision_capture",
-            "capture_id": capture_id,
-            "run_id": run_id,
-            "created_at": datetime.now().isoformat(timespec="seconds"),
-            "target": args.target,
-            "ground_truth": ground_truth,
-            "image_source": "rectified_color",
-            "image_topics": {"left": left_topic, "right": right_topic},
-            "stamps_s": {"left": stamps[0], "right": stamps[1]},
-            "camera": {
-                key: config.get("camera", {}).get(key)
-                for key in ("width", "height", "fx", "fy", "cx", "cy",
-                            "baseline_m")
-            },
-            "config_path": config.get("config_path"),
-            "captured_by": "vision_capture",
-        }
-        write_capture(directory, left, right, meta)
+        after = None
+        for index in range(1, args.shots + 1):
+            pair = _wait_for_pair(node, args.timeout, after=after)
+            if pair is None:
+                raise RuntimeError(
+                    "No fresh matched rectified pair for shot %d/%d on %s / %s "
+                    "within %.1f s; is stereo_vision.launch.py running?"
+                    % (index, args.shots, left_topic, right_topic,
+                       args.timeout))
+            left, right, stamps, received_at = pair
+            shot_meta = dict(common_meta, shot_index=index)
+            shot_meta["stamps_s"] = {
+                "left": stamps[0], "right": stamps[1]}
+            if args.shots > 1:
+                shot_dir = os.path.join(directory, shot_dir_name(index))
+            else:
+                shot_dir = directory
+            write_capture(shot_dir, left, right, shot_meta)
+            saved.append({"shot_dir": shot_dir, "meta": shot_meta})
+            after = received_at
+            print("vision_capture: saved shot %d/%d to %s"
+                  % (index, args.shots, shot_dir), file=sys.stderr)
     except Exception as error:
         print("vision_capture failed: %s" % error, file=sys.stderr)
         return 1
     finally:
         node.destroy_node()
         rclpy.try_shutdown()
-    print(json.dumps({"capture_dir": directory, "meta": meta}, indent=2))
+    print(json.dumps({
+        "capture_dir": directory,
+        "shots": len(saved),
+        "meta": common_meta,
+        "captures": saved,
+    }, indent=2))
     return 0
 
 

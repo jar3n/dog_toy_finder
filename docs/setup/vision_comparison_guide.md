@@ -33,8 +33,8 @@ and the offline evaluator.
 
 | Tool | Purpose |
 |---|---|
-| `vision_capture` | Saves one fresh rectified stereo pair with operator-entered depth and center offset; computes bearing. |
-| `vision_eval` | Replays every saved capture through the configured vision pipeline, then writes a scored CSV. |
+| `vision_capture` | Saves several fresh rectified stereo shots of one scene with operator-entered depth and center offset; computes bearing. |
+| `vision_eval` | Replays every saved shot through the configured vision pipeline, then writes a scored CSV. |
 | `llm_trials` CLI | `template`, `score`, `aggregate`, and `analyze` for vision CSVs. |
 
 The capture/eval commands write the automated columns and copy the ground truth
@@ -49,9 +49,12 @@ and `software/`:
 ```text
 data/
   vision/
-    captures/<run_id>/<capture_id>/left.jpg
-    captures/<run_id>/<capture_id>/right.jpg
-    captures/<run_id>/<capture_id>/meta.json
+    captures/<run_id>/<capture_id>/scene.json       # shot_count and shared ground truth
+    captures/<run_id>/<capture_id>/shot_01/left.jpg
+    captures/<run_id>/<capture_id>/shot_01/right.jpg
+    captures/<run_id>/<capture_id>/shot_01/meta.json
+    captures/<run_id>/<capture_id>/shot_02/...       # one directory per shot
+    captures/<run_id>/<capture_id>/shot_03/...
     vision_eval_trials.csv                     # default generic output
     vision_eval_results.jsonl
     vision_eval_summary.json
@@ -63,6 +66,10 @@ data/
     stereo-net_results.jsonl
     stereo-net_summary.json
 ```
+
+A scene captured with `--shots 1` keeps the older flat layout with `left.jpg`,
+`right.jpg`, and `meta.json` directly in `<capture_id>/`; `vision_eval` discovers
+both layouts.
 
 Inside the ROS 2 container the repository is mounted at `/workspace`, so the
 commands below use `/workspace/data/...`. On the host the same files appear
@@ -226,7 +233,7 @@ capturing; `vision_capture` will otherwise time out.
 
 ### Step 4 - Position the toy and measure ground truth
 
-For each scene:
+For each scene, which becomes one directory containing several shots:
 
 1. Put the toy where you want it and leave it still.
 2. Measure `distance_m` along the optical axis (the normal to the optical
@@ -241,14 +248,15 @@ For each scene:
 4. Confirm the toy name; the tool will suggest a `capture_id` from the name and
    these measurements, which you can accept or replace.
 
-Keep both measurements handy: Step 5 asks for them interactively and then offers
-the generated ID.
+Keep both measurements handy: Step 5 asks for them once, then uses the same
+ground truth for every shot of that scene and offers the generated ID.
 
-### Step 5 - Save one capture interactively
+### Step 5 - Save several shots of one scene interactively
 
 ```bash
 ros2 run dog_toy_finder_vision vision_capture \
     --target "red ball" \
+    --shots "3" \
     --run-id "capture_run1" \
     --output-dir "/workspace/data/vision/captures" \
     --config "/workspace/software/ros2_ws/src/dog_toy_finder_vision/config/vision_detectors.yaml" \
@@ -260,7 +268,7 @@ the tool prompts for the values you chose in Step 4, then offers an ID generated
 from the toy name and those measurements:
 
 ```text
-Enter ground truth measured for this capture:
+Enter ground truth measured for this scene:
 center_offset_m along optical plane (+left): 0.244
 distance_m along optical axis (normal): 1.15
 Enter capture details for this capture:
@@ -277,27 +285,35 @@ other non-interactive shell, `--capture-id` is not accepted; the generated ID is
 used automatically, and `--depth-m` plus `--center-offset-m` are required for a
 visible target (unless using `--not-visible`).
 
-One invocation saves exactly one fresh matched stereo pair. Use a different
-generated or custom `capture_id` for every scene; reusing an ID overwrites that
-capture directory. The command prints JSON with `capture_dir` and the full
-`meta` when it succeeds.
+One invocation saves `--shots "3"` distinct fresh matched stereo pairs under
+one scene, so the same measured ground truth is used for all three shots. Each
+shot must contain camera frames newer than the previous shot; the tool waits up
+to `--timeout` seconds for each pair. Use a different generated or custom
+`capture_id` for every scene; reusing an ID overwrites that scene directory.
+The command prints JSON with `capture_dir`, `shots`, and one `captures` entry
+per saved shot when it succeeds. Use `--shots "1"` for the older flat layout if
+a script needs exactly one pair.
 
 If it times out, return to Step 3 and check the two rectified topics.
 
-### Step 6 - Verify the saved capture
+### Step 6 - Verify the saved scene
 
 ```bash
 ls -l /workspace/data/vision/captures/capture_run1/red_ball_d1p15_op0p244
-cat /workspace/data/vision/captures/capture_run1/red_ball_d1p15_op0p244/meta.json
+cat /workspace/data/vision/captures/capture_run1/red_ball_d1p15_op0p244/scene.json
+cat /workspace/data/vision/captures/capture_run1/red_ball_d1p15_op0p244/shot_01/meta.json
 ```
 
-You should see `left.jpg`, `right.jpg`, and `meta.json`. The metadata records
-the target, camera intrinsics, image topics/timestamps, and the operator's
-ground truth:
+You should see `scene.json` plus `shot_01`, `shot_02`, and `shot_03`; each shot
+directory has `left.jpg`, `right.jpg`, and `meta.json`. The metadata records the
+target, camera intrinsics, image topics/timestamps, and the operator's ground
+truth:
 
 ```json
 {
   "target": "red ball",
+  "shot_count": 3,
+  "shot_index": 1,
   "ground_truth": {
     "target_visible": true,
     "center_offset_m": 0.244,
@@ -309,8 +325,8 @@ ground truth:
 }
 ```
 
-The center offset, bearing, and distance in this file are the values
-`vision_eval` will compare with each pipeline answer.
+The center offset, bearing, and distance in these files are the values
+`vision_eval` will compare with every pipeline answer for that shot.
 
 ### Step 7 - Capture the other scene cases
 
@@ -322,6 +338,7 @@ one). Keep the same `--run-id` for the whole dataset. Common variants:
 # Target absent: stores target_visible=false, distance=0, bearing=0; ID suggests red_ball_absent
 ros2 run dog_toy_finder_vision vision_capture \
     --target "red ball" \
+    --shots "3" \
     --not-visible \
     --run-id "capture_run1" \
     --output-dir "/workspace/data/vision/captures" \
@@ -331,6 +348,7 @@ ros2 run dog_toy_finder_vision vision_capture \
 # Obstacle plus notes: distance and center offset are still entered at the prompts
 ros2 run dog_toy_finder_vision vision_capture \
     --target "red ball" \
+    --shots "3" \
     --obstacle chair \
     --notes "chair between cameras and toy" \
     --run-id "capture_run1" \
@@ -341,6 +359,7 @@ ros2 run dog_toy_finder_vision vision_capture \
 # Non-interactive shells/scripts: supply measurements as flags; ID is generated
 ros2 run dog_toy_finder_vision vision_capture \
     --target "red ball" \
+    --shots "3" \
     --depth-m 0.90 --center-offset-m -0.1265 \
     --run-id "capture_run1" \
     --output-dir "/workspace/data/vision/captures" \
@@ -384,16 +403,17 @@ When all scenes are saved, press Ctrl+C in the first shell to stop the stereo
 launch. The captures can now be replayed offline; no camera topics, Pico, or
 ROS graph are needed for `vision_eval`.
 
-## Replay every capture offline
+## Replay every shot offline
 
 Run **one pipeline per invocation**. `--pipeline` (or `VISION_PIPELINE`, then
 the YAML `pipeline` key when the flag is omitted) selects exactly one pipeline
 for the whole run; the other is not touched. Keep the same host `DETECTOR_MODEL`
 for both pipelines: `open_vocab` uses the detector service only, while `stereo-net`
 also uses the depth service (one depth model at a time). To compare both, replay
-the same captures twice with different output paths so the first run is not
-overwritten. Captures are shuffled before replay so directory names do not
-determine the processing order; `--limit` is applied after the shuffle.
+the same shots twice with different output paths so the first run is not
+overwritten. Every shot of every scene is replayed; shots are shuffled before
+replay so directory names do not determine the processing order, and `--limit`
+applies after the shuffle.
 
 ```bash
 # Optional: add --seed N to both commands; reuse a recorded seed for identical order.
@@ -425,30 +445,33 @@ Without the output overrides, each run writes to the same default paths:
 /workspace/data/vision/vision_eval_summary.json
 ```
 
-One scored row is written per capture (one answer per capture). For
-`open_vocab` the `model` column is reported by the host detector service
-(falling back to `open_vocab.name`), answers carry `method=open_vocab`, and
-matched detections report `distance_source=stereo_triangulation`. For `stereo-net`
-the `model` column is the dense depth model name from the host depth service,
-answers carry `method=stereo-net` and `detector_model` for the one-eye detector, and
-use `distance_source=dense_stereo_depth` plus `depth_sample_*` fields. Legacy
-rows from the retired path use `method=ml`. Ground truth is copied from each
+One scored row is written per model per shot (one answer per shot), so a scene
+captured with `--shots "3"` contributes three rows. Its `ask_id` is
+`<capture_id>_shot_01` through `_shot_03`, keeping shots of the same scene
+distinct when models are paired. For `open_vocab` the `model` column is reported
+by the host detector service (falling back to `open_vocab.name`), answers carry
+`method=open_vocab`, and matched detections report
+`distance_source=stereo_triangulation`. For `stereo-net` the `model` column is
+the dense depth model name from the host depth service, answers carry
+`method=stereo-net` and `detector_model` for the one-eye detector, and use
+`distance_source=dense_stereo_depth` plus `depth_sample_*` fields. Legacy rows
+from the retired path use `method=ml`. Ground truth is copied from each shot's
 `meta.json`, so no spreadsheet annotation is needed. The summary manifest
 (`vision_eval_summary.json`) records the pipeline that produced the rows, the
-`shuffle_seed` used for capture order, and the resulting `capture_order` (paths
-relative to `--captures-dir`). When `--seed` is omitted, a random seed is
-generated and printed, then recorded in that manifest; pass the same seed to
-another invocation to replay the exact order. Use the same seed for both
-pipelines when comparing them on identical capture order.
+`shuffle_seed` used for shot order, the resulting `shot_order` (paths relative
+to `--captures-dir`), `scene_order`, and `shots_per_scene`. When `--seed` is
+omitted, a random seed is generated and printed, then recorded in that manifest;
+pass the same seed to another invocation to replay the exact order. Use the same
+seed for both pipelines when comparing them on identical shot order.
 
 Useful options:
 
 ```bash
-# one run or one capture only
+# one run, one whole scene (all of its shots), or one shot directory only
 ros2 run dog_toy_finder_vision vision_eval \
     --capture /workspace/data/vision/captures/capture_run1/red_ball_d1p15_op0p244
 
-# explicit pipeline and output paths; --limit applies after the shuffle
+# explicit pipeline and output paths; --limit applies after the shot shuffle
 ros2 run dog_toy_finder_vision vision_eval --captures-dir "/workspace/data/vision/captures" \
     --pipeline open_vocab --output-csv "/workspace/data/vision/vision_eval_trials.csv" --limit 10
 
@@ -460,7 +483,8 @@ ros2 run dog_toy_finder_vision vision_eval --captures-dir "/workspace/data/visio
 ## Score and analyse the replay
 
 `vision_eval` already writes scored columns and a per-name summary. For a
-machine-readable summary or paired statistics:
+machine-readable summary or paired statistics (shots, not just scenes, are the
+paired observations):
 
 ```bash
 ros2 run dog_toy_finder_data llm_trials aggregate "/workspace/data/vision/vision_eval_trials.csv" --json
@@ -473,8 +497,9 @@ ros2 run dog_toy_finder_data llm_trials analyze "/workspace/data/vision/vision_e
 ```
 
 Vision rows are paired by `run_id` + `ask_id`; for offline captures, `ask_id` is
-the capture ID, so each pipeline's `model` value is compared on the same saved
-pair when both replay commands use the same seed.
+one shot's ID (the scene ID plus `_shot_NN` for multi-shot scenes), so each
+pipeline's `model` value is compared on the same saved shot. Keep the same
+capture directories and `--seed` for both replay commands.
 
 The live `/vision/ask` path remains available for robot control, but it does not
 record comparison trials. Capture-first comparisons use the same answer schema
@@ -484,7 +509,8 @@ while keeping images and ground truth fixed across pipelines.
 
 `analyze` scores the CSV in memory, then reports descriptive statistics for
 every model and paired comparisons between models on matched trials. Vision
-rows are matched by `run_id` + `ask_id` (the capture ID for `vision_eval`).
+rows are matched by `run_id` + `ask_id` (the per-shot ID for `vision_eval`), so
+all shots of a scene contribute separate paired observations.
 
 ```bash
 ros2 run dog_toy_finder_data llm_trials analyze "/workspace/data/vision/vision_eval_trials.csv" \
@@ -560,8 +586,8 @@ results.
 1. Keep the pipeline and its host detector/depth model selection identical
    across a comparison run.
 2. Use one `run_id` per experiment and a new run ID when the setup changes.
-3. Save each scene once with `vision_capture` and replay those same captures
-   with `vision_eval` once per pipeline; keep `DETECTOR_MODEL` fixed, use the
+3. Save several shots of each scene with `vision_capture` and replay those same
+   shots with `vision_eval` once per pipeline; keep `DETECTOR_MODEL` fixed, use the
    recorded seed so both pipelines see the same order, measure depth and center
    offset before running `vision_eval`, and never use a detector under test to
    create ground truth.

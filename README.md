@@ -107,9 +107,9 @@ answers report `distance_m` along the optical axis, signed `center_offset_m`
 from the optical-axis center, and `lateral_bearing_deg` =
 `atan(center_offset_m / distance_m)` in degrees (positive = robot-left / ROS
 `+y`); no coarse side label is emitted or accepted. For comparison,
-`vision_capture` saves rectified pairs with operator-measured ground truth and
-`vision_eval` replays them offline through the configured pipeline in a shuffled,
-seed-recorded order.
+`vision_capture` saves several rectified shots per scene with operator-measured
+ground truth, and `vision_eval` replays every shot offline through the configured
+pipeline in a shuffled, seed-recorded order.
 
 ## Running the full system
 

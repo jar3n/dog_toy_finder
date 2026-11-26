@@ -35,15 +35,16 @@ Trial data lives in the repository's `data/` folder, next to `hardware/` and
 ### Vision trials (capture-first)
 
 `dog_toy_finder_vision` owns the capture and replay commands; this package owns
-the shared CSV schema, scoring, and statistics. Save one fresh rectified
-left/right pair per scene with operator-entered ground truth, then replay all
-captures offline:
+the shared CSV schema, scoring, and statistics. Save several fresh rectified
+left/right shots per scene with operator-entered ground truth, then replay all
+shots offline:
 
 ```bash
 cd /workspace
 
 ros2 run dog_toy_finder_vision vision_capture \
     --target "red ball" \
+    --shots "3" \
     --run-id "capture_run1" \
     --output-dir "/workspace/data/vision/captures" --config "/workspace/software/ros2_ws/src/dog_toy_finder_vision/config/vision_detectors.yaml"
 
@@ -64,20 +65,25 @@ command-line flag; non-interactive callers get the same generated ID and must
 pass `--depth-m` and `--center-offset-m` explicitly. `--bearing-deg` is still
 accepted for older scripts.
 
-Each capture stores `left.jpg`, `right.jpg`, and `meta.json` under
-`/workspace/data/vision/captures/capture_run1/<capture_id>/`. The `gt_*` columns in
-`/workspace/data/vision/vision_eval_trials.csv` are copied from `meta.json`, including
-`gt_center_offset_m` and `gt_lateral_bearing_deg`; no spreadsheet annotation is
-required. Both pipelines also emit `distance_m`, `center_offset_m`, and
-`lateral_bearing_deg` on every live answer. Lateral offset and bearing are
-positive to the robot's left (ROS `+y`); no coarse side label is emitted or
-accepted.
+With `--shots "3"`, each scene stores `scene.json` plus `shot_01/` through
+`shot_03/` under `/workspace/data/vision/captures/capture_run1/<capture_id>/`;
+each shot directory contains `left.jpg`, `right.jpg`, and `meta.json`. All shots
+of a scene share the same ground truth. `--shots "1"` keeps the older flat
+layout with the three files directly in `<capture_id>/`. The `gt_*` columns in
+`/workspace/data/vision/vision_eval_trials.csv` are copied from each shot's
+`meta.json`, including `gt_center_offset_m` and `gt_lateral_bearing_deg`; no
+spreadsheet annotation is required. Both pipelines also emit `distance_m`,
+`center_offset_m`, and `lateral_bearing_deg` on every live answer. Lateral offset
+and bearing are positive to the robot's left (ROS `+y`); no coarse side label is
+emitted or accepted.
 
-`vision_eval` writes one scored row per capture per invocation, with the columns
-already filled. The `model` column is the detector name for `open_vocab` or the
-dense depth model name for `stereo-net`. Its summary manifest records the selected
-pipeline, the `shuffle_seed`, and the resulting `capture_order`, so the same
-captures can be replayed in the same order by both pipelines.
+`vision_eval` writes one scored row per model per shot per invocation, with the
+columns already filled. Multi-shot `ask_id` values are `<capture_id>_shot_NN`, so
+paired statistics compare the same shot across models. The `model` column is the
+detector name for `open_vocab` or the dense depth model name for `stereo-net`.
+Its summary manifest records the selected pipeline, the `shuffle_seed`,
+`shot_order`, `scene_order`, and `shots_per_scene`, so the same shots can be
+replayed in the same order by both pipelines.
 
 A live `/vision/ask` path remains available for robot control, but it does not
 record comparison trials. Use `vision_capture` and `vision_eval` for measured,
@@ -141,7 +147,7 @@ ros2 run dog_toy_finder_data llm_trials analyze "/workspace/data/vision/vision_e
 ```
 
 This writes `<name>_analysis.json` with per-model mean/median/std/confidence
-intervals and paired model comparisons on matched `ask_id` (the capture ID for
+intervals and paired model comparisons on matched `ask_id` (the per-shot ID for
 `vision_eval`) or `prompt` (planning) values. Comparisons include a paired
 t-test, Holm-adjusted p-value, effect size, and win/tie/loss counts. Use
 `--confidence 0.99` to change the interval level or `--pair-field run_id,scene`
