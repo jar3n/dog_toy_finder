@@ -98,8 +98,13 @@ pio run -e esp32cam_right -t upload
 
 Note the printed IPs / mDNS names (`esp32cam-left.local`, `esp32cam-right.local`).
 Before collecting evaluation data, measure the intrinsics and stereo baseline
-with [camera_calibration.md](camera_calibration.md) and record them in
-`vision_detectors.yaml`; `scripts/full_system_eval.conf` reads them from there.
+with [camera_calibration.md](camera_calibration.md) and record the printed
+rectified values in `vision_detectors.yaml`; `scripts/full_system_eval.conf`
+reads them from there. The calibration script also writes a JSON file with both
+eyes' `K` matrices and the solved rotation; pass it as
+`STEREO_CALIBRATION_FILE` (or `calibration_file:=` on a direct launch) so
+`image_proc` rectifies with the real per-eye geometry instead of assuming one
+shared principal point and zero rotation.
 
 ## 7. Start the ROS 2 stack
 

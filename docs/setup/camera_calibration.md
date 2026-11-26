@@ -27,6 +27,7 @@ its system `cv2` does not import with the image's NumPy 2. Do not try to run
 | Focal lengths | `camera.fx`, `camera.fy` | `fx:=`, `fy:=` |
 | Principal point | `camera.cx`, `camera.cy` | `cx:=`, `cy:=` |
 | Stereo baseline | `camera.baseline_m` | `baseline:=` |
+| Full per-eye calibration | (not needed) | `calibration_file:=` |
 | Valid depth window | `camera.depth_min_m`, `camera.depth_max_m` | (not present) |
 
 The detector YAML is the single source of truth. When `launch_all.sh` sources
@@ -181,27 +182,33 @@ How to hold the sheet:
   Recapture any pair where an inner corner is cut off, out of focus, blurred,
   or where the board is visible in only one eye.
 
-## 4. Solve for intrinsics and baseline
+## 4. Solve for per-eye intrinsics, rectification, and baseline
 
-This uses a pinhole model with zero distortion, matching the `CameraInfo` that
-`stereo_camera_node.py` publishes (it has no distortion coefficients and assumes
-both eyes share the same intrinsics). It resizes each capture to the launch
-resolution first, so the result describes the images the node actually
-processes.
+This uses a pinhole model with zero distortion, matching the `CameraInfo` the
+node publishes. It resizes each capture to the launch resolution first, so the
+result describes the images the node actually processes. Unlike the old script,
+it keeps both `K1` and `K2` and the solved relative rotation; it does not assume
+the two eyes share one principal point or that they are already row-aligned.
 
 From the repository root, run `scripts/calibrate_stereo.py` with the host venv:
 
 ```bash
 software/host_vision/.venv/bin/python scripts/calibrate_stereo.py \
     --left /tmp/dtf_calib/left --right /tmp/dtf_calib/right \
-    --pattern 8x11 --square 0.020 --width 320 --height 240
+    --pattern 8x11 --square 0.020 --width 320 --height 240 \
+    --output software/ros2_ws/src/dog_toy_finder_vision/config/stereo_calibration.json
 ```
+
+The printed `rectified P1/P2` values are the ones that describe the images
+`image_proc` produces. Copy the printed `fx`, `fy`, `cx`, `cy`, and `baseline_m`
+into `vision_detectors.yaml`. The JSON also stores `K1/K2`, the relative
+`R/T`, and the rectification `R1/R2/P1/P2` for the runtime.
 
 Aim for a reprojection RMS of a couple of pixels or less at 320 x 240. If it is
 much larger, discard blurry pairs, add more viewpoints, and recheck the measured
-square size. If the printed baseline is implausible for your mount, re-measure
-the distance between the two lens optical centres; depth errors scale directly
-with this number.
+square size. If the printed baseline differs from the measured separation of the
+lens optical centres, re-measure it; depth errors scale directly with this
+number.
 
 ## 5. Record the values
 
@@ -213,18 +220,31 @@ no second camera-geometry block to edit:
 camera:
   width: 320
   height: 240
-  fx: 250.0       # replace with the printed numbers
-  fy: 250.0
-  cx: 160.0
-  cy: 120.0
-  baseline_m: 0.08
+  fx: 299.72      # replace with the printed rectified P1 values
+  fy: 300.92
+  cx: 175.61
+  cy: 127.57
+  baseline_m: 0.052
   depth_min_m: 0.25
-  depth_max_m: 3.0
+  depth_max_m: 2.0
 ```
 
 For a one-off override, export `CAMERA_FX=...` (or any of the other `CAMERA_*`
 variables) before sourcing `full_system_eval.conf`; exported values still win
 over the YAML.
+
+To use the preserved `K2` and `R`, point the launch at the JSON written in step
+4. Set `STEREO_CALIBRATION_FILE` before sourcing `full_system_eval.conf`, or pass
+the argument directly:
+
+```bash
+ros2 launch dog_toy_finder_vision stereo_vision.launch.py \
+    calibration_file:=/workspace/software/ros2_ws/src/dog_toy_finder_vision/config/stereo_calibration.json
+```
+
+When this file is present, `stereo_camera_node` publishes each eye's solved
+`K/D/R/P`, and `image_proc` rectifies with the real relative rotation. Without
+it, the node falls back to the shared-K, identity-R parameters above.
 
 `depth_min_m` and `depth_max_m` are not solved by the checkerboard. Choose them
 from the useful range of your rig: `depth_min_m` should be above the distance
@@ -238,8 +258,9 @@ If you launch `stereo_vision.launch.py` directly instead of through
 
 ```bash
 ros2 launch dog_toy_finder_vision stereo_vision.launch.py \
-    width:=320 height:=240 fx:=250.0 fy:=250.0 \
-    cx:=160.0 cy:=120.0 baseline:=0.08
+    width:=320 height:=240 fx:=299.72 fy:=300.92 \
+    cx:=175.61 cy:=127.57 baseline:=0.052 \
+    calibration_file:=/workspace/software/ros2_ws/src/dog_toy_finder_vision/config/stereo_calibration.json
 ```
 
 ## 6. Verify on the robot
@@ -255,9 +276,11 @@ ros2 topic hz /stereo/right/image_rect_color
 ros2 topic echo /stereo/disparity --once
 ```
 
-The `k` matrix should contain the new `fx`/`cx`, and the right camera info
-should show `p[3]` near `-fx * baseline`. Then do a physical sanity check with
-a tape measure (no motion stack or Pico needed):
+With a calibration file loaded, the two `k` matrices may differ and each `r`
+may be non-identity; that is expected. Without one, the left `k` should contain
+the new `fx`/`cx` and the right camera info should show `p[3]` near
+`-fx * baseline`. Then do a physical sanity check with a tape measure (no motion
+stack or Pico needed):
 
 1. Put the toy at a known distance, for example 1.00 m from the camera baseline,
    and near the optical axis.

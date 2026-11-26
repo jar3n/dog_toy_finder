@@ -6,11 +6,15 @@ the Python side), and publishes for every eye:
 
   * image_raw  sensor_msgs/Image  rgb8   -- colour frames for the vision pipeline
   * image_mono sensor_msgs/Image  mono8  -- greyscale frames for rectification
-  * camera_info sensor_msgs/CameraInfo   -- intrinsics + stereo baseline
+  * camera_info sensor_msgs/CameraInfo   -- intrinsics + rectification
 
 Both image topics carry the same stamp, so image_proc rectification pairs the
 mono frame with its camera_info immediately. The C++ stereo_image_proc nodes
 then turn the rectified pair into disparity and a point cloud.
+
+When ``calibration_file`` points at a JSON saved by scripts/calibrate_stereo.py,
+each eye publishes its own K/D/R/P. Without it, the node falls back to the
+shared-K, identity-R parameters below.
 
 Parameters
 ----------
@@ -19,6 +23,7 @@ rate                : float photos per second (per eye)
 width, height       : int   expected image size (must match the ESP32-CAM)
 fx, fy, cx, cy      : float intrinsics in pixels
 baseline            : float distance between the two optical centres, metres
+calibration_file    : str JSON with per-eye K/D/R/P (optional)
 left_frame, right_frame : str optical frame ids
 """
 
@@ -31,6 +36,8 @@ import rclpy
 from PIL import Image as PilImage
 from rclpy.node import Node
 from sensor_msgs.msg import CameraInfo, Image
+
+from .stereo_calibration import load_stereo_calibration
 
 
 class StereoCameraNode(Node):
@@ -50,6 +57,7 @@ class StereoCameraNode(Node):
         self.declare_parameter("cx", 160.0)
         self.declare_parameter("cy", 120.0)
         self.declare_parameter("baseline", 0.08)
+        self.declare_parameter("calibration_file", "")
         self.declare_parameter("left_frame", "left_camera_optical_frame")
         self.declare_parameter("right_frame", "right_camera_optical_frame")
 
@@ -66,6 +74,19 @@ class StereoCameraNode(Node):
         self.left_frame = str(param("left_frame"))
         self.right_frame = str(param("right_frame"))
 
+        calibration_path = str(param("calibration_file")).strip()
+        self.calibration = load_stereo_calibration(calibration_path)
+        if self.calibration:
+            if ((self.calibration["width"], self.calibration["height"])
+                    != (self.width, self.height)):
+                self.get_logger().warning(
+                    "calibration_file is %dx%d but launch geometry is %dx%d; "
+                    "using the calibration image size" % (
+                        self.calibration["width"], self.calibration["height"],
+                        self.width, self.height))
+            self.width = self.calibration["width"]
+            self.height = self.calibration["height"]
+
         # Reliable QoS so image_proc (which subscribes with default/reliable
         # QoS) actually receives the frames; best-effort subscribers can still
         # receive from a reliable publisher.
@@ -78,9 +99,22 @@ class StereoCameraNode(Node):
         self.right_info_pub = self.create_publisher(CameraInfo,
                                                    "/stereo/right/camera_info", 10)
 
-        self.left_info = self._camera_info(self.left_frame, self.cx, self.cy, 0.0)
-        self.right_info = self._camera_info(self.right_frame, self.cx, self.cy,
-                                           -self.fx * self.baseline)
+        if self.calibration:
+            self.left_info = self._calibrated_info(
+                self.left_frame, self.calibration["left"])
+            self.right_info = self._calibrated_info(
+                self.right_frame, self.calibration["right"])
+            self.get_logger().info(
+                "Loaded full stereo calibration from %s (baseline %.4f m)" % (
+                    calibration_path, self.calibration["baseline_m"]))
+        else:
+            self.left_info = self._camera_info(
+                self.left_frame, self.cx, self.cy, 0.0)
+            self.right_info = self._camera_info(
+                self.right_frame, self.cx, self.cy,
+                -self.fx * self.baseline)
+            self.get_logger().info(
+                "Using shared-K camera geometry (baseline %.4f m)" % self.baseline)
 
         self._left_latest = None
         self._right_latest = None
@@ -113,6 +147,19 @@ class StereoCameraNode(Node):
         info.p = [self.fx, 0.0, cx, tx,
                   0.0, self.fy, cy, 0.0,
                   0.0, 0.0, 1.0, 0.0]
+        return info
+
+    def _calibrated_info(self, frame_id, eye):
+        """Publish the solved per-eye K/D/R/P from a calibration file."""
+        info = CameraInfo()
+        info.header.frame_id = frame_id
+        info.width = self.width
+        info.height = self.height
+        info.distortion_model = "plumb_bob"
+        info.d = list(eye["d"])
+        info.k = [cell for row in eye["k"] for cell in row]
+        info.r = [cell for row in eye["r"] for cell in row]
+        info.p = [cell for row in eye["p"] for cell in row]
         return info
 
     def _http_loop(self, url, is_left):

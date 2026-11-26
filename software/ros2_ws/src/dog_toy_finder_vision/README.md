@@ -99,6 +99,13 @@ measured camera values there:
 and `baseline_m` from this YAML into the launch arguments, so edit them here
 only. The defaults are placeholders until you calibrate the cameras.
 
+`scripts/calibrate_stereo.py` can also save both eyes' `K` matrices and the
+solved relative rotation to a JSON file. Pass it as
+`calibration_file:=...` (or set `STEREO_CALIBRATION_FILE` before sourcing
+`full_system_eval.conf`) to publish independent per-eye `K/D/R/P` through
+`CameraInfo`. Without it, the camera node falls back to one shared `K` and
+identity rotation.
+
 The bearing convention is `atan((cx - u) / fx)` in degrees, where `u` is the
 target's horizontal pixel centre. Positive values mean the target is left of
 the optical axis; zero means centred. This same field is used by live control,

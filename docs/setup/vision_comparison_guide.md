@@ -135,7 +135,10 @@ host with `DEPTH_MODEL` and `STEREO_DEVICE`. `fx` and `baseline_m` drive both
 triangulation and dense depth (`distance = fx * baseline / disparity`), and
 `cx`/`fx` set the bearing. Use
 [camera_calibration.md](camera_calibration.md) to measure these values and the
-stereo baseline for your rig before starting capture.
+stereo baseline for your rig before starting capture. That procedure also saves
+both eyes' `K` matrices and the solved rotation to a calibration JSON; pass it
+as `calibration_file:=` (or set `STEREO_CALIBRATION_FILE`) so the rectified pair
+uses the real per-eye geometry instead of a shared K and identity rotation.
 
 `lateral_bearing_deg` is measured from the camera's optical axis in degrees:
 
@@ -197,7 +200,10 @@ must be the same file whose `fx`, `cx`, and baseline you checked above;
 `vision_capture` copies those values into each `meta.json`. The config also
 reads `camera.width`, `height`, `fx`, `fy`, `cx`, `cy`, and `baseline_m` from
 that YAML into the launch arguments below, so the live pipeline and the capture
-metadata share one set of numbers.
+metadata share one set of numbers. If the calibration JSON from
+[camera_calibration.md](camera_calibration.md) exists, use the same
+`calibration_file` below so the saved JPEGs are rectified with the solved
+`K2`/`R` instead of the shared-K fallback.
 
 ### Step 2 - Start a capture-only stereo pipeline (first shell)
 
@@ -212,7 +218,8 @@ ros2 launch dog_toy_finder_vision stereo_vision.launch.py \
     fy:="300.92" \
     cx:="175.61" \
     cy:="127.57" \
-    baseline:="0.0431" \
+    baseline:="0.052" \
+    calibration_file:="/workspace/software/ros2_ws/src/dog_toy_finder_vision/config/stereo_calibration.json" \
     config_path:="/workspace/software/ros2_ws/src/dog_toy_finder_vision/config/vision_detectors.yaml" \
     stereo_proc:=false \
     vision:=false
@@ -220,7 +227,10 @@ ros2 launch dog_toy_finder_vision stereo_vision.launch.py \
 
 The `width`/`height`/`fx`/`fy`/`cx`/`cy`/`baseline` arguments are shown for
 clarity; the launch file reads the same values from `config_path` when they are
-omitted, and an explicit argument still wins.
+omitted, and an explicit argument still wins. Omit `calibration_file` only when
+the JSON has not been generated yet; then the camera node publishes the
+shared-K, identity-R fallback. With the file set, the two `CameraInfo` messages
+may show different `k` matrices and non-identity `r`, which is expected.
 
 `vision:=false` skips the live detector node, and `stereo_proc:=false` skips
 disparity/point-cloud generation. Capture only needs the rectified colour

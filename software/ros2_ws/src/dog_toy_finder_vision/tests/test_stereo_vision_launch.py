@@ -26,6 +26,7 @@ def _launch_context(config_path, overrides=None):
         right_url="http://right/capture",
         rate="2.0",
         width="", height="", fx="", fy="", cx="", cy="", baseline="",
+        calibration_file="",
         stereo="true", stereo_proc="false", vision="false",
         approximate_sync="true", use_color="true", stereo_algorithm="0",
         min_disparity="0", disparity_range="64",
@@ -69,6 +70,18 @@ def test_camera_geometry_defaults_come_from_yaml(tmp_path):
     assert params["cx"] == 320.0
     assert params["cy"] == 240.0
     assert params["baseline"] == 0.123
+    assert params["calibration_file"] == ""
+
+
+def test_calibration_file_is_forwarded_to_camera_node(tmp_path):
+    path = tmp_path / "vision.yaml"
+    path.write_text(yaml.safe_dump({"camera": {}}))
+
+    params = _camera_params(
+        _load_module(), str(path),
+        {"calibration_file": "/tmp/stereo_calibration.json"})
+
+    assert params["calibration_file"] == "/tmp/stereo_calibration.json"
 
 
 def test_explicit_camera_args_override_yaml(tmp_path):

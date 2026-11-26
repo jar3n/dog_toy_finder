@@ -40,6 +40,12 @@ used. The default capture size is 320x240 because at 640x480 each colour frame
 is ~900 KB and the host's DDS socket buffers drop enough of them to stall the
 point cloud. If you raise width/height in the YAML, scale fx, fy, cx and cy
 with them.
+
+``calibration_file`` may point at the JSON written by
+``scripts/calibrate_stereo.py``. When set, ``stereo_camera_node`` publishes the
+solved per-eye K/D/R/P matrices instead of assuming one shared K and identity
+rotation; this is required when the two eyes have different principal points or
+a non-horizontal baseline.
 """
 
 import os
@@ -97,6 +103,7 @@ def _launch_setup(context):
     cx = camera_arg("cx", "cx")
     cy = camera_arg("cy", "cy")
     baseline = camera_arg("baseline", "baseline_m")
+    calibration_file = _arg(context, "calibration_file")
 
     stereo_camera = Node(
         package="dog_toy_finder_vision",
@@ -114,6 +121,7 @@ def _launch_setup(context):
             "cx": float(cx),
             "cy": float(cy),
             "baseline": float(baseline),
+            "calibration_file": calibration_file,
         }],
     )
 
@@ -245,6 +253,9 @@ def generate_launch_description():
                               description="Principal point y in px (default: camera.cy in config_path)"),
         DeclareLaunchArgument("baseline", default_value="",
                               description="Optical centre separation in m (default: camera.baseline_m in config_path)"),
+        DeclareLaunchArgument("calibration_file", default_value="",
+                              description="JSON from scripts/calibrate_stereo.py "
+                                          "with per-eye K/D/R/P (optional)"),
 
         # --- stage switches ---
         DeclareLaunchArgument("stereo", default_value="true",
