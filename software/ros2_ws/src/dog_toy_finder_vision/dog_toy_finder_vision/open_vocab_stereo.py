@@ -5,9 +5,10 @@ Open-vocabulary inference runs in a separate HTTP service on the computer (see
 only enough JPEG metadata to know the image width, asks the service to detect
 the requested text target independently in the rectified left and right eyes,
 then pairs detections by label, row, and horizontal disparity. Depth is
-``distance = fx * baseline / disparity``; lateral bearing comes from the target
-centre in the left rectified image using the shared convention in
-``vision_config``.
+``distance = fx * baseline / (raw_disparity - (left.cx - right.cx))``, because
+``stereoRectify`` does not force the two principal points onto the same column.
+Lateral bearing comes from the target centre in the left rectified image using
+the shared convention in ``vision_config``.
 
 The centre comes from each model's own output: YOLOE-26-seg supplies an instance
 mask, so the service reports the mean of the mask pixels (``mask_centroid``).
@@ -55,7 +56,8 @@ def target_classes(target):
 def _match(left, right, config):
     """Choose the best left/right detection pair and recover its depth."""
     camera = config.get("camera", {}) or {}
-    fx = float(camera.get("fx", 0.0))
+    fx = vision_config.eye_intrinsics(config, "left")["fx"]
+    disparity_offset = vision_config.stereo_disparity_offset_px(config)
     baseline = float(camera.get("baseline_m", 0.0))
     min_disparity = float(vision_config.get(
         config, "open_vocab", "min_disparity", default=3))
@@ -73,7 +75,8 @@ def _match(left, right, config):
                 continue
             if abs(left_detection["v"] - right_detection["v"]) > max_row_delta:
                 continue
-            disparity = left_detection["u"] - right_detection["u"]
+            raw_disparity = left_detection["u"] - right_detection["u"]
+            disparity = raw_disparity - disparity_offset
             if disparity < min_disparity or disparity > max_disparity:
                 continue
             if fx <= 0.0 or baseline <= 0.0 or disparity <= 0.0:
@@ -97,6 +100,7 @@ def _match(left, right, config):
                 "mask_centroid_px": left_detection.get("mask_centroid_px"),
                 "mask_area_px": left_detection.get("mask_area_px", 0),
                 "disparity_px": disparity,
+                "raw_disparity_px": raw_disparity,
                 "distance_m": distance,
             })
     if not pairs:
@@ -154,15 +158,16 @@ def detect(left_jpeg, right_jpeg, target, config, client=None):
 
     bearing = vision_config.lateral_bearing_deg(
         pair["u_left"], config, image_width)
+    disparity_offset = vision_config.stereo_disparity_offset_px(config)
     distance_m = round(pair["distance_m"], 3)
     center_offset = vision_config.center_offset_m(
         pair["u_left"], distance_m, config, image_width)
     answer = vision_answer.tidy({
         "description": (
             "Detected '%s' in both rectified images at u=%.1f, v=%.1f px; "
-            "disparity %.1f px."
+            "disparity %.1f px (raw %.1f px)."
             % (pair["label"], pair["u_left"], pair["v_left"],
-               pair["disparity_px"])),
+               pair["disparity_px"], pair["raw_disparity_px"])),
         "target_visible": True,
         "lateral_bearing_deg": bearing,
         "center_offset_m": center_offset,
@@ -176,6 +181,8 @@ def detect(left_jpeg, right_jpeg, target, config, client=None):
         "mask_centroid_px": pair["mask_centroid_px"],
         "mask_area_px": pair["mask_area_px"],
         "disparity_px": round(pair["disparity_px"], 2),
+        "raw_disparity_px": round(pair["raw_disparity_px"], 2),
+        "disparity_offset_px": round(disparity_offset, 2),
     })
     return _entry(answer, name, pair["confidence"], time.time() - start,
                   "stereo_triangulation")

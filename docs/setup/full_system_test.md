@@ -408,13 +408,13 @@ both `vision_capture` and `vision_eval` to keep pilot captures and their default
 outputs separate. Explicit output paths still override the pilot defaults.
 
 Calibrate the stereo pair first with
-[camera_calibration.md](camera_calibration.md); put the printed rectified
+[camera_calibration.md](camera_calibration.md); put the printed per-eye rectified
 intrinsics and baseline in the detector YAML. `scripts/full_system_eval.conf`
 reads them from that file for the launch arguments. The same calibration run
 writes a JSON file with both eyes' `K` matrices and the solved rotation; set
 `STEREO_CALIBRATION_FILE` before launching so `stereo_camera_node` publishes the
 per-eye `K/D/R/P` and `image_proc` rectifies with the real geometry. Without it,
-the node falls back to one shared `K` and identity rotation.
+the node publishes each eye's configured intrinsics with identity rectification.
 
 For vision, use your measured camera YAML at
 `/workspace/software/ros2_ws/src/dog_toy_finder_vision/config/vision_detectors.yaml`

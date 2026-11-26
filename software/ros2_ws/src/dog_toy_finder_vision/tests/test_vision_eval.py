@@ -58,9 +58,19 @@ class FakeClient:
 
 class OfflineEvalTests(unittest.TestCase):
     def setUp(self):
-        self.config = vision_config.load_config()
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
+        self.config = vision_config.load_config()
+        # Offline replay mechanics are tested with coincident rectified
+        # principal points. The principal-point disparity correction itself is
+        # covered in test_vision_config, test_open_vocab_stereo, and
+        # test_dense_stereo; keeping it out of the synthetic JPEGs avoids
+        # sub-pixel compression bias in the expected distance.
+        self.config["camera"]["right"]["cx"] = \
+            self.config["camera"]["left"]["cx"]
+        self.config_path = os.path.join(self.temp.name, "test_config.json")
+        with open(self.config_path, "w") as handle:
+            json.dump(self.config, handle)
         self.root = os.path.join(self.temp.name, "captures")
         self.capture_dir = os.path.join(self.root, "run1", "cap1")
         os.makedirs(self.capture_dir)
@@ -74,14 +84,18 @@ class OfflineEvalTests(unittest.TestCase):
         yy, xx = np.ogrid[:height, :width]
         radius = 6
         if visible:
+            # ``disparity`` is the rectified value; the saved right image must
+            # include the principal-point offset that the pipeline subtracts.
+            raw_disparity = disparity + vision_config.stereo_disparity_offset_px(
+                config)
             left[(xx - center_x) ** 2 + (yy - 120) ** 2 <= radius ** 2] = \
                 [255, 0, 0]
-            right[((xx - (center_x - disparity)) ** 2
+            right[((xx - (center_x - raw_disparity)) ** 2
                    + (yy - 120) ** 2) <= radius ** 2] = [255, 0, 0]
         for eye, image in (("left", left), ("right", right)):
             Image.fromarray(image).save(
                 os.path.join(self.capture_dir, "%s.jpg" % eye))
-        fx = float(config["camera"]["fx"])
+        fx = vision_config.eye_intrinsics(config, "left")["fx"]
         baseline_m = float(config["camera"]["baseline_m"])
         expected_distance = fx * baseline_m / disparity
         truth = {
@@ -195,7 +209,7 @@ class OfflineEvalTests(unittest.TestCase):
                                evaluate_with_fake_client), \
              contextlib.redirect_stdout(io.StringIO()):
             code = vision_eval.main([
-                "--captures-dir", self.root, "--pipeline", "open_vocab",
+                "--config", self.config_path, "--captures-dir", self.root, "--pipeline", "open_vocab",
                 "--seed", "42", "--output-csv", csv_path,
                 "--results-json", results_path, "--summary-json", summary_path])
         self.assertEqual(code, 0)
@@ -241,7 +255,8 @@ class OfflineEvalTests(unittest.TestCase):
                                evaluate_with_fake_client), \
              contextlib.redirect_stdout(io.StringIO()):
             code = vision_eval.main([
-                "--pilot", "--pipeline", "open_vocab", "--seed", "42"])
+                "--config", self.config_path, "--pilot", "--pipeline",
+                "open_vocab", "--seed", "42"])
         self.assertEqual(code, 0)
         default_dir.assert_called_once_with(pilot=True)
         for name in ("vision_eval_trials.csv", "vision_eval_results.jsonl",
@@ -267,7 +282,7 @@ class OfflineEvalTests(unittest.TestCase):
                                evaluate_with_fake_client), \
              contextlib.redirect_stdout(io.StringIO()):
             code = vision_eval.main([
-                "--captures-dir", self.root, "--pipeline", "open_vocab",
+                "--config", self.config_path, "--captures-dir", self.root, "--pipeline", "open_vocab",
                 "--seed", "1",
                 "--output-csv", os.path.join(self.temp.name,
                                              "shuffled_scenes.csv"),
@@ -407,7 +422,7 @@ class OfflineEvalTests(unittest.TestCase):
             }], "fake-world"
 
         expected_distance = (
-            float(self.config["camera"]["fx"])
+            vision_config.eye_intrinsics(self.config, "left")["fx"]
             * float(self.config["camera"]["baseline_m"]) / 20.0)
 
         def sample_depth(left, right, spec, config):
@@ -452,7 +467,7 @@ class OfflineEvalTests(unittest.TestCase):
         summary_path = os.path.join(self.temp.name, "summary.json")
         with contextlib.redirect_stdout(io.StringIO()):
             code = vision_eval.main([
-                "--captures-dir", self.root, "--pipeline", "open_vocab",
+                "--config", self.config_path, "--captures-dir", self.root, "--pipeline", "open_vocab",
                 "--output-csv", csv_path, "--results-json", results_path,
                 "--summary-json", summary_path])
         self.assertEqual(code, 0)
@@ -487,7 +502,7 @@ class OfflineEvalTests(unittest.TestCase):
                                evaluate_with_fake_client), \
              contextlib.redirect_stdout(output):
             code = vision_eval.main([
-                "--captures-dir", self.root, "--pipeline", "open_vocab",
+                "--config", self.config_path, "--captures-dir", self.root, "--pipeline", "open_vocab",
                 "--seed", "42", "--limit", "2",
                 "--output-csv", csv_path, "--results-json", results_path,
                 "--summary-json", summary_path])
@@ -519,7 +534,7 @@ class OfflineEvalTests(unittest.TestCase):
              mock.patch.object(yolo_client, "detect", detect_both), \
              contextlib.redirect_stdout(io.StringIO()):
             code = vision_eval.main([
-                "--captures-dir", self.root, "--pipeline", "open_vocab",
+                "--config", self.config_path, "--captures-dir", self.root, "--pipeline", "open_vocab",
                 "--output-csv", os.path.join(self.temp.name, "generated.csv"),
                 "--results-json", os.path.join(self.temp.name,
                                                "generated.jsonl"),
@@ -569,7 +584,7 @@ class OfflineEvalTests(unittest.TestCase):
                      mock.patch.object(depth_client, "sample", sample_depth), \
                      contextlib.redirect_stdout(io.StringIO()):
                     code = vision_eval.main([
-                        "--captures-dir", self.root, "--pipeline", pipeline,
+                        "--config", self.config_path, "--captures-dir", self.root, "--pipeline", pipeline,
                         "--output-csv", csv_path, "--results-json", jsonl_path,
                         "--summary-json", summary_path])
                 self.assertEqual(code, 0)
@@ -623,7 +638,8 @@ class OfflineEvalTests(unittest.TestCase):
             with self.subTest(source=label):
                 summary_path = os.path.join(self.temp.name,
                                             label + "_summary.json")
-                argv = ["--captures-dir", self.root,
+                argv = ["--config", self.config_path,
+                        "--captures-dir", self.root,
                         "--output-csv", os.path.join(self.temp.name,
                                                      label + ".csv"),
                         "--results-json", os.path.join(self.temp.name,

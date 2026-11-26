@@ -350,9 +350,11 @@ def main(argv=None):
         "image_source": "rectified_color",
         "image_topics": {"left": left_topic, "right": right_topic},
         "camera": {
-            key: config.get("camera", {}).get(key)
-            for key in ("width", "height", "fx", "fy", "cx", "cy",
-                        "baseline_m")
+            "width": config.get("camera", {}).get("width"),
+            "height": config.get("camera", {}).get("height"),
+            "baseline_m": config.get("camera", {}).get("baseline_m"),
+            "left": vision_config.eye_intrinsics(config, "left"),
+            "right": vision_config.eye_intrinsics(config, "right"),
         },
         "config_path": config.get("config_path"),
         "captured_by": "vision_capture",

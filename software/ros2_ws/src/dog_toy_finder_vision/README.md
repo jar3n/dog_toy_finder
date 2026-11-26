@@ -6,7 +6,8 @@ pair**. Both pipelines are implemented:
 
 - `open_vocab`: one host-side open-vocabulary detector runs on both rectified
   images, detections are matched between the eyes, and the target location is
-  triangulated from disparity using `fx` and the stereo baseline.
+  triangulated from disparity using `fx`, the stereo baseline, and the
+  rectified principal-point offset.
 - `stereo-net`: the same detector runs on the left image only; a dense stereo model
   on the host produces a disparity map from the full pair and its median over
   the object's mask pixels (YOLOE-26) or a small window around the box centre
@@ -90,26 +91,27 @@ measured camera values there:
   configure them on the host services with `DETECTOR_MODEL`,
   `YOLO_MODEL_PATH` / `YOLOE_MODEL_PATH` / `GROUNDING_DINO_MODEL`,
   `YOLO_DEVICE`, and `DEPTH_MODEL` / `STEREO_DEVICE` (see below)
-- `camera.fx`, `fy`, `cx`, `cy` — calibrated intrinsics in pixels
+- `camera.left.fx/fy/cx/cy`, `camera.right.fx/fy/cx/cy` — separate rectified
+  intrinsics in pixels for the two eyes
 - `camera.baseline_m` — spacing between the two optical centres
 - `camera.depth_min_m`, `depth_max_m` — valid metric depth range
 - `camera.{left,right}_rectified_topic` — detector image inputs
 
-`full_system_eval.conf` reads `camera.width`, `height`, `fx`, `fy`, `cx`, `cy`,
-and `baseline_m` from this YAML into the launch arguments, so edit them here
-only. The defaults are placeholders until you calibrate the cameras.
+`full_system_eval.conf` reads `camera.width`, `height`, `baseline_m`, and both
+eyes' intrinsic values from this YAML into the launch arguments, so edit them
+here only. The defaults are placeholders until you calibrate the cameras.
 
 `scripts/calibrate_stereo.py` can also save both eyes' `K` matrices and the
 solved relative rotation to a JSON file. Pass it as
 `calibration_file:=...` (or set `STEREO_CALIBRATION_FILE` before sourcing
 `full_system_eval.conf`) to publish independent per-eye `K/D/R/P` through
-`CameraInfo`. Without it, the camera node falls back to one shared `K` and
-identity rotation.
+`CameraInfo`. Without it, the camera node publishes each eye's configured
+rectified intrinsics with identity rectification.
 
-The bearing convention is `atan((cx - u) / fx)` in degrees, where `u` is the
-target's horizontal pixel centre. Positive values mean the target is left of
-the optical axis; zero means centred. This same field is used by live control,
-mapping, and offline scoring.
+The bearing convention is `atan((left.cx - u) / left.fx)` in degrees, where `u`
+is the target's horizontal pixel centre in the rectified left image. Positive
+values mean the target is left of the optical axis; zero means centred. This
+same field is used by live control, mapping, and offline scoring.
 
 ## Open-vocabulary pipeline
 
@@ -140,8 +142,9 @@ box centre (`center_source: "box_center"`). No masks cross HTTP — only the
 centroid, mask-derived box, and area. Full masks stay on the computer.
 
 The container pairs detections by label, image row, and horizontal disparity;
-distance is `fx * baseline_m / disparity`, and lateral bearing comes from the
-left-image centre described above. The service's model name (or
+distance is `left.fx * baseline_m / disparity`, where
+`disparity = (u_left - u_right) - (left.cx - right.cx)`. Lateral bearing comes
+from the left-image centre described above. The service's model name (or
 `open_vocab.name`) is reported as `model`, with `method: "open_vocab"` and
 `distance_source: "stereo_triangulation"` for matched detections.
 
@@ -163,7 +166,9 @@ Each answer uses this schema:
   "center_source": "mask_centroid | box_center | mixed | none",
   "mask_centroid_px": [158.0, 114.0],
   "mask_area_px": 900,
-  "disparity_px": 20.0
+  "disparity_px": 20.0,
+  "raw_disparity_px": 49.04,
+  "disparity_offset_px": 29.04
 }
 ```
 
@@ -209,8 +214,9 @@ Host-only environment variables for the depth service:
 The depth sampler uses every instance-mask pixel from YOLOE-26, or the
 `(2 * stereo-net.window_radius_px + 1)^2` window around the box centre for
 YOLO-World and Grounding DINO, and takes the median of the valid disparities.
-Depth is `fx * baseline_m / disparity_px`; bearing uses the same left-image
-centre and convention as `open_vocab`. The answer reports `method: "stereo-net"`,
+Depth is `left.fx * baseline_m / disparity_px`, where `disparity_px` has the
+`left.cx - right.cx` offset removed; bearing uses the same left-image centre and
+convention as `open_vocab`. The answer reports `method: "stereo-net"`,
 `distance_source: "dense_stereo_depth"`, the dense model name in `model`, the
 detector name in `detector_model`, and `depth_sample_source`,
 `depth_sample_count`, `depth_valid_count`, and `depth_disparity_px` describing
@@ -242,11 +248,15 @@ Every entry has:
 | `center_source` | `mask_centroid` (YOLOE-26), `box_center` (YOLO-World/Grounding DINO), `mixed`, or `none` |
 | `mask_centroid_px` | `[u, v]` mean of mask pixels on the left image, or `null` for box-only models |
 | `mask_area_px` | mask area in left-image pixels, `0` for box-only models |
-| `disparity_px` | horizontal difference between the two reported centres (`open_vocab` only) |
+| `disparity_px` | rectified disparity after subtracting `left.cx - right.cx` (`open_vocab` only) |
+| `raw_disparity_px` | raw `u_left - u_right` before the principal-point correction (`open_vocab` only) |
+| `disparity_offset_px` | `left.cx - right.cx` removed before depth conversion (`open_vocab` only) |
 | `depth_sample_source` | `mask_pixels` or `box_window` used by `stereo-net` |
 | `depth_sample_count` | number of disparity samples requested by `stereo-net` |
 | `depth_valid_count` | number of valid samples in the median |
-| `depth_disparity_px` | median disparity used for dense depth (`stereo-net` only) |
+| `depth_disparity_px` | median rectified disparity used for dense depth (`stereo-net` only) |
+| `depth_raw_disparity_px` | median raw `u_left - u_right` sample (`stereo-net` only) |
+| `depth_disparity_offset_px` | principal-point offset removed before depth conversion (`stereo-net` only) |
 
 The mapping node consumes all entries and fuses visible toys by median bearing
 and distance. For fair offline comparison, use `vision_capture` + `vision_eval`
@@ -388,5 +398,5 @@ the full `/vision/result` JSON.
 - `approximate_sync:=true` is the default because the eyes are not
   hardware-synchronised.
 - At 640x480 the ~900 KB colour frames are often dropped by DDS. If you raise
-  width/height, scale `fx`, `fy`, `cx`, `cy`, and every physical measurement in
-  the detector YAML accordingly.
+  width/height, scale both eyes' `fx`, `fy`, `cx`, `cy` and every physical
+  measurement in the detector YAML accordingly.

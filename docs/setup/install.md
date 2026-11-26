@@ -103,8 +103,8 @@ rectified values in `vision_detectors.yaml`; `scripts/full_system_eval.conf`
 reads them from there. The calibration script also writes a JSON file with both
 eyes' `K` matrices and the solved rotation; pass it as
 `STEREO_CALIBRATION_FILE` (or `calibration_file:=` on a direct launch) so
-`image_proc` rectifies with the real per-eye geometry instead of assuming one
-shared principal point and zero rotation.
+`image_proc` rectifies with the real per-eye geometry instead of using the
+identity-rectification fallback from the separate YAML intrinsics.
 
 ## 7. Start the ROS 2 stack
 

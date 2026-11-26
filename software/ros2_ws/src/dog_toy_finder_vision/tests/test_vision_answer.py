@@ -20,13 +20,14 @@ class BearingTests(unittest.TestCase):
         self.assertLess(
             vision_config.lateral_bearing_deg(230, config),
             0.0, "right of cx must be negative")
+        cx = vision_config.eye_intrinsics(config, "left")["cx"]
         self.assertAlmostEqual(
-            vision_config.lateral_bearing_deg(config["camera"]["cx"], config),
+            vision_config.lateral_bearing_deg(cx, config),
             0.0, places=2)
 
     def test_bearing_magnitude_grows_away_from_optical_axis(self):
         config = vision_config.load_config()
-        cx = config["camera"]["cx"]
+        cx = vision_config.eye_intrinsics(config, "left")["cx"]
         self.assertLess(
             vision_config.lateral_bearing_deg(cx - 40, config),
             vision_config.lateral_bearing_deg(cx - 80, config))

@@ -13,15 +13,17 @@ mono frame with its camera_info immediately. The C++ stereo_image_proc nodes
 then turn the rectified pair into disparity and a point cloud.
 
 When ``calibration_file`` points at a JSON saved by scripts/calibrate_stereo.py,
-each eye publishes its own K/D/R/P. Without it, the node falls back to the
-shared-K, identity-R parameters below.
+each eye publishes its own solved K/D/R/P. Without it, the node still publishes
+two different K matrices from the per-eye rectified intrinsics below and uses
+identity rectification.
 
 Parameters
 ----------
 left_url, right_url : str   ESP32-CAM /capture URLs
 rate                : float photos per second (per eye)
 width, height       : int   expected image size (must match the ESP32-CAM)
-fx, fy, cx, cy      : float intrinsics in pixels
+left_fx, left_fy, left_cx, left_cy : float left rectified intrinsics in pixels
+right_fx, right_fy, right_cx, right_cy : float right rectified intrinsics in pixels
 baseline            : float distance between the two optical centres, metres
 calibration_file    : str JSON with per-eye K/D/R/P (optional)
 left_frame, right_frame : str optical frame ids
@@ -52,10 +54,11 @@ class StereoCameraNode(Node):
         self.declare_parameter("rate", 2.0)
         self.declare_parameter("width", 320)
         self.declare_parameter("height", 240)
-        self.declare_parameter("fx", 250.0)
-        self.declare_parameter("fy", 250.0)
-        self.declare_parameter("cx", 160.0)
-        self.declare_parameter("cy", 120.0)
+        for side in ("left", "right"):
+            self.declare_parameter("%s_fx" % side, 250.0)
+            self.declare_parameter("%s_fy" % side, 250.0)
+            self.declare_parameter("%s_cx" % side, 160.0)
+            self.declare_parameter("%s_cy" % side, 120.0)
         self.declare_parameter("baseline", 0.08)
         self.declare_parameter("calibration_file", "")
         self.declare_parameter("left_frame", "left_camera_optical_frame")
@@ -66,10 +69,11 @@ class StereoCameraNode(Node):
         self.period = 1.0 / float(param("rate"))
         self.width = int(param("width"))
         self.height = int(param("height"))
-        self.fx = float(param("fx"))
-        self.fy = float(param("fy"))
-        self.cx = float(param("cx"))
-        self.cy = float(param("cy"))
+        self.intrinsics = {
+            side: {field: float(param("%s_%s" % (side, field)))
+                   for field in ("fx", "fy", "cx", "cy")}
+            for side in ("left", "right")
+        }
         self.baseline = float(param("baseline"))
         self.left_frame = str(param("left_frame"))
         self.right_frame = str(param("right_frame"))
@@ -109,12 +113,15 @@ class StereoCameraNode(Node):
                     calibration_path, self.calibration["baseline_m"]))
         else:
             self.left_info = self._camera_info(
-                self.left_frame, self.cx, self.cy, 0.0)
+                self.left_frame, self.intrinsics["left"], 0.0)
             self.right_info = self._camera_info(
-                self.right_frame, self.cx, self.cy,
-                -self.fx * self.baseline)
+                self.right_frame, self.intrinsics["right"],
+                -self.intrinsics["left"]["fx"] * self.baseline)
             self.get_logger().info(
-                "Using shared-K camera geometry (baseline %.4f m)" % self.baseline)
+                "Using per-eye rectified intrinsics (left cx %.2f, right cx %.2f, "
+                "baseline %.4f m)" % (
+                    self.intrinsics["left"]["cx"],
+                    self.intrinsics["right"]["cx"], self.baseline))
 
         self._left_latest = None
         self._right_latest = None
@@ -131,21 +138,22 @@ class StereoCameraNode(Node):
             f"-> /stereo/{{left,right}}/image_raw at {param('rate')} Hz"
         )
 
-    def _camera_info(self, frame_id, cx, cy, tx):
+    def _camera_info(self, frame_id, intrinsics, tx):
+        """Build identity-rectification CameraInfo from one eye's intrinsics."""
         info = CameraInfo()
         info.header.frame_id = frame_id
         info.width = self.width
         info.height = self.height
         info.distortion_model = "plumb_bob"
         info.d = [0.0, 0.0, 0.0, 0.0, 0.0]
-        info.k = [self.fx, 0.0, cx,
-                  0.0, self.fy, cy,
+        info.k = [intrinsics["fx"], 0.0, intrinsics["cx"],
+                  0.0, intrinsics["fy"], intrinsics["cy"],
                   0.0, 0.0, 1.0]
         info.r = [1.0, 0.0, 0.0,
                   0.0, 1.0, 0.0,
                   0.0, 0.0, 1.0]
-        info.p = [self.fx, 0.0, cx, tx,
-                  0.0, self.fy, cy, 0.0,
+        info.p = [intrinsics["fx"], 0.0, intrinsics["cx"], tx,
+                  0.0, intrinsics["fy"], intrinsics["cy"], 0.0,
                   0.0, 0.0, 1.0, 0.0]
         return info
 

@@ -172,11 +172,21 @@ def main():
         "recommended_config": {
             "width": a.width,
             "height": a.height,
-            "fx": float(p1[0, 0]),
-            "fy": float(p1[1, 1]),
-            "cx": float(p1[0, 2]),
-            "cy": float(p1[1, 2]),
             "baseline_m": baseline,
+            # The 3x3 part of P1/P2 describes the rectified images the
+            # detectors see. Raw K1/K2 are kept above for the camera node.
+            "left": {
+                "fx": float(p1[0, 0]),
+                "fy": float(p1[1, 1]),
+                "cx": float(p1[0, 2]),
+                "cy": float(p1[1, 2]),
+            },
+            "right": {
+                "fx": float(p2[0, 0]),
+                "fy": float(p2[1, 1]),
+                "cx": float(p2[0, 2]),
+                "cy": float(p2[1, 2]),
+            },
         },
     }
 
@@ -198,13 +208,19 @@ def main():
     print("rectified P2 fx/fy/cx/cy: %.2f %.2f %.2f %.2f" % (
         p2[0, 0], p2[1, 1], p2[0, 2], p2[1, 2]))
     print("rotation: %s" % " ".join("%.4f" % v for v in rotation.reshape(-1)))
-    print("translation: %s" % " ".join("%.4f" % v for v in translation))
-    print("--- copy into vision_detectors.yaml ---")
-    print("fx: %.2f" % config["fx"])
-    print("fy: %.2f" % config["fy"])
-    print("cx: %.2f" % config["cx"])
-    print("cy: %.2f" % config["cy"])
+    print("translation: %s" % " ".join(
+        "%.4f" % v for v in np.asarray(translation).reshape(-1)))
+    print("--- copy into camera: in vision_detectors.yaml ---")
     print("baseline_m: %.4f" % config["baseline_m"])
+    print("# disparity offset (left.cx - right.cx): %.2f px" % (
+        config["left"]["cx"] - config["right"]["cx"]))
+    for side in ("left", "right"):
+        eye = config[side]
+        print("%s:" % side)
+        print("  fx: %.2f" % eye["fx"])
+        print("  fy: %.2f" % eye["fy"])
+        print("  cx: %.2f" % eye["cx"])
+        print("  cy: %.2f" % eye["cy"])
     print("--- full calibration with K1/K2/R/R1/R2/P1/P2 ---")
     print(output)
 

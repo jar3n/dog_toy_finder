@@ -67,7 +67,8 @@ def _request_config(body):
     """Apply the container's calibration to a copy of the host config."""
     config = dict(_CONFIG)
     camera = dict(config.get("camera") or {})
-    for key in ("fx", "baseline_m", "depth_min_m", "depth_max_m"):
+    for key in ("fx", "baseline_m", "disparity_offset_px",
+                "depth_min_m", "depth_max_m"):
         if key in body:
             camera[key] = body[key]
     config["camera"] = camera

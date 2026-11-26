@@ -34,12 +34,13 @@ detects in the left image only and asks the host dense-stereo service
 on the computer, never in this container.
 
 Camera geometry is read from ``config_path`` (``vision_detectors.yaml`` by
-default). The ``width``/``height``/``fx``/``fy``/``cx``/``cy``/``baseline``
-launch arguments are optional overrides; when left empty the YAML values are
-used. The default capture size is 320x240 because at 640x480 each colour frame
-is ~900 KB and the host's DDS socket buffers drop enough of them to stall the
-point cloud. If you raise width/height in the YAML, scale fx, fy, cx and cy
-with them.
+default). The ``width``/``height``/``baseline`` and per-eye
+``left_fx``/``left_fy``/``left_cx``/``left_cy`` /
+``right_fx``/``right_fy``/``right_cx``/``right_cy`` launch arguments are
+optional overrides; when left empty the YAML values are used. The default
+capture size is 320x240 because at 640x480 each colour frame is ~900 KB and the
+host's DDS socket buffers drop enough of them to stall the point cloud. If you
+raise width/height in the YAML, scale both eyes' intrinsics with them.
 
 ``calibration_file`` may point at the JSON written by
 ``scripts/calibrate_stereo.py``. When set, ``stereo_camera_node`` publishes the
@@ -51,7 +52,7 @@ a non-horizontal baseline.
 import os
 
 from ament_index_python.packages import get_package_share_directory
-from dog_toy_finder_vision.vision_config import load_config
+from dog_toy_finder_vision import vision_config
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, GroupAction, OpaqueFunction
 from launch.conditions import IfCondition
@@ -88,21 +89,28 @@ def _bool_arg(context, name):
 
 def _launch_setup(context):
     """Build the nodes after launch args are known, so YAML can fill defaults."""
-    camera = load_config(_arg(context, "config_path") or None)["camera"]
+    config = vision_config.load_config(_arg(context, "config_path") or None)
+    camera = config["camera"]
 
-    def camera_arg(name, key):
-        return _default_if_empty(_arg(context, name), camera[key])
+    def camera_arg(name, value):
+        return _default_if_empty(_arg(context, name), value)
+
+    def eye_arg(side, field):
+        name = "%s_%s" % (side, field)
+        return camera_arg(
+            name, vision_config.eye_intrinsics(config, side)[field])
 
     left_url = _arg(context, "left_url")
     right_url = _arg(context, "right_url")
     rate = _arg(context, "rate")
-    width = camera_arg("width", "width")
-    height = camera_arg("height", "height")
-    fx = camera_arg("fx", "fx")
-    fy = camera_arg("fy", "fy")
-    cx = camera_arg("cx", "cx")
-    cy = camera_arg("cy", "cy")
-    baseline = camera_arg("baseline", "baseline_m")
+    width = camera_arg("width", camera["width"])
+    height = camera_arg("height", camera["height"])
+    intrinsics = {
+        "%s_%s" % (side, field): eye_arg(side, field)
+        for side in ("left", "right")
+        for field in ("fx", "fy", "cx", "cy")
+    }
+    baseline = camera_arg("baseline", camera["baseline_m"])
     calibration_file = _arg(context, "calibration_file")
 
     stereo_camera = Node(
@@ -116,10 +124,7 @@ def _launch_setup(context):
             "rate": float(rate),
             "width": int(width),
             "height": int(height),
-            "fx": float(fx),
-            "fy": float(fy),
-            "cx": float(cx),
-            "cy": float(cy),
+            **{name: float(value) for name, value in intrinsics.items()},
             "baseline": float(baseline),
             "calibration_file": calibration_file,
         }],
@@ -243,14 +248,22 @@ def generate_launch_description():
                               description="Image width (default: camera.width in config_path)"),
         DeclareLaunchArgument("height", default_value="",
                               description="Image height (default: camera.height in config_path)"),
-        DeclareLaunchArgument("fx", default_value="",
-                              description="Focal length x in px (default: camera.fx in config_path)"),
-        DeclareLaunchArgument("fy", default_value="",
-                              description="Focal length y in px (default: camera.fy in config_path)"),
-        DeclareLaunchArgument("cx", default_value="",
-                              description="Principal point x in px (default: camera.cx in config_path)"),
-        DeclareLaunchArgument("cy", default_value="",
-                              description="Principal point y in px (default: camera.cy in config_path)"),
+        DeclareLaunchArgument("left_fx", default_value="",
+                              description="Left focal length x in px (default: camera.left.fx in config_path)"),
+        DeclareLaunchArgument("left_fy", default_value="",
+                              description="Left focal length y in px (default: camera.left.fy in config_path)"),
+        DeclareLaunchArgument("left_cx", default_value="",
+                              description="Left principal point x in px (default: camera.left.cx in config_path)"),
+        DeclareLaunchArgument("left_cy", default_value="",
+                              description="Left principal point y in px (default: camera.left.cy in config_path)"),
+        DeclareLaunchArgument("right_fx", default_value="",
+                              description="Right focal length x in px (default: camera.right.fx in config_path)"),
+        DeclareLaunchArgument("right_fy", default_value="",
+                              description="Right focal length y in px (default: camera.right.fy in config_path)"),
+        DeclareLaunchArgument("right_cx", default_value="",
+                              description="Right principal point x in px (default: camera.right.cx in config_path)"),
+        DeclareLaunchArgument("right_cy", default_value="",
+                              description="Right principal point y in px (default: camera.right.cy in config_path)"),
         DeclareLaunchArgument("baseline", default_value="",
                               description="Optical centre separation in m (default: camera.baseline_m in config_path)"),
         DeclareLaunchArgument("calibration_file", default_value="",

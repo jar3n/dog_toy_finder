@@ -37,8 +37,9 @@ def sample(left_jpeg, right_jpeg, sample_spec, config):
     payload = {
         "images": [base64.b64encode(jpeg).decode("ascii")
                    for jpeg in (left_jpeg, right_jpeg)],
-        "fx": float(camera.get("fx", 250.0)),
+        "fx": vision_config.eye_intrinsics(config, "left")["fx"],
         "baseline_m": float(camera.get("baseline_m", 0.08)),
+        "disparity_offset_px": vision_config.stereo_disparity_offset_px(config),
         "depth_min_m": float(camera.get("depth_min_m", 0.0)),
         "depth_max_m": float(camera.get("depth_max_m", 0.0)),
         "max_disp": int(vision_config.get(

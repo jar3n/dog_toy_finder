@@ -74,10 +74,12 @@ class ServiceConfigTests(unittest.TestCase):
 
     def test_request_calibration_overrides_are_applied(self):
         service._CONFIG = {"model": "lite_any_stereo", "camera": {"fx": 100.0}}
-        config = service._request_config({"fx": 250.0, "baseline_m": 0.08,
-                                          "max_disp": 64})
+        config = service._request_config({
+            "fx": 250.0, "baseline_m": 0.08, "disparity_offset_px": 29.04,
+            "max_disp": 64})
         self.assertEqual(config["camera"]["fx"], 250.0)
         self.assertEqual(config["camera"]["baseline_m"], 0.08)
+        self.assertEqual(config["camera"]["disparity_offset_px"], 29.04)
         self.assertEqual(config["max_disp"], 64)
         self.assertEqual(service._CONFIG["camera"]["fx"], 100.0)
 
@@ -162,7 +164,11 @@ class HostServiceTests(unittest.TestCase):
                          [[100, 120], [101, 120]])
         self.assertEqual(
             sample_mock.call_args.kwargs["config"]["camera"]["fx"],
-            config["camera"]["fx"])
+            vision_config.eye_intrinsics(config, "left")["fx"])
+        self.assertEqual(
+            sample_mock.call_args.kwargs["config"]["camera"][
+                "disparity_offset_px"],
+            vision_config.stereo_disparity_offset_px(config))
 
     def test_invalid_requests_are_rejected(self):
         with self.assertRaises(ValueError):

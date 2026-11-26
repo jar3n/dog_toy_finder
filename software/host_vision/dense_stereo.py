@@ -296,10 +296,17 @@ def _as_point(value):
 
 
 def sample_disparity(disparity, points=None, window=None, config=None):
-    """Return the median disparity and derived depth over the requested pixels."""
+    """Return the median rectified disparity and derived depth over the samples.
+
+    Dense networks report ``u_left - u_right``. When the rectified principal
+    points differ, the container sends ``left.cx - right.cx`` as
+    ``disparity_offset_px``; subtracting it gives the disparity compatible with
+    ``distance = fx * baseline / disparity``.
+    """
     camera = (config or {}).get("camera", {}) if isinstance(config, dict) else {}
     fx = float(camera.get("fx", 250.0))
     baseline = float(camera.get("baseline_m", 0.08))
+    offset = float(camera.get("disparity_offset_px", 0.0))
     limit = max_disparity(config)
     array = np.asarray(disparity, dtype=float)
     height, width = array.shape[:2]
@@ -325,17 +332,21 @@ def sample_disparity(disparity, points=None, window=None, config=None):
         raise ValueError("either 'points' or 'window' must name depth samples")
 
     samples = np.asarray(samples, dtype=float)
-    valid = np.isfinite(samples) & (samples > 0) & (samples <= limit)
+    corrected = samples - offset
+    valid = np.isfinite(corrected) & (corrected > 0) & (corrected <= limit)
     result = {
         "sample_source": source,
         "sample_count": int(samples.size),
         "valid_count": int(valid.sum()),
+        "disparity_offset_px": round(offset, 4),
+        "raw_disparity_px": None,
         "disparity_px": None,
         "depth_m": None,
     }
     if not valid.any() or fx <= 0 or baseline <= 0:
         return result
-    disparity_px = float(np.median(samples[valid]))
+    disparity_px = float(np.median(corrected[valid]))
+    result["raw_disparity_px"] = round(float(np.median(samples[valid])), 4)
     result["disparity_px"] = round(disparity_px, 4)
     result["depth_m"] = round(fx * baseline / disparity_px, 4)
     return result

@@ -4,14 +4,19 @@ The shipped camera values are starting estimates, not measurements. Both vision
 pipelines depend on them:
 
 ```text
-distance     = fx * baseline_m / disparity
-lateral bearing = atan((cx - u) / fx)     # degrees, positive to robot-left (+y)
+raw_disparity = u_left - u_right
+disparity     = raw_disparity - (left.cx - right.cx)
+distance      = left.fx * baseline_m / disparity
+lateral bearing = atan((left.cx - u) / left.fx)  # degrees, +robot-left (+y)
 ```
 
-If `fx` or `baseline_m` is wrong, every reported distance is wrong by the same
-scale factor. If `cx` is wrong, every bearing has a constant offset. Calibrate
-once for a fixed camera mount, then record the numbers where both the live node
-and the offline evaluator can read them.
+`stereoRectify` keeps both focal lengths equal but does not force the principal
+points onto the same column, so the measured pixel shift still contains the
+`left.cx - right.cx` offset. Both pipelines subtract it before converting
+disparity to distance. If `fx` or `baseline_m` is wrong, every reported distance
+is wrong by the same scale factor. If `left.cx` is wrong, every bearing has a
+constant offset. Calibrate once for a fixed camera mount, then record the
+numbers where both the live node and the offline evaluator can read them.
 
 This procedure uses the cameras' HTTP `/capture` endpoints and OpenCV on the
 **host**. The ROS 2 image has `camera_calibration_parsers`, `image_proc`, and
@@ -24,19 +29,22 @@ its system `cv2` does not import with the image's NumPy 2. Do not try to run
 | Measurement | `vision_detectors.yaml` | Direct launch argument |
 |---|---|---|
 | Image width / height | `camera.width`, `camera.height` | `width:=`, `height:=` |
-| Focal lengths | `camera.fx`, `camera.fy` | `fx:=`, `fy:=` |
-| Principal point | `camera.cx`, `camera.cy` | `cx:=`, `cy:=` |
+| Left focal lengths | `camera.left.fx`, `camera.left.fy` | `left_fx:=`, `left_fy:=` |
+| Left principal point | `camera.left.cx`, `camera.left.cy` | `left_cx:=`, `left_cy:=` |
+| Right focal lengths | `camera.right.fx`, `camera.right.fy` | `right_fx:=`, `right_fy:=` |
+| Right principal point | `camera.right.cx`, `camera.right.cy` | `right_cx:=`, `right_cy:=` |
 | Stereo baseline | `camera.baseline_m` | `baseline:=` |
 | Full per-eye calibration | (not needed) | `calibration_file:=` |
 | Valid depth window | `camera.depth_min_m`, `camera.depth_max_m` | (not present) |
 
 The detector YAML is the single source of truth. When `launch_all.sh` sources
 `scripts/full_system_eval.conf`, that config reads these values from the YAML
-into `IMAGE_WIDTH`, `CAMERA_FX`, `STEREO_BASELINE`, etc. and forwards them as
-launch arguments. `vision_capture` and `vision_eval` read the same YAML, so
-live geometry and offline scoring cannot drift apart. An explicit launch
-argument or an exported environment variable still overrides a value for a
-single run.
+into `IMAGE_WIDTH`, `CAMERA_LEFT_FX`, `CAMERA_RIGHT_CX`, `STEREO_BASELINE`, etc.
+and forwards them as launch arguments. `vision_capture` and `vision_eval` read
+the same YAML, so live geometry and offline scoring cannot drift apart. An
+explicit launch argument or an exported environment variable still overrides a
+value for a single run. Detection and bearing always use the left eye because
+both pipelines detect in the rectified left image.
 
 ## 1. Prepare the host calibration environment
 
@@ -199,10 +207,10 @@ software/host_vision/.venv/bin/python scripts/calibrate_stereo.py \
     --output software/ros2_ws/src/dog_toy_finder_vision/config/stereo_calibration.json
 ```
 
-The printed `rectified P1/P2` values are the ones that describe the images
-`image_proc` produces. Copy the printed `fx`, `fy`, `cx`, `cy`, and `baseline_m`
-into `vision_detectors.yaml`. The JSON also stores `K1/K2`, the relative
-`R/T`, and the rectification `R1/R2/P1/P2` for the runtime.
+The printed `rectified P1/P2` values describe the images `image_proc` produces.
+Copy the printed `baseline_m` and the separate `left:` and `right:` `fx`, `fy`,
+`cx`, `cy` blocks into `vision_detectors.yaml`. The JSON also stores `K1/K2`,
+the relative `R/T`, and the rectification `R1/R2/P1/P2` for the runtime.
 
 Aim for a reprojection RMS of a couple of pixels or less at 320 x 240. If it is
 much larger, discard blurry pairs, add more viewpoints, and recheck the measured
@@ -220,18 +228,24 @@ no second camera-geometry block to edit:
 camera:
   width: 320
   height: 240
-  fx: 299.72      # replace with the printed rectified P1 values
-  fy: 300.92
-  cx: 175.61
-  cy: 127.57
-  baseline_m: 0.052
+  baseline_m: 0.0496   # replace with the printed baseline
+  left:                # replace with the printed rectified P1 values
+    fx: 346.89
+    fy: 346.89
+    cx: 165.98
+    cy: 121.07
+  right:               # replace with the printed rectified P2 values
+    fx: 346.89
+    fy: 346.89
+    cx: 136.94
+    cy: 121.07
   depth_min_m: 0.25
   depth_max_m: 2.0
 ```
 
-For a one-off override, export `CAMERA_FX=...` (or any of the other `CAMERA_*`
-variables) before sourcing `full_system_eval.conf`; exported values still win
-over the YAML.
+For a one-off override, export `CAMERA_LEFT_FX=...`, `CAMERA_RIGHT_CX=...`, etc.
+before sourcing `full_system_eval.conf`; exported values still win over the
+YAML.
 
 To use the preserved `K2` and `R`, point the launch at the JSON written in step
 4. Set `STEREO_CALIBRATION_FILE` before sourcing `full_system_eval.conf`, or pass
@@ -244,12 +258,14 @@ ros2 launch dog_toy_finder_vision stereo_vision.launch.py \
 
 When this file is present, `stereo_camera_node` publishes each eye's solved
 `K/D/R/P`, and `image_proc` rectifies with the real relative rotation. Without
-it, the node falls back to the shared-K, identity-R parameters above.
+it, the node uses the two eyes' rectified intrinsics above with identity
+rectification; it no longer forces one shared `K`.
 
 `depth_min_m` and `depth_max_m` are not solved by the checkerboard. Choose them
 from the useful range of your rig: `depth_min_m` should be above the distance
-where `fx * baseline_m / depth` exceeds the launch `disparity_range` (default
-64 px), and `depth_max_m` below where disparity approaches the noise floor.
+where `(left.cx - right.cx) + left.fx * baseline_m / depth` exceeds the launch
+`disparity_range` (default 64 px), and `depth_max_m` below where corrected
+disparity approaches the noise floor.
 The depth service also uses these bounds, so the same YAML applies to both
 pipelines.
 
@@ -258,8 +274,9 @@ If you launch `stereo_vision.launch.py` directly instead of through
 
 ```bash
 ros2 launch dog_toy_finder_vision stereo_vision.launch.py \
-    width:=320 height:=240 fx:=299.72 fy:=300.92 \
-    cx:=175.61 cy:=127.57 baseline:=0.052 \
+    width:=320 height:=240 baseline:=0.0496 \
+    left_fx:=346.89 left_fy:=346.89 left_cx:=165.98 left_cy:=121.07 \
+    right_fx:=346.89 right_fy:=346.89 right_cx:=136.94 right_cy:=121.07 \
     calibration_file:=/workspace/software/ros2_ws/src/dog_toy_finder_vision/config/stereo_calibration.json
 ```
 
@@ -277,10 +294,10 @@ ros2 topic echo /stereo/disparity --once
 ```
 
 With a calibration file loaded, the two `k` matrices may differ and each `r`
-may be non-identity; that is expected. Without one, the left `k` should contain
-the new `fx`/`cx` and the right camera info should show `p[3]` near
-`-fx * baseline`. Then do a physical sanity check with a tape measure (no motion
-stack or Pico needed):
+may be non-identity; that is expected. Without one, both `k` matrices still
+differ: each contains that eye's configured `fx`/`cx`, and the right camera info
+shows `p[3]` near `-left.fx * baseline_m`. Then do a physical sanity check with
+a tape measure (no motion stack or Pico needed):
 
 1. Put the toy at a known distance, for example 1.00 m from the camera baseline,
    and near the optical axis.

@@ -27,14 +27,13 @@ def _test_config():
     config["camera"].update({
         "width": 320,
         "height": 240,
-        "fx": 250.0,
-        "fy": 250.0,
-        "cx": 160.0,
-        "cy": 120.0,
         "baseline_m": 0.08,
         "depth_min_m": 0.25,
         "depth_max_m": 3.0,
     })
+    for side in ("left", "right"):
+        config["camera"][side].update({
+            "fx": 250.0, "fy": 250.0, "cx": 160.0, "cy": 120.0})
     config["config_path"] = "test-config"
     vision_config.validate_config(config)
     return config
@@ -146,6 +145,20 @@ class TriangulationTests(unittest.TestCase):
         self.assertAlmostEqual(entry["mask_centroid_px"][0], 90.0, delta=1.0)
         self.assertEqual(entry["mask_area_px"], 100)
         self.assertNotIn("size", entry)
+
+    def test_principal_point_offset_is_removed_before_depth(self):
+        self.config["camera"]["right"]["cx"] = 140.0
+        # Raw image-centre shift is 40 px; left.cx - right.cx is 20 px, so the
+        # rectified disparity is 20 px and depth is 250 * 0.08 / 20 = 1.0 m.
+        left, right = _stereo_jpegs(left_x=100, disparity=40)
+        entry = open_vocab_stereo.detect(
+            left, right, "red ball", self.config, client=FakeClient())
+
+        self.assertTrue(entry["target_visible"])
+        self.assertAlmostEqual(entry["distance_m"], 1.0, places=2)
+        self.assertAlmostEqual(entry["disparity_px"], 20.0, delta=1.5)
+        self.assertAlmostEqual(entry["raw_disparity_px"], 40.0, delta=1.5)
+        self.assertAlmostEqual(entry["disparity_offset_px"], 20.0, places=2)
 
     def test_unmatched_target_reports_not_visible(self):
         left, right = _stereo_jpegs(right_visible=False)

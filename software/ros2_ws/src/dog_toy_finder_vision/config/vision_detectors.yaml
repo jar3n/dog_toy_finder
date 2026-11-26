@@ -6,9 +6,10 @@
 # JPEGs and return the object's location. An explicit `pipeline:=` launch arg,
 # --pipeline on vision_eval, or VISION_PIPELINE overrides the choice below.
 #
-# The camera values must match the calibrated intrinsics passed to
-# stereo_vision.launch.py. They are used for stereo triangulation and for the
-# shared numeric bearing convention atan((cx - u) / fx), positive to the left.
+# The per-eye camera values must match the rectified intrinsics passed to
+# stereo_vision.launch.py. Detection and triangulation use the left eye; the
+# right eye is kept separate so the camera node does not force a shared K.
+# Bearing uses atan((left.cx - u) / left.fx), positive to the left.
 
 # Vision pipeline used when no explicit selector is given:
 #   open_vocab  - detect in both eyes, triangulate distance from disparity
@@ -17,23 +18,34 @@ pipeline: open_vocab
 
 camera:
   # Rectified image size in pixels. Must match the launch width/height and the
-  # calibration that produced fx, fy, cx, and cy.
+  # calibration that produced the two eyes' fx, fy, cx, and cy.
   width: 320
   height: 240
 
-  # Focal lengths in pixels. fx drives stereo triangulation
-  # (distance = fx * baseline_m / disparity) and lateral bearing; fy is used in
-  # the CameraInfo published for rectification.
-  fx: 299.72
-  fy: 300.92
+  # Separation of the two optical centres in metres. This is the norm of the
+  # solved translation vector, so it matches the P2 x-translation below.
+  baseline_m: 0.0496
 
-  # Principal point in pixels. cx is the optical axis for
-  # bearing = atan((cx - u) / fx); positive bearing is robot-left (ROS +y).
-  cx: 175.61
-  cy: 127.57
+  # Rectified intrinsics from stereoRectify's P1 and P2. These are the 3x3
+  # intrinsics of the images sent to the detectors, not the raw K1/K2 saved in
+  # stereo_calibration.json. Keeping the two eyes separate preserves the
+  # measured principal-point offset; without a calibration file the node
+  # publishes these values with identity rectification.
+  left:
+    # left.fx drives triangulation and lateral bearing; disparity is
+    # (u_left - u_right) - (left.cx - right.cx), so distance is
+    # left.fx * baseline_m / disparity. Bearing = atan((left.cx - u) / left.fx),
+    # positive to robot-left.
+    fx: 346.89
+    fy: 346.89
+    cx: 165.98
+    cy: 121.07
 
-  # Separation of the two optical centres in metres, from calibration.
-  baseline_m: 0.052
+  right:
+    fx: 346.89
+    fy: 346.89
+    cx: 136.94
+    cy: 121.07
 
   # Accepted depth window in metres. Matches outside this range are reported as
   # not visible instead of producing a distance.
@@ -69,7 +81,8 @@ open_vocab:
 
   # Stereo matching bounds in pixels for paired left/right detections. A pair is
   # accepted when min_disparity <= disparity <= max_disparity, where disparity
-  # is u_left - u_right and distance = fx * baseline_m / disparity.
+  # is (u_left - u_right) - (left.cx - right.cx). The principal-point offset is
+  # subtracted before distance = left.fx * baseline_m / disparity.
   min_disparity: 3
   max_disparity: 96
 

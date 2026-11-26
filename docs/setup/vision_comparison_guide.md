@@ -122,31 +122,36 @@ ros2 run dog_toy_finder_data llm_trials --help
 Edit
 `/workspace/software/ros2_ws/src/dog_toy_finder_vision/config/vision_detectors.yaml`
 (or point `VISION_DETECTOR_CONFIG` in `scripts/full_system_eval.conf` at your
-own copy). At minimum, set the calibrated `fx`, `fy`, `cx`, `cy`, `baseline_m`,
-and the valid `camera.depth_min_m`/`depth_max_m`. The top-level `pipeline` key
-selects the vision pipeline (`open_vocab` by default); `open_vocab.service_url`
-points at the host detector service and `open_vocab.name` is the fallback model
-name recorded in results and trial CSVs. The `stereo-net.service_url`,
-`stereo-net.window_radius_px`, and `stereo-net.max_disparity` keys tune the dense-depth
-path. The detector backend, weights, and torch device are configured on the
-host service via `DETECTOR_MODEL`, `YOLO_MODEL_PATH` / `YOLOE_MODEL_PATH` /
+own copy). At minimum, set the calibrated `camera.left.fx/fy/cx/cy`,
+`camera.right.fx/fy/cx/cy`, `camera.baseline_m`, and the valid
+`camera.depth_min_m`/`depth_max_m`. The top-level `pipeline` key selects the
+vision pipeline (`open_vocab` by default); `open_vocab.service_url` points at
+the host detector service and `open_vocab.name` is the fallback model name
+recorded in results and trial CSVs. The `stereo-net.service_url`,
+`stereo-net.window_radius_px`, and `stereo-net.max_disparity` keys tune the
+dense-depth path. The detector backend, weights, and torch device are configured
+on the host service via `DETECTOR_MODEL`, `YOLO_MODEL_PATH` / `YOLOE_MODEL_PATH` /
 `GROUNDING_DINO_MODEL`, and `YOLO_DEVICE`; the dense model is selected on the
-host with `DEPTH_MODEL` and `STEREO_DEVICE`. `fx` and `baseline_m` drive both
-triangulation and dense depth (`distance = fx * baseline / disparity`), and
-`cx`/`fx` set the bearing. Use
-[camera_calibration.md](camera_calibration.md) to measure these values and the
-stereo baseline for your rig before starting capture. That procedure also saves
-both eyes' `K` matrices and the solved rotation to a calibration JSON; pass it
-as `calibration_file:=` (or set `STEREO_CALIBRATION_FILE`) so the rectified pair
-uses the real per-eye geometry instead of a shared K and identity rotation.
+host with `DEPTH_MODEL` and `STEREO_DEVICE`. The left eye's `fx` and the shared
+`baseline_m` drive both triangulation and dense depth, and the left eye's
+`cx`/`fx` set the bearing. Because the rectified principal points differ,
+both pipelines use `disparity = (u_left - u_right) - (left.cx - right.cx)` before
+computing `distance = left.fx * baseline_m / disparity`. Use
+[camera_calibration.md](camera_calibration.md) to measure these
+values and the stereo baseline for your rig before starting capture. That
+procedure also saves both eyes' `K` matrices and the solved rotation to a
+calibration JSON; pass it as `calibration_file:=` (or set
+`STEREO_CALIBRATION_FILE`) so the rectified pair uses the real per-eye geometry
+instead of the identity-rectification fallback.
 
 `lateral_bearing_deg` is measured from the camera's optical axis in degrees:
 
 ```text
-bearing = atan((cx - u) / fx)
+bearing = atan((left.cx - u) / left.fx)
 ```
 
-where `u` is the target's horizontal pixel centre. For **YOLOE-26-seg** that is
+where `u` is the target's horizontal pixel centre in the rectified left image.
+For **YOLOE-26-seg** that is
 the mean of the instance-mask pixels (`center_source: "mask_centroid"`); for
 **YOLO-World** and **Grounding DINO**, which are box-only models, it is the
 detected box centre (`center_source: "box_center"`). Only centroid/box/area
@@ -154,11 +159,11 @@ numbers cross HTTP; full masks stay on the computer. The same centre drives
 disparity and depth.
 
 Positive bearing means the toy is to the robot's **left** (image column less
-than `cx`, ROS `+y`), negative means right, and zero means centred. The
+than `left.cx`, ROS `+y`), negative means right, and zero means centred. The
 pipeline also reports the lateral distance from the optical-axis center:
 
 ```text
-center_offset_m = distance_m * (cx - u) / fx
+center_offset_m = distance_m * (left.cx - u) / left.fx
 ```
 
 These three values are consistent by construction:
@@ -196,14 +201,14 @@ data out of `/workspace/data/vision/captures`. An explicit `--output-dir`,
 wins.
 
 `scripts/full_system_eval.conf` defines these defaults. The YAML at `config`
-must be the same file whose `fx`, `cx`, and baseline you checked above;
+must be the same file whose per-eye intrinsics and baseline you checked above;
 `vision_capture` copies those values into each `meta.json`. The config also
-reads `camera.width`, `height`, `fx`, `fy`, `cx`, `cy`, and `baseline_m` from
+reads `camera.width`, `height`, `baseline_m`, and both eyes' `fx/fy/cx/cy` from
 that YAML into the launch arguments below, so the live pipeline and the capture
 metadata share one set of numbers. If the calibration JSON from
 [camera_calibration.md](camera_calibration.md) exists, use the same
 `calibration_file` below so the saved JPEGs are rectified with the solved
-`K2`/`R` instead of the shared-K fallback.
+`K2`/`R` instead of the identity-rectification fallback.
 
 ### Step 2 - Start a capture-only stereo pipeline (first shell)
 
@@ -214,23 +219,28 @@ ros2 launch dog_toy_finder_vision stereo_vision.launch.py \
     rate:="2.0" \
     width:="320" \
     height:="240" \
-    fx:="299.72" \
-    fy:="300.92" \
-    cx:="175.61" \
-    cy:="127.57" \
-    baseline:="0.052" \
+    baseline:="0.0496" \
+    left_fx:="346.89" \
+    left_fy:="346.89" \
+    left_cx:="165.98" \
+    left_cy:="121.07" \
+    right_fx:="346.89" \
+    right_fy:="346.89" \
+    right_cx:="136.94" \
+    right_cy:="121.07" \
     calibration_file:="/workspace/software/ros2_ws/src/dog_toy_finder_vision/config/stereo_calibration.json" \
     config_path:="/workspace/software/ros2_ws/src/dog_toy_finder_vision/config/vision_detectors.yaml" \
     stereo_proc:=false \
     vision:=false
 ```
 
-The `width`/`height`/`fx`/`fy`/`cx`/`cy`/`baseline` arguments are shown for
-clarity; the launch file reads the same values from `config_path` when they are
-omitted, and an explicit argument still wins. Omit `calibration_file` only when
-the JSON has not been generated yet; then the camera node publishes the
-shared-K, identity-R fallback. With the file set, the two `CameraInfo` messages
-may show different `k` matrices and non-identity `r`, which is expected.
+The `width`/`height`/`baseline` and per-eye `*_fx`/`*_fy`/`*_cx`/`*_cy`
+arguments are shown for clarity; the launch file reads the same values from
+`config_path` when they are omitted, and an explicit argument still wins. Omit
+`calibration_file` only when the JSON has not been generated yet; then the
+camera node publishes each eye's configured rectified intrinsics with identity
+rectification. With the file set, the two `CameraInfo` messages may show
+different `k` matrices and non-identity `r`, which is expected.
 
 `vision:=false` skips the live detector node, and `stereo_proc:=false` skips
 disparity/point-cloud generation. Capture only needs the rectified colour

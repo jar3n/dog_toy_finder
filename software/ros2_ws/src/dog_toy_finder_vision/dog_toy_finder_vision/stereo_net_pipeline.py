@@ -5,8 +5,10 @@ same host open-vocabulary detector as ``open_vocab``, but only in the rectified
 left image. A dense stereo model on the computer computes a disparity map from
 the full pair; its median over the detected object's mask pixels (YOLOE-26) or
 over a small window at the box centre (YOLO-World / Grounding DINO) gives the
-distance. Depth is ``fx * baseline / disparity``; bearing uses the same
-``atan((cx - u) / fx)`` convention as ``open_vocab``.
+distance. Depth is ``fx * baseline / disparity`` after subtracting the
+``left.cx - right.cx`` principal-point offset from the network's raw
+``u_left - u_right`` output; bearing uses the same ``atan((cx - u) / fx)``
+convention as ``open_vocab``.
 
 Only detection numbers and the depth samples cross HTTP. Weights, torch, and
 the dense stereo models stay on the computer. Tests inject small callables with
@@ -50,6 +52,8 @@ def _entry(answer, name, detector, confidence, seconds, distance_source):
         "depth_sample_count": 0,
         "depth_valid_count": 0,
         "depth_disparity_px": None,
+        "depth_raw_disparity_px": None,
+        "depth_disparity_offset_px": None,
     }
     for key, value in defaults.items():
         answer.setdefault(key, value)
@@ -132,6 +136,8 @@ def detect(left_jpeg, right_jpeg, target, config, client=None,
         "depth_sample_count": sampled.get("sample_count", 0),
         "depth_valid_count": sampled.get("valid_count", 0),
         "depth_disparity_px": sampled.get("disparity_px"),
+        "depth_raw_disparity_px": sampled.get("raw_disparity_px"),
+        "depth_disparity_offset_px": sampled.get("disparity_offset_px"),
     }
     if depth_m is None:
         return _not_visible(

@@ -25,8 +25,9 @@ def _launch_context(config_path, overrides=None):
         left_url="http://left/capture",
         right_url="http://right/capture",
         rate="2.0",
-        width="", height="", fx="", fy="", cx="", cy="", baseline="",
-        calibration_file="",
+        width="", height="", baseline="", calibration_file="",
+        left_fx="", left_fy="", left_cx="", left_cy="",
+        right_fx="", right_fy="", right_cx="", right_cy="",
         stereo="true", stereo_proc="false", vision="false",
         approximate_sync="true", use_color="true", stereo_algorithm="0",
         min_disparity="0", disparity_range="64",
@@ -54,7 +55,8 @@ def test_camera_geometry_defaults_come_from_yaml(tmp_path):
     config = {
         "camera": {
             "width": 640, "height": 480,
-            "fx": 500.0, "fy": 510.0, "cx": 320.0, "cy": 240.0,
+            "left": {"fx": 500.0, "fy": 510.0, "cx": 320.0, "cy": 240.0},
+            "right": {"fx": 505.0, "fy": 515.0, "cx": 300.0, "cy": 238.0},
             "baseline_m": 0.123,
         },
     }
@@ -65,10 +67,14 @@ def test_camera_geometry_defaults_come_from_yaml(tmp_path):
 
     assert params["width"] == 640
     assert params["height"] == 480
-    assert params["fx"] == 500.0
-    assert params["fy"] == 510.0
-    assert params["cx"] == 320.0
-    assert params["cy"] == 240.0
+    assert params["left_fx"] == 500.0
+    assert params["left_fy"] == 510.0
+    assert params["left_cx"] == 320.0
+    assert params["left_cy"] == 240.0
+    assert params["right_fx"] == 505.0
+    assert params["right_fy"] == 515.0
+    assert params["right_cx"] == 300.0
+    assert params["right_cy"] == 238.0
     assert params["baseline"] == 0.123
     assert params["calibration_file"] == ""
 
@@ -86,12 +92,20 @@ def test_calibration_file_is_forwarded_to_camera_node(tmp_path):
 
 def test_explicit_camera_args_override_yaml(tmp_path):
     path = tmp_path / "vision.yaml"
-    path.write_text(yaml.safe_dump({"camera": {"fx": 500.0, "baseline_m": 0.123}}))
+    path.write_text(yaml.safe_dump({
+        "camera": {
+            "left": {"fx": 500.0},
+            "right": {"cx": 150.0},
+            "baseline_m": 0.123,
+        },
+    }))
 
-    params = _camera_params(_load_module(), str(path),
-                            {"fx": "999.5", "baseline": "0.42"})
+    params = _camera_params(
+        _load_module(), str(path),
+        {"left_fx": "999.5", "right_cx": "140.25", "baseline": "0.42"})
 
-    assert params["fx"] == 999.5
+    assert params["left_fx"] == 999.5
+    assert params["right_cx"] == 140.25
     assert params["baseline"] == 0.42
 
 

@@ -30,11 +30,22 @@ DEFAULTS = {
     "camera": {
         "width": 320,
         "height": 240,
-        "fx": 250.0,
-        "fy": 250.0,
-        "cx": 160.0,
-        "cy": 120.0,
         "baseline_m": 0.08,
+        # Rectified intrinsics: the 3x3 part of stereoRectify's P1/P2. Detection
+        # and triangulation use the left eye; the right eye is stored so the
+        # camera node can publish its own K instead of forcing a shared one.
+        "left": {
+            "fx": 250.0,
+            "fy": 250.0,
+            "cx": 160.0,
+            "cy": 120.0,
+        },
+        "right": {
+            "fx": 250.0,
+            "fy": 250.0,
+            "cx": 160.0,
+            "cy": 120.0,
+        },
         "depth_min_m": 0.25,
         "depth_max_m": 3.0,
         "left_rectified_topic": "/stereo/left/image_rect_color",
@@ -69,6 +80,31 @@ def _deep_update(base, updates):
         else:
             result[key] = copy.deepcopy(value)
     return result
+
+
+_LEGACY_EYE_FIELDS = ("fx", "fy", "cx", "cy")
+
+
+def _normalize_camera_block(config):
+    """Move old shared camera.fx/fy/cx/cy values into both eye blocks.
+
+    Older YAML files and hand-built configs used one shared intrinsics set.
+    They still load, but the canonical schema is camera.left and camera.right;
+    removing the shared keys prevents a consumer from silently using them.
+    """
+    camera = config.get("camera")
+    if not isinstance(camera, dict):
+        return config
+    legacy = {key: camera.pop(key)
+              for key in _LEGACY_EYE_FIELDS if key in camera}
+    for side in ("left", "right"):
+        eye = camera.get(side)
+        if not isinstance(eye, dict):
+            eye = {}
+            camera[side] = eye
+        for key, value in legacy.items():
+            eye.setdefault(key, value)
+    return config
 
 
 def resolve_config_path(path=None):
@@ -120,6 +156,9 @@ def load_config(path=None):
         loaded = yaml.safe_load(handle) or {}
     if not isinstance(loaded, dict):
         raise ValueError("Vision detector config must be a YAML object")
+    # Normalize before merging defaults so explicit per-eye values win over a
+    # legacy shared value instead of being masked by the default eye blocks.
+    _normalize_camera_block(loaded)
     config = _deep_update(DEFAULTS, loaded)
     config["config_path"] = config_path
     validate_config(config)
@@ -132,14 +171,59 @@ def validate_config(config):
     for field in ("width", "height"):
         if int(camera.get(field, 0)) <= 0:
             raise ValueError("camera.%s must be positive" % field)
-    for field in ("fx", "fy", "baseline_m"):
-        if float(camera.get(field, 0.0)) <= 0.0:
-            raise ValueError("camera.%s must be positive" % field)
+    for side in ("left", "right"):
+        eye = camera.get(side) or {}
+        for field in ("fx", "fy"):
+            if float(eye.get(field, 0.0)) <= 0.0:
+                raise ValueError("camera.%s.%s must be positive" % (side, field))
+    if float(camera.get("baseline_m", 0.0)) <= 0.0:
+        raise ValueError("camera.baseline_m must be positive")
     minimum = float(camera.get("depth_min_m", 0.0))
     maximum = float(camera.get("depth_max_m", 0.0))
     if minimum <= 0.0 or maximum <= minimum:
         raise ValueError("camera.depth_min_m/depth_max_m are inconsistent")
     return config
+
+
+def eye_intrinsics(config, eye="left", image_width=None, image_height=None):
+    """Return ``fx``/``fy``/``cx``/``cy`` for one rectified eye.
+
+    ``eye`` may be ``"left"`` or ``"right"``. A hand-built config that still
+    carries shared camera.fx/fy/cx/cy is accepted as a legacy fallback, but the
+    canonical YAML keeps the two eyes separate under ``camera.left`` and
+    ``camera.right``.
+    """
+    camera = config.get("camera", {}) if isinstance(config, dict) else {}
+    side = "right" if str(eye).strip().lower().startswith("r") else "left"
+    values = camera.get(side) if isinstance(camera.get(side), dict) else {}
+    result = {}
+    for field in ("fx", "fy", "cx", "cy"):
+        if field in values:
+            result[field] = float(values[field])
+        elif field in camera:
+            result[field] = float(camera[field])
+        elif field == "cx" and image_width is not None:
+            result[field] = float(image_width) / 2.0
+        elif field == "cy" and image_height is not None:
+            result[field] = float(image_height) / 2.0
+        else:
+            result[field] = float(DEFAULTS["camera"][side][field])
+    return result
+
+
+def stereo_disparity_offset_px(config):
+    """Return ``left.cx - right.cx`` for rectified disparity measurements.
+
+    ``stereoRectify`` keeps fx/fy equal but does not force the two principal
+    points to the same column. The disparity reported by a matcher or a dense
+    stereo network is therefore ``(u_left - u_right)``, which includes this
+    constant offset. Depth must use ``disparity - offset``; when the calibration
+    happens to give the same cx for both eyes the offset is zero and the classic
+    ``fx * baseline / disparity`` formula is unchanged.
+    """
+    left = eye_intrinsics(config, "left")
+    right = eye_intrinsics(config, "right")
+    return float(left["cx"]) - float(right["cx"])
 
 
 def get(config, *keys, default=None):
@@ -160,15 +244,18 @@ def get(config, *keys, default=None):
 #     bearing = atan((cx - u) / fx)
 #
 # which is positive for u < cx (the left half of the image) and matches the
-# ROS convention that +y is left.
+# ROS convention that +y is left. Detections are made in the rectified left
+# image, so the left eye's intrinsics are the default even in stereo-net.
 
 
-def lateral_bearing_deg(u_px, config, image_width=None):
+def lateral_bearing_deg(u_px, config, image_width=None, eye="left"):
     """Return the numeric lateral bearing of image column ``u_px`` in degrees."""
     camera = config.get("camera", {}) if isinstance(config, dict) else {}
     width = float(image_width or camera.get("width", 320))
-    cx = float(camera.get("cx", width / 2.0))
-    fx = float(camera.get("fx", 250.0))
+    height = float(camera.get("height", 240))
+    intrinsics = eye_intrinsics(config, eye, width, height)
+    fx = intrinsics["fx"]
+    cx = intrinsics["cx"]
     if fx <= 0.0:
         return 0.0
     bearing = math.degrees(math.atan((cx - float(u_px)) / fx))
@@ -190,17 +277,20 @@ def bearing_deg_from_center_offset(center_offset_m, depth_m):
     return round(max(-90.0, min(90.0, bearing)), 2)
 
 
-def center_offset_m(u_px, depth_m, config, image_width=None):
+def center_offset_m(u_px, depth_m, config, image_width=None, eye="left"):
     """Return signed lateral distance from the optical axis, in metres.
 
     Positive means robot-left, matching ``lateral_bearing_deg``. The result is
     ``depth_m * (cx - u_px) / fx``: the lateral distance in the optical plane
-    at the target's measured optical-axis depth.
+    at the target's measured optical-axis depth. The left eye is the default
+    because both pipelines detect in the rectified left image.
     """
     camera = config.get("camera", {}) if isinstance(config, dict) else {}
     width = float(image_width or camera.get("width", 320))
-    cx = float(camera.get("cx", width / 2.0))
-    fx = float(camera.get("fx", 250.0))
+    height = float(camera.get("height", 240))
+    intrinsics = eye_intrinsics(config, eye, width, height)
+    fx = intrinsics["fx"]
+    cx = intrinsics["cx"]
     if fx <= 0.0:
         return 0.0
     offset = float(depth_m) * (cx - float(u_px)) / fx

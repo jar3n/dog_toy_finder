@@ -118,6 +118,26 @@ class DepthSamplingTests(unittest.TestCase):
         self.assertEqual(result["disparity_px"], 10.0)
         self.assertAlmostEqual(result["depth_m"], 2.0, places=3)
 
+    def test_principal_point_offset_is_removed_before_depth(self):
+        config = {
+            "camera": {"fx": 250.0, "baseline_m": 0.08,
+                       "disparity_offset_px": 10.0},
+            "max_disp": 192,
+        }
+        disparity = np.array([[10.0, 30.0, 30.0],
+                              [30.0, 30.0, 30.0],
+                              [30.0, 30.0, 30.0]], dtype=np.float32)
+        result = dense_stereo.sample_disparity(
+            disparity,
+            points=[[0, 0], [1, 0], [2, 0], [0, 1], [1, 1], [2, 1],
+                    [0, 2], [1, 2], [2, 2]],
+            config=config)
+        self.assertEqual(result["valid_count"], 8)
+        self.assertAlmostEqual(result["raw_disparity_px"], 30.0)
+        self.assertAlmostEqual(result["disparity_offset_px"], 10.0)
+        self.assertAlmostEqual(result["disparity_px"], 20.0)
+        self.assertAlmostEqual(result["depth_m"], 1.0)
+
     def test_no_valid_samples_returns_no_depth(self):
         result = dense_stereo.sample_disparity(
             np.zeros((3, 3), dtype=np.float32),
