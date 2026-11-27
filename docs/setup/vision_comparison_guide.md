@@ -310,12 +310,35 @@ Enter ground truth measured for this scene (q to finish):
 distance_m along optical axis (normal): 1.15
 center_offset_m along optical plane (+left): 0.244
 Add in brief notes on the scene (q to finish): white bottle on the mat
-capture_id [red_ball_d1p15_op0p244]:
+occlusion_percent (0-100) [0.00]: 40
+visible_side (left/right) [left]: right
+capture_id [red_ball_d1p15_op0p244_occ40_right]:
 Press Enter to capture stereo pair (q to finish):
+Recap red_ball_d1p15_op0p244_occ40_right (red ball):
+	target_visible: true
+	distance_m: 1.150
+	center_offset_m: 0.244
+	lateral_bearing_deg: +11.98
+	obstacle_ahead: none
+	occlusion_percent: 40.0
+	visible_side: right
+	notes: white bottle on the mat
+
+
+
+--- Next scene ---
+Scene 2/3 for red ball
 ```
 
-`--target` supplies the default toy for the first group and `--notes` supplies
-the default scene notes. Interactive groups assume the toy is visible in every
+The suggested `capture_id` gains `_occ<pct>_<side>` when occlusion is present.
+The session prints three blank lines and a `--- Next scene ---` separator before
+each subsequent scene and finishes each scene with that tab-indented, one-field-
+per-line recap; it does not print the run JSON. `--target`
+supplies the default toy for the first group, `--notes` supplies the default
+scene notes, and `--occlusion-percent` / `--visible-side` supply the default
+occlusion values. Occlusion defaults to `0`, in which case the
+`visible_side (left/right)` prompt is skipped. Interactive groups assume the toy
+is visible in every
 scene; use the scripted `--not-visible` command below for an absent-target
 scene. Type `q`, `quit`, `done`, or `exit` at any prompt to finish without saving
 another scene.

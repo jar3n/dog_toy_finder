@@ -22,11 +22,14 @@ signed centre offset of each scene. Each scene gets ``--shots`` fresh pairs
         shot_02/left.jpg  shot_02/right.jpg  shot_02/meta.json
         shot_03/left.jpg  shot_03/right.jpg  shot_03/meta.json
 
-After that toy's scenes are saved, the session prompts for another toy. Type
-``q``, ``quit``, ``done``, or ``exit`` at the toy, scene-count, measurement, or
-capture-ID prompt to finish the session. Scripted invocations that pass
-``--depth-m`` plus ``--center-offset-m`` (or ``--bearing-deg``) still capture
-one scene and exit.
+After that toy's scenes are saved, the session prompts for another toy. Three
+blank lines and a ``--- Next scene ---`` separator precede each subsequent
+scene, and each finished scene ends with a tab-indented recap that puts each
+ground-truth field on its own line; the full run JSON is not printed. Type
+``q``, ``quit``,
+``done``, or ``exit`` at any prompt to finish the session. Scripted invocations
+that pass ``--depth-m`` plus ``--center-offset-m`` (or ``--bearing-deg``) still
+capture one scene and exit.
 
 ``--shots 1`` keeps the legacy flat layout with ``left.jpg``, ``right.jpg``,
 and ``meta.json`` directly in the scene directory. ``vision_eval`` discovers
@@ -40,13 +43,15 @@ the normal to the optical plane and the signed offset from the optical-axis
 centre (positive = robot-left); the lateral bearing is computed as
 ``atan(offset / depth)``. These are operator measurements, not estimates from a
 detector under test, and are shared by every shot of the scene. The operator
-is then asked to add brief notes on the scene (``--notes`` supplies the
-default). A suggested ``capture_id`` is built from the toy name and those
-measured distances; pressing Enter accepts it, and the operator may type a
-different ID. The operator must then press Enter at ``Press Enter to capture
-stereo pair`` before any shots are saved. Non-interactive callers get the same
-generated ID, and scripts may pass ``--bearing-deg`` directly instead of the
-offset.
+is then asked for brief scene notes (``--notes`` supplies the default) and an
+occlusion percentage (0-100, default 0). Only when occlusion is positive does it
+ask which stereo eye still sees the toy (``left`` or ``right``). A suggested
+``capture_id`` is built from the toy name,
+measurements, and ``_occ<pct>_<side>`` when occlusion is present; pressing Enter
+accepts it, and the operator may type a different ID. The operator must then
+press Enter at ``Press Enter to capture stereo pair`` before any shots are
+saved. Non-interactive callers get the same generated ID, and scripts may pass
+``--bearing-deg`` directly instead of the offset.
 """
 
 import argparse
@@ -202,7 +207,7 @@ def _prompt_float(label, default=None):
         try:
             return float(raw)
         except ValueError:
-            print("%s must be a number (or q to finish)" % label)
+            print("%s must be a float (or q to finish)" % label)
 
 
 def _prompt_text(label, default=None):
@@ -256,6 +261,34 @@ def _prompt_notes(default=None):
     return _prompt_text("Add in brief notes on the scene", default)
 
 
+def _prompt_occlusion_percent(default=0.0):
+    """Ask for an occlusion percentage in the inclusive range 0-100."""
+    while True:
+        percent = _prompt_float("occlusion_percent (0-100)", default)
+        if 0.0 <= percent <= 100.0:
+            return round(percent, 1)
+        print("occlusion_percent must be between 0 and 100")
+
+
+def _prompt_visible_side(default=None):
+    """Ask which stereo eye still sees the occluded target."""
+    while True:
+        side = _prompt_text("visible_side (left/right)", default).lower()
+        if side in ("left", "right"):
+            return side
+        print("visible_side must be left or right")
+
+
+def _prompt_occlusion(args):
+    """Prompt for occlusion percentage and, when occluded, the visible eye."""
+    percent = _prompt_occlusion_percent(
+        getattr(args, "occlusion_percent", 0.0))
+    if percent <= 0.0:
+        return percent, None
+    side = _prompt_visible_side(getattr(args, "visible_side", "left"))
+    return percent, side
+
+
 def _prompt_capture_ready():
     """Wait for the operator to confirm the scene is ready to capture."""
     raw = input("Press Enter to capture stereo pair (q to finish): ").strip()
@@ -280,14 +313,19 @@ def _id_number(value, signed=False):
 
 
 def capture_id_from_ground_truth(target, depth, center_offset,
-                                 target_visible=True):
+                                 target_visible=True,
+                                 occlusion_percent=0.0, visible_side=None):
     """Build a capture ID from the toy name and measured ground truth."""
     slug = _id_slug(target)
+    occlusion_token = ""
+    if float(occlusion_percent) > 0.0:
+        occlusion_token = "_occ%s_%s" % (
+            _id_number(occlusion_percent), _id_slug(visible_side or "left"))
     if not target_visible:
-        return "%s_absent" % slug
+        return "%s_absent%s" % (slug, occlusion_token)
     depth_token = _id_number(depth)
     offset_token = _id_number(center_offset, signed=True)
-    return "%s_d%s_o%s" % (slug, depth_token, offset_token)
+    return "%s_d%s_o%s%s" % (slug, depth_token, offset_token, occlusion_token)
 
 
 def capture_id_for_run(interactive=None, default=None):
@@ -329,6 +367,12 @@ def _build_parser():
                         help="default brief scene notes offered by the "
                              "interactive prompt; used directly in scripted "
                              "runs")
+    parser.add_argument("--occlusion-percent", type=float, default=0.0,
+                        help="default occlusion percentage offered by the "
+                             "interactive prompt (0-100)")
+    parser.add_argument("--visible-side", choices=("left", "right"),
+                        default="left",
+                        help="stereo eye that still sees an occluded target")
     parser.add_argument("--shots", type=int, default=3,
                         help="fresh stereo pairs to capture for this scene "
                              "(default: 3; 1 keeps the legacy flat layout)")
@@ -405,10 +449,25 @@ def _prepare_scene(args, config, output_dir, run_id, left_topic, right_topic,
         _scene_ground_truth(args, interactive, target=target,
                             target_visible=target_visible)
     notes = args.notes
+    occlusion_percent = getattr(args, "occlusion_percent", 0.0)
+    visible_side = getattr(args, "visible_side", "left")
     if interactive:
         notes = _prompt_notes(notes)
+        occlusion_percent, visible_side = _prompt_occlusion(args)
+    else:
+        percent_value = float(occlusion_percent)
+        if not 0.0 <= percent_value <= 100.0:
+            raise SystemExit("--occlusion-percent must be between 0 and 100")
+        occlusion_percent = round(percent_value, 1)
+        if occlusion_percent <= 0.0:
+            visible_side = None
+        else:
+            visible_side = str(visible_side).strip().lower()
+            if visible_side not in ("left", "right"):
+                raise SystemExit("--visible-side must be left or right")
     default_capture_id = capture_id_from_ground_truth(
-        target, depth, center_offset, target_visible)
+        target, depth, center_offset, target_visible,
+        occlusion_percent=occlusion_percent, visible_side=visible_side)
     capture_id = re.sub(r"[^A-Za-z0-9_.-]+", "_",
                         capture_id_for_run(interactive, default_capture_id))
     if interactive:
@@ -423,8 +482,11 @@ def _prepare_scene(args, config, output_dir, run_id, left_topic, right_topic,
         "lateral_bearing_deg": round(float(bearing), 2),
         "distance_m": round(float(depth), 3),
         "obstacle_ahead": args.obstacle or "none",
-        "notes": notes,
+        "occlusion_percent": round(float(occlusion_percent), 1),
     }
+    if visible_side:
+        ground_truth["visible_side"] = visible_side
+    ground_truth["notes"] = notes
     if target_visible and center_offset is not None:
         ground_truth["center_offset_m"] = round(float(center_offset), 3)
     common_meta = {
@@ -482,10 +544,33 @@ def _capture_scene(node, args, scene, after=None):
         write_capture(shot_dir, left, right, shot_meta)
         saved.append({"shot_dir": shot_dir, "meta": shot_meta})
         after = received_at
-        print("vision_capture: saved shot %d/%d of %s to %s"
-              % (index, args.shots, scene["capture_id"], shot_dir),
-              file=sys.stderr)
     return saved, after
+
+
+def _scene_recap(scene):
+    """Return a tab-indented recap with one ground-truth field per line."""
+    common = scene["common_meta"]
+    ground_truth = common["ground_truth"]
+    lines = ["Recap %s (%s):"
+             % (scene["capture_id"], common.get("target", "target"))]
+
+    def add(label, value):
+        lines.append("\t%s: %s" % (label, value))
+
+    add("target_visible",
+        "true" if ground_truth.get("target_visible") else "false")
+    add("distance_m", "%.3f" % ground_truth["distance_m"])
+    if "center_offset_m" in ground_truth:
+        add("center_offset_m", str(float(ground_truth["center_offset_m"])))
+    add("lateral_bearing_deg",
+        "%+.2f" % ground_truth["lateral_bearing_deg"])
+    add("obstacle_ahead", ground_truth.get("obstacle_ahead") or "none")
+    add("occlusion_percent",
+        "%.1f" % ground_truth.get("occlusion_percent", 0.0))
+    if ground_truth.get("visible_side"):
+        add("visible_side", ground_truth["visible_side"])
+    add("notes", ground_truth.get("notes") or "none")
+    return "\n".join(lines)
 
 
 def main(argv=None):
@@ -501,12 +586,10 @@ def main(argv=None):
     right_topic = args.right_topic or vision_config.get(
         config, "camera", "right_rectified_topic")
     run_id = re.sub(r"[^A-Za-z0-9_.-]+", "_", args.run_id)
-    run_dir = os.path.join(output_dir, run_id)
     interactive = sys.stdin.isatty()
 
     rclpy.init()
     node = StereoCapture(left_topic, right_topic, args.pair_tolerance)
-    scenes = []
     after = None
     try:
         while True:
@@ -514,49 +597,27 @@ def main(argv=None):
                 if interactive:
                     toy, count = _prompt_toy_group(args)
                     for scene_index in range(1, count + 1):
+                        if scene_index > 1:
+                            for _ in range(3):
+                                print()
+                            print("--- Next scene ---")
                         print("Scene %d/%d for %s" % (scene_index, count, toy))
                         scene = _prepare_scene(
                             args, config, output_dir, run_id, left_topic,
                             right_topic, interactive, target=toy,
                             target_visible=True)
-                        saved, after = _capture_scene(
+                        _, after = _capture_scene(
                             node, args, scene, after=after)
-                        scenes.append({
-                            "capture_dir": scene["directory"],
-                            "capture_id": scene["capture_id"],
-                            "shots": len(saved),
-                            "meta": scene["common_meta"],
-                            "captures": saved,
-                        })
+                        print(_scene_recap(scene))
                 else:
                     scene = _prepare_scene(args, config, output_dir, run_id,
                                            left_topic, right_topic, interactive)
-                    saved, after = _capture_scene(
+                    _, after = _capture_scene(
                         node, args, scene, after=after)
-                    scenes.append({
-                        "capture_dir": scene["directory"],
-                        "capture_id": scene["capture_id"],
-                        "shots": len(saved),
-                        "meta": scene["common_meta"],
-                        "captures": saved,
-                    })
+                    print(_scene_recap(scene))
                     break
             except CaptureFinished:
                 break
-
-        payload = {
-            "run_dir": run_dir,
-            "scene_count": len(scenes),
-            "scenes": scenes,
-        }
-        if len(scenes) == 1:
-            payload.update({
-                "capture_dir": scenes[0]["capture_dir"],
-                "shots": scenes[0]["shots"],
-                "meta": scenes[0]["meta"],
-                "captures": scenes[0]["captures"],
-            })
-        print(json.dumps(payload, indent=2))
         return 0
     except Exception as error:
         print("vision_capture failed: %s" % error, file=sys.stderr)

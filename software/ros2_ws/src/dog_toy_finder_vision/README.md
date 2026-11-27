@@ -299,16 +299,22 @@ scenes with this toy [1]: 3
 For each of those scenes it then asks for `distance_m along optical axis
 (normal)` and `center_offset_m along optical plane (+left)`, computes
 `lateral_bearing_deg`, asks `Add in brief notes on the scene` (`--notes`
-supplies the default), and then suggests a `capture_id` from the toy name and
-measurements, such as `red_ball_d1p15_op0p244`. Press Enter to accept the
+supplies the default), asks `occlusion_percent (0-100)` with `0` as the default,
+and asks `visible_side (left/right)` only when occlusion is greater than zero.
+It then suggests a `capture_id` from the toy name, measurements, and
+occlusion when present, such as `red_ball_d1p15_op0p244` or
+`red_ball_d1p15_op0p244_occ40_right`. Press Enter to accept the
 suggestion or type a custom ID, then press Enter at `Press Enter to capture
 stereo pair` to save the scene's shots. When that group is finished, it prompts
 for the next toy. Type `q`, `quit`, `done`, or `exit` at the toy, scene-count,
-measurement, notes, capture-ID, or capture-ready prompt to finish the session.
-Interactive groups assume the toy is visible; use the scripted `--not-visible`
-command below for an
-absent-target scene. `--obstacle` and `--notes` apply to every scene in the
-session. Scripted runs that pass `--depth-m` plus `--center-offset-m` (or, for
+measurement, notes, occlusion, capture-ID, or capture-ready prompt to finish the
+session. It prints three blank lines and a `--- Next scene ---` separator before
+each subsequent scene, plus a tab-indented recap after each scene with one
+ground-truth field per line; it does not dump the run JSON. Interactive groups
+assume the toy is visible; use the scripted `--not-visible` command below for an
+absent-target scene. `--obstacle`, `--notes`, `--occlusion-percent`, and
+`--visible-side` provide defaults for every scene. Scripted runs that pass
+`--depth-m` plus `--center-offset-m` (or, for
 older scripts, `--bearing-deg`) still capture one scene and exit.
 `--capture-id` is not a command-line flag: non-interactive callers get the same
 generated ID.
@@ -317,8 +323,9 @@ The default `--shots "3"` saves three fresh matched pairs under
 `<output_dir>/<run_id>/<capture_id>/shot_01/` through `shot_03/`, plus
 `scene.json` for the shared ground truth. Each shot directory holds
 `left.jpg`, `right.jpg`, and `meta.json`; each `meta.json` holds the operator's
-ground truth, including the entered `center_offset_m` and computed
-`lateral_bearing_deg`. `--shots "1"` keeps the older flat layout directly in
+ground truth, including the entered `center_offset_m`, computed
+`lateral_bearing_deg`, `occlusion_percent`, and `visible_side`. `--shots "1"`
+keeps the older flat layout directly in
 `<capture_id>/`. Use `--not-visible` for an empty scene. `vision_capture` waits
 for a new matched rectified pair for every shot, so consecutive shots cannot
 reuse the same camera frames from the non-hardware-synchronised ESP32-CAMs.
