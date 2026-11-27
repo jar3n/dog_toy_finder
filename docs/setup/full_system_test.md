@@ -498,19 +498,23 @@ ros2 run dog_toy_finder_vision vision_eval \
     --summary-json "/workspace/data/vision/stereo-net_summary.json"
 ```
 
-One scored row is written per model per shot per invocation; a scene captured
-with `--shots "3"` contributes three rows with `ask_id` values ending
-`_shot_01`, `_shot_02`, and `_shot_03`. The trial CSV schema is unchanged. For
+One scored row is written per model per object per shot per invocation. Every
+recorded object is queried: the primary toy plus each `additional_objects`
+entry, with its own ground truth. A single-object scene captured with
+`--shots "3"` contributes three rows with `ask_id` values ending
+`_shot_01`, `_shot_02`, and `_shot_03`; additional objects append
+`__additional_01` and so on. The trial CSV schema is unchanged. For
 `open_vocab`, `model` is the detector name and matched detections carry
 `method=open_vocab` plus `distance_source=stereo_triangulation`. For
 `stereo-net`, `model` is the dense depth model name, `detector_model` records the
 one-image detector, and answers carry `method=stereo-net` plus
 `distance_source=dense_stereo_depth`. `method=ml` is only used by legacy rows.
-Ground truth is copied from each shot's `meta.json`, and scored columns are
-written immediately. Each summary manifest (`vision_eval_summary.json`) records
-the pipeline, `shuffle_seed`, `shot_order` (paths relative to `--captures-dir`),
-`scene_order`, and `shots_per_scene` so the shuffled scene order and the shot
-order inside each scene can be reproduced.
+Ground truth is copied from each shot's `meta.json`, including per-object
+measurements, and scored columns are written immediately. Each summary manifest
+(`vision_eval_summary.json`) records the pipeline, `shuffle_seed`, `shot_order`
+(paths relative to `--captures-dir`), `scene_order`, `shots_per_scene`, and
+`objects_per_scene` so the shuffled scene order and the shot order inside each
+scene can be reproduced.
 
 Planning rows are written by ROSA (section 5.1) to `/workspace/data/planning/plan1/planning_trials.csv`. The
 `gt_*` columns stay blank unless `ROSA_GT_JSON` points at a JSON file. A flat

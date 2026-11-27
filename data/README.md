@@ -48,12 +48,15 @@ data/
   explicit `--output-dir`, `--captures-dir`, and output paths still win.
 - `vision_eval_*` files are written by `dog_toy_finder_vision vision_eval`,
   which replays every shot through one selected vision pipeline per invocation.
-  `vision_eval_trials.csv` has one scored row per model per shot, with ground
-  truth and scored columns already filled; multi-shot `ask_id` values end in
-  `_shot_NN`. The `model` column is the detector name for `open_vocab` or the
-  dense depth model name for `stereo-net`. `vision_eval_summary.json` records
-  the selected pipeline, `shuffle_seed`, randomized `scene_order`, `shot_order`
-  within each scene, `shots_per_scene`, and the per-model summary. The trial CSV
+  `vision_eval_trials.csv` has one scored row per model per object per shot, with
+  ground truth and scored columns already filled. The primary toy and each
+  `additional_objects` entry are evaluated with their own ground truth; the
+  primary object keeps the shot ID (`_shot_NN` for multi-shot scenes) and
+  additional objects append `__additional_NN`. The `model` column is the
+  detector name for `open_vocab` or the dense depth model name for `stereo-net`.
+  `vision_eval_summary.json` records the selected pipeline, `shuffle_seed`,
+  randomized `scene_order`, `shot_order` within each scene, `shots_per_scene`,
+  `objects_per_scene`, and the per-model summary. The trial CSV
   schema is
   unchanged: new vision rows use `method=open_vocab` or `method=stereo-net`,
   while `method=ml` only appears on legacy rows.

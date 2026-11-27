@@ -117,6 +117,24 @@ class OfflineEvalTests(unittest.TestCase):
         with open(os.path.join(self.capture_dir, "meta.json"), "w") as handle:
             json.dump(meta, handle)
 
+    def _write_multi_object_meta(self, path=None):
+        """Add two additional objects with operator-measured ground truth."""
+        path = path or os.path.join(self.capture_dir, "meta.json")
+        with open(path) as handle:
+            meta = json.load(handle)
+        meta["ground_truth"]["additional_objects"] = [
+            {
+                "label": "blue cube",
+                "distance_m": 0.95,
+                "center_offset_m": -0.10,
+                "lateral_bearing_deg": -6.01,
+            },
+            "yellow duck",  # legacy bare-label entry
+        ]
+        with open(path, "w") as handle:
+            json.dump(meta, handle)
+        return meta
+
     def _add_capture(self, capture_id, run_id="run1"):
         """Copy the synthetic pair into another complete capture directory."""
         destination = os.path.join(self.root, run_id, capture_id)
@@ -191,6 +209,102 @@ class OfflineEvalTests(unittest.TestCase):
                          os.path.join("run1", "scene1", "shot_02", "left.jpg"))
         self.assertEqual(result["capture_dir"], shot_dirs[1])
         self.assertEqual(meta["shot_index"], 2)
+
+    def test_scene_objects_includes_primary_and_each_additional_object(self):
+        meta = {
+            "target": "red ball",
+            "ground_truth": {
+                "target_visible": False,
+                "distance_m": 0.0,
+                "obstacle_ahead": "chair",
+                "notes": "occluded primary",
+                "additional_objects": [
+                    {"label": "blue cube", "distance_m": 0.95},
+                    "yellow duck",
+                ],
+            },
+        }
+        objects = vision_eval.scene_objects(meta)
+        self.assertEqual(
+            [obj["object_id"] for obj in objects],
+            ["primary", "additional_01", "additional_02"])
+        self.assertEqual(
+            [obj["target"] for obj in objects],
+            ["red ball", "blue cube", "yellow duck"])
+        self.assertFalse(objects[0]["ground_truth"]["target_visible"])
+        self.assertEqual(objects[1]["ground_truth"]["distance_m"], 0.95)
+        self.assertTrue(objects[1]["ground_truth"]["target_visible"])
+        self.assertEqual(objects[1]["ground_truth"]["obstacle_ahead"], "chair")
+        self.assertEqual(objects[1]["ground_truth"]["notes"], "occluded primary")
+        self.assertTrue(objects[2]["ground_truth"]["target_visible"])
+
+    def test_evaluate_capture_runs_pipeline_for_every_object(self):
+        self._write_synthetic_pair()
+        self._write_multi_object_meta()
+        client = FakeClient()
+        result, meta = vision_eval.evaluate_capture(
+            self.capture_dir, self.config, "open_vocab", client=client)
+
+        self.assertEqual([obj["id"] for obj in result["objects"]], [
+            "cap1", "cap1__additional_01", "cap1__additional_02"])
+        self.assertEqual([obj["target"] for obj in result["objects"]], [
+            "red ball", "blue cube", "yellow duck"])
+        self.assertEqual([call[2] for call in client.calls], [
+            ["red ball"], ["blue cube"], ["yellow duck"]])
+        self.assertEqual(len(result["results"]), 3)
+        self.assertEqual(result["models"], ["fake-world"])
+        self.assertEqual(
+            result["objects"][1]["ground_truth"]["distance_m"], 0.95)
+        self.assertTrue(
+            result["objects"][2]["ground_truth"]["target_visible"])
+
+    def test_main_scores_every_object_in_multi_object_scene(self):
+        self._write_synthetic_pair()
+        self._write_multi_object_meta()
+        original = vision_eval.evaluate_capture
+
+        def evaluate_with_fake_client(path, config, pipeline=None, client=None,
+                                      depth_client=None):
+            return original(path, config, pipeline, FakeClient())
+
+        csv_path = os.path.join(self.temp.name, "multi_object.csv")
+        results_path = os.path.join(self.temp.name, "multi_object.jsonl")
+        summary_path = os.path.join(self.temp.name, "multi_object_summary.json")
+        with mock.patch.object(vision_eval, "evaluate_capture",
+                               evaluate_with_fake_client), \
+             contextlib.redirect_stdout(io.StringIO()):
+            code = vision_eval.main([
+                "--config", self.config_path, "--captures-dir", self.root,
+                "--pipeline", "open_vocab", "--output-csv", csv_path,
+                "--results-json", results_path, "--summary-json", summary_path])
+        self.assertEqual(code, 0)
+
+        rows, fields = llm_trials.read_csv(csv_path)
+        self.assertEqual(len(rows), 3)
+        self.assertEqual({row["ask_id"] for row in rows}, {
+            "cap1", "cap1__additional_01", "cap1__additional_02"})
+        self.assertEqual({row["target"] for row in rows}, {
+            "red ball", "blue cube", "yellow duck"})
+        self.assertEqual(len({row["trial_id"] for row in rows}), 3)
+        # The CSV schema stays stable; object identity lives in ask_id.
+        self.assertNotIn("object_id", fields)
+        by_target = {row["target"]: row for row in rows}
+        self.assertAlmostEqual(
+            float(by_target["blue cube"]["gt_distance_m"]), 0.95)
+        self.assertEqual(
+            str(by_target["yellow duck"]["gt_target_visible"]).lower(), "true")
+
+        with open(results_path) as handle:
+            results = [json.loads(line) for line in handle]
+        self.assertEqual(len(results), 1)
+        self.assertEqual(len(results[0]["objects"]), 3)
+
+        with open(summary_path) as handle:
+            summary = json.load(handle)
+        self.assertEqual(summary["shots"], 1)
+        self.assertEqual(summary["objects"], 3)
+        self.assertEqual(summary["objects_per_scene"], {"cap1": 3})
+        self.assertEqual(summary["rows"], 3)
 
     def test_main_writes_one_row_per_shot_and_records_scene_counts(self):
         self._write_synthetic_pair()

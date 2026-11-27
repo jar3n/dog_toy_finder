@@ -2,8 +2,9 @@
 
 Two kinds of trial are compared with the same tooling:
 
-- ``vision``: one row per saved capture and model name produced by the selected
-  pipeline. ``vision_eval`` writes these when replaying stereo captures.
+- ``vision``: one row per evaluated object, shot, and model name produced by the
+  selected pipeline. ``vision_eval`` writes these when replaying stereo captures,
+  including every object recorded for a multi-object scene.
 - ``planning``: one row per prompt and model. ``rosa_agent --compare`` writes
   these, including the reply and the tools the model called.
 

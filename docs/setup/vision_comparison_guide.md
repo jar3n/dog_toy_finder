@@ -266,9 +266,10 @@ capturing; `vision_capture` will otherwise time out.
 Put the toy where you want the first scene and leave it still, then run the
 command below **once** in the second shell. Leave out `--depth-m` and
 `--center-offset-m`; the tool asks for a toy, how many scenes contain that toy,
-and the distance and center offset of each scene, as described in Step 5. After
-that toy's scenes are saved, it asks for another toy. Type `q`, `quit`, `done`,
-or `exit` at the toy, scene-count, measurement, or capture-ID prompt to finish.
+and each scene's ground truth, including distance, center offset, notes, optional
+additional objects, and occlusion, as described in Step 5. After that toy's
+scenes are saved, it asks for another toy. Type `q`, `quit`, `done`, or `exit`
+at any prompt to finish.
 The session keeps one stereo subscriber open for the whole run. Scripted
 invocations that pass the measurement flags still capture one scene and exit.
 
@@ -287,10 +288,9 @@ pairs, so the same measured ground truth is used for all three shots. Each shot
 must contain camera frames newer than the previous shot, including across
 scene boundaries; the tool waits up to `--timeout` seconds for each pair. Use a
 different generated or custom `capture_id` for every scene; reusing an ID
-overwrites that scene directory. When the session finishes, the command prints
-one JSON object with `scene_count` and a `scenes` list, each entry carrying
-`capture_dir`, `shots`, `meta`, and `captures`. Use `--shots "1"` for the older
-flat layout if a script needs exactly one pair.
+overwrites that scene directory. When each scene finishes, the command prints a
+tab-indented ground-truth recap instead of a JSON dump. Use `--shots "1"` for
+the older flat layout if a script needs exactly one pair.
 
 If it times out, return to Step 3 and check the two rectified topics.
 
@@ -310,16 +310,31 @@ Enter ground truth measured for this scene (q to finish):
 distance_m along optical axis (normal): 1.15
 center_offset_m along optical plane (+left): 0.244
 Add in brief notes on the scene (q to finish): white bottle on the mat
+additional_objects (comma-separated, blank for none, q to finish): blue cube, yellow duck
+Enter ground truth for additional object blue cube (q to finish):
+distance_m along optical axis (normal): 0.95
+center_offset_m along optical plane (+left): -0.10
+Enter ground truth for additional object yellow duck (q to finish):
+distance_m along optical axis (normal): 1.20
+center_offset_m along optical plane (+left): 0.05
 occlusion_percent (0-100) [0.00]: 40
 visible_side (left/right) [left]: right
-capture_id [red_ball_d1p15_op0p244_occ40_right]:
+capture_id [red_ball_d1p15_op0p244_occ40_right_plus_blue_cube_yellow_duck]:
 Press Enter to capture stereo pair (q to finish):
-Recap red_ball_d1p15_op0p244_occ40_right (red ball):
+Recap red_ball_d1p15_op0p244_occ40_right_plus_blue_cube_yellow_duck (red ball):
 	target_visible: true
 	distance_m: 1.150
 	center_offset_m: 0.244
 	lateral_bearing_deg: +11.98
 	obstacle_ahead: none
+	additional_objects[1].label: blue cube
+	additional_objects[1].distance_m: 0.950
+	additional_objects[1].center_offset_m: -0.1
+	additional_objects[1].lateral_bearing_deg: -6.01
+	additional_objects[2].label: yellow duck
+	additional_objects[2].distance_m: 1.200
+	additional_objects[2].center_offset_m: 0.05
+	additional_objects[2].lateral_bearing_deg: +2.39
 	occlusion_percent: 40.0
 	visible_side: right
 	notes: white bottle on the mat
@@ -330,18 +345,24 @@ Recap red_ball_d1p15_op0p244_occ40_right (red ball):
 Scene 2/3 for red ball
 ```
 
-The suggested `capture_id` gains `_occ<pct>_<side>` when occlusion is present.
-The session prints three blank lines and a `--- Next scene ---` separator before
-each subsequent scene and finishes each scene with that tab-indented, one-field-
-per-line recap; it does not print the run JSON. `--target`
-supplies the default toy for the first group, `--notes` supplies the default
-scene notes, and `--occlusion-percent` / `--visible-side` supply the default
-occlusion values. Occlusion defaults to `0`, in which case the
-`visible_side (left/right)` prompt is skipped. Interactive groups assume the toy
-is visible in every
-scene; use the scripted `--not-visible` command below for an absent-target
-scene. Type `q`, `quit`, `done`, or `exit` at any prompt to finish without saving
-another scene.
+The suggested `capture_id` gains `_occ<pct>_<side>` when occlusion is present
+and `_plus_<objects>` when additional objects are present. Press Enter at the
+`additional_objects` prompt for a single-object scene; comma-separated labels
+record other objects in a multi-object scene, and each one is then measured with
+its own distance and signed center offset. Occlusion applies to the primary toy
+for the scene. The session prints three blank lines and a `--- Next scene ---`
+separator before each subsequent scene and finishes each scene with that
+tab-indented, one-field-per-line recap; it does not print the run JSON.
+`--target` supplies the default toy for the first group, `--notes` supplies the
+default scene notes, `--additional-objects` supplies the default object list,
+repeatable `--additional-object-gt "LABEL:DISTANCE_M:CENTER_OFFSET_M"`
+pre-fills per-object measurements (and is required for scripted multi-object
+runs), and `--occlusion-percent` / `--visible-side` supply the default occlusion
+values. Occlusion defaults to `0`, in which case the `visible_side (left/right)`
+prompt is skipped. Interactive groups assume the toy is visible in every scene;
+use the scripted `--not-visible` command below for an absent-target scene. Type
+`q`, `quit`, `done`, or `exit` at any prompt to finish without saving another
+scene.
 
 Enter these operator-measured values, never an estimate from the pipeline under
 test:
@@ -354,25 +375,33 @@ test:
    `vision_capture` computes `lateral_bearing_deg = atan(center_offset_m /
    distance_m)` using the convention above.
 3. The toy comes from the group prompt and is reused for every scene in that
-   group. The tool suggests a `capture_id` from the toy name and these
-   measurements, which you can accept or replace.
+   group. Additional objects come from the optional object prompt and are each
+   measured with the same two fields; the tool computes each object's
+   `lateral_bearing_deg`. The tool suggests a `capture_id` from the toy name,
+   these measurements, occlusion, and additional-object labels, which you can
+   accept or replace.
 
 Type each measurement and press Enter. At the `capture_id` prompt, press Enter
 again to accept the generated ID or type a custom one. In the generated ID, `d`
 marks distance, `o` marks the signed lateral offset, `p` replaces the decimal
-point, and `m` marks a negative offset. The tool computes and stores
-`lateral_bearing_deg` (about +12° for these numbers). `--obstacle` and `--notes`
-stay on the command line; they are not prompted for. For a script or other
-non-interactive shell, `--capture-id` is not accepted; the generated ID is used
-automatically, and `--depth-m` plus `--center-offset-m` are required for a
-visible target (unless using `--not-visible`).
+point, `m` marks a negative offset, `occ` marks occlusion, and `plus` marks
+additional-object labels. The tool computes and stores `lateral_bearing_deg`
+(about +12° for the primary toy here). `--obstacle`, `--notes`,
+`--additional-objects`, and `--additional-object-gt` provide defaults on the
+command line; notes, additional-object labels, and their measurements are also
+prompted for. For a script or other non-interactive shell, `--capture-id` is not
+accepted; the generated ID is used automatically, and `--depth-m` plus
+`--center-offset-m` are required for a visible target (unless using
+`--not-visible`). Scripted additional objects require one
+`--additional-object-gt` flag per label.
 
 ### Step 6 - Verify the saved scene
 
 ```bash
-ls -l /workspace/data/vision/captures/capture_run1/red_ball_d1p15_op0p244
-cat /workspace/data/vision/captures/capture_run1/red_ball_d1p15_op0p244/scene.json
-cat /workspace/data/vision/captures/capture_run1/red_ball_d1p15_op0p244/shot_01/meta.json
+scene=/workspace/data/vision/captures/capture_run1/red_ball_d1p15_op0p244_occ40_right_plus_blue_cube_yellow_duck
+ls -l "$scene"
+cat "$scene/scene.json"
+cat "$scene/shot_01/meta.json"
 ```
 
 You should see `scene.json` plus `shot_01`, `shot_02`, and `shot_03`; each shot
@@ -391,7 +420,23 @@ truth:
     "lateral_bearing_deg": 12.0,
     "distance_m": 1.15,
     "obstacle_ahead": "none",
-    "notes": ""
+    "additional_objects": [
+      {
+        "label": "blue cube",
+        "distance_m": 0.95,
+        "center_offset_m": -0.1,
+        "lateral_bearing_deg": -6.01
+      },
+      {
+        "label": "yellow duck",
+        "distance_m": 1.2,
+        "center_offset_m": 0.05,
+        "lateral_bearing_deg": 2.39
+      }
+    ],
+    "occlusion_percent": 40.0,
+    "visible_side": "right",
+    "notes": "white bottle on the mat"
   }
 }
 ```
@@ -440,14 +485,28 @@ ros2 run dog_toy_finder_vision vision_capture \
     --output-dir "/workspace/data/vision/captures" \
     --config "/workspace/software/ros2_ws/src/dog_toy_finder_vision/config/vision_detectors.yaml" \
     --timeout "20.0"
+
+# Scripted multi-object scene: one --additional-object-gt per object
+ros2 run dog_toy_finder_vision vision_capture \
+    --target "red ball" \
+    --shots "3" \
+    --depth-m 1.15 --center-offset-m 0.244 \
+    --additional-objects "blue cube, yellow duck" \
+    --additional-object-gt "blue cube:0.95:-0.10" \
+    --additional-object-gt "yellow duck:1.20:0.05" \
+    --run-id "capture_run1" \
+    --output-dir "/workspace/data/vision/captures" \
+    --config "/workspace/software/ros2_ws/src/dog_toy_finder_vision/config/vision_detectors.yaml" \
+    --timeout "20.0"
 ```
 
 `--depth-m` and either `--center-offset-m` or `--bearing-deg` are required in a
 non-interactive shell unless `--not-visible` is set; the `capture_id` is generated
 from the toy name and ground-truth distances there as well. `--bearing-deg`
-remains available for older scripts;
-do not pass both it and `--center-offset-m`. Use `--notes` for anything the
-numeric fields do not capture.
+remains available for older scripts; do not pass both it and
+`--center-offset-m`. Scripted `--additional-objects` labels require matching
+`--additional-object-gt` entries. Use `--notes` for anything the numeric fields
+do not capture.
 
 ### Step 8 - Aim for a varied set
 
@@ -474,10 +533,10 @@ to label an occluder.
 
 ### Step 9 - Finish capture
 
-Type `q` at the toy or scene-count prompt so `vision_capture` finishes and
-prints its final JSON, then press Ctrl+C in the first shell to stop the stereo
-launch. The captures can now be replayed offline; no camera topics, Pico, or ROS
-graph are needed for `vision_eval`.
+Type `q` at the toy or scene-count prompt so `vision_capture` finishes, then
+press Ctrl+C in the first shell to stop the stereo launch. The captures can now
+be replayed offline; no camera topics, Pico, or ROS graph are needed for
+`vision_eval`.
 
 ## Replay every shot offline
 
@@ -527,21 +586,28 @@ With `--pilot`, those three defaults move to
 `/workspace/data/vision/pilot_captures/vision_eval_results.jsonl`, and
 `/workspace/data/vision/pilot_captures/vision_eval_summary.json`.
 
-One scored row is written per model per shot (one answer per shot), so a scene
-captured with `--shots "3"` contributes three rows. Its `ask_id` is
-`<capture_id>_shot_01` through `_shot_03`, keeping shots of the same scene
-distinct when models are paired. For `open_vocab` the `model` column is reported
-by the host detector service (falling back to `open_vocab.name`), answers carry
+One scored row is written per model per object per shot. Every object recorded
+for a scene is evaluated separately: the primary toy plus each label in
+`additional_objects`, each with its own ground truth. A single-object scene
+captured with `--shots "3"` contributes three rows; adding two additional
+objects makes it nine. The primary object keeps the historic shot `ask_id`
+(`<capture_id>_shot_NN`, or `<capture_id>` for flat captures), while additional
+objects append `__additional_01`, `__additional_02`, and so on, so each object
+is paired with itself across models while shots and objects stay distinct. The
+CSV schema is unchanged. For `open_vocab` the `model` column is reported by the
+host detector service (falling back to `open_vocab.name`), answers carry
 `method=open_vocab`, and matched detections report
 `distance_source=stereo_triangulation`. For `stereo-net` the `model` column is
 the dense depth model name from the host depth service, answers carry
 `method=stereo-net` and `detector_model` for the one-eye detector, and use
 `distance_source=dense_stereo_depth` plus `depth_sample_*` fields. Legacy rows
 from the retired path use `method=ml`. Ground truth is copied from each shot's
-`meta.json`, so no spreadsheet annotation is needed. The summary manifest
-(`vision_eval_summary.json`) records the pipeline that produced the rows, the
-`shuffle_seed` used for scene/shot order, the resulting `shot_order` (paths
-relative to `--captures-dir`), `scene_order`, and `shots_per_scene`. When
+`meta.json`: the primary toy's fields for `primary`, and each object's own
+distance, offset, and bearing for `additional_*`; no spreadsheet annotation is
+needed. The summary manifest (`vision_eval_summary.json`) records the pipeline
+that produced the rows, the `shuffle_seed` used for scene/shot order, the
+resulting `shot_order` (paths relative to `--captures-dir`), `scene_order`,
+`shots_per_scene`, and `objects_per_scene`. When
 `--seed` is omitted, a random seed is generated and printed, then recorded in
 that manifest; pass the same seed to another invocation to replay the exact
 scene and per-scene shot order. Use the same seed for both pipelines when
@@ -566,8 +632,8 @@ ros2 run dog_toy_finder_vision vision_eval --captures-dir "/workspace/data/visio
 ## Score and analyse the replay
 
 `vision_eval` already writes scored columns and a per-name summary. For a
-machine-readable summary or paired statistics (shots, not just scenes, are the
-paired observations):
+machine-readable summary or paired statistics (objects and shots, not just
+scenes, are the paired observations):
 
 ```bash
 ros2 run dog_toy_finder_data llm_trials aggregate "/workspace/data/vision/vision_eval_trials.csv" --json
@@ -580,9 +646,10 @@ ros2 run dog_toy_finder_data llm_trials analyze "/workspace/data/vision/vision_e
 ```
 
 Vision rows are paired by `run_id` + `ask_id`; for offline captures, `ask_id` is
-one shot's ID (the scene ID plus `_shot_NN` for multi-shot scenes), so each
-pipeline's `model` value is compared on the same saved shot. Keep the same
-capture directories and `--seed` for both replay commands.
+the shot ID for the primary object and the shot ID plus `__additional_NN` for
+each additional object, so each pipeline's `model` value is compared on the same
+saved object in the same shot. Keep the same capture directories and `--seed`
+for both replay commands.
 
 The live `/vision/ask` path remains available for robot control, but it does not
 record comparison trials. Capture-first comparisons use the same answer schema
@@ -592,8 +659,9 @@ while keeping images and ground truth fixed across pipelines.
 
 `analyze` scores the CSV in memory, then reports descriptive statistics for
 every model and paired comparisons between models on matched trials. Vision
-rows are matched by `run_id` + `ask_id` (the per-shot ID for `vision_eval`), so
-all shots of a scene contribute separate paired observations.
+rows are matched by `run_id` + `ask_id` (the per-object, per-shot ID for
+`vision_eval`), so all objects in all shots of a scene contribute separate
+paired observations.
 
 ```bash
 ros2 run dog_toy_finder_data llm_trials analyze "/workspace/data/vision/vision_eval_trials.csv" \

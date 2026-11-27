@@ -43,11 +43,16 @@ the normal to the optical plane and the signed offset from the optical-axis
 centre (positive = robot-left); the lateral bearing is computed as
 ``atan(offset / depth)``. These are operator measurements, not estimates from a
 detector under test, and are shared by every shot of the scene. The operator
-is then asked for brief scene notes (``--notes`` supplies the default) and an
-occlusion percentage (0-100, default 0). Only when occlusion is positive does it
-ask which stereo eye still sees the toy (``left`` or ``right``). A suggested
-``capture_id`` is built from the toy name,
-measurements, and ``_occ<pct>_<side>`` when occlusion is present; pressing Enter
+is then asked for brief scene notes (``--notes`` supplies the default), optional
+comma-separated additional objects for a multi-object scene (``--additional-objects``
+supplies the default), and a distance plus signed centre offset for each of
+those objects. Scripted runs provide those per-object measurements with
+repeatable ``--additional-object-gt LABEL:DISTANCE_M:CENTER_OFFSET_M``. Finally
+it asks for an occlusion percentage (0-100, default 0). Only when occlusion is
+positive does it ask which stereo eye still sees the toy (``left`` or
+``right``). A suggested ``capture_id`` is built from the toy name,
+measurements, ``_occ<pct>_<side>`` when occlusion is present, and
+``_plus_<objects>`` when additional objects are present; pressing Enter
 accepts it, and the operator may type a different ID. The operator must then
 press Enter at ``Press Enter to capture stereo pair`` before any shots are
 saved. Non-interactive callers get the same generated ID, and scripts may pass
@@ -84,6 +89,28 @@ class CaptureFinished(Exception):
 def _is_exit_command(value):
     """Return True when ``value`` asks to finish the capture session."""
     return str(value).strip().lower() in EXIT_COMMANDS
+
+
+def _object_labels(value):
+    """Return cleaned labels from object entries, strings, or CLI text."""
+    if not value:
+        return []
+    if isinstance(value, dict):
+        items = [value]
+    elif isinstance(value, (list, tuple)):
+        items = value
+    else:
+        items = re.split(r"[,\n]", str(value))
+    labels = []
+    for item in items:
+        if isinstance(item, dict):
+            label = item.get("label") or item.get("name") or item.get("target")
+        else:
+            label = item
+        label = str(label or "").strip()
+        if label:
+            labels.append(label)
+    return labels
 
 
 def image_to_jpeg(msg):
@@ -261,6 +288,69 @@ def _prompt_notes(default=None):
     return _prompt_text("Add in brief notes on the scene", default)
 
 
+def _prompt_additional_objects(default=None):
+    """Ask for optional comma-separated labels for other objects in the scene."""
+    defaults = _object_labels(default)
+    suffix = " [%s]" % ", ".join(defaults) if defaults else ""
+    raw = input(
+        "additional_objects (comma-separated, blank for none, q to finish)"
+        "%s: " % suffix).strip()
+    if _is_exit_command(raw):
+        raise CaptureFinished()
+    return _object_labels(raw or defaults)
+
+
+def _object_ground_truth(label, depth, center_offset, bearing=None):
+    """Build operator-measured ground truth for one additional object."""
+    depth = float(depth)
+    if depth < 0.0:
+        raise SystemExit("additional object distance_m must be non-negative")
+    if center_offset is not None:
+        bearing = vision_config.bearing_deg_from_center_offset(
+            center_offset, depth)
+    else:
+        bearing = float(bearing)
+    if abs(bearing) > 90.0:
+        raise SystemExit("additional object bearing must be within +/-90")
+    if center_offset is None:
+        center_offset = depth * math.tan(math.radians(bearing))
+    return {
+        "label": str(label),
+        "distance_m": round(depth, 3),
+        "center_offset_m": round(float(center_offset), 3),
+        "lateral_bearing_deg": round(float(bearing), 2),
+    }
+
+
+def _object_ground_truth_from_spec(spec):
+    """Parse ``LABEL:DISTANCE_M:CENTER_OFFSET_M`` for a scripted object."""
+    parts = str(spec).rsplit(":", 2)
+    if len(parts) != 3:
+        raise SystemExit(
+            "--additional-object-gt needs LABEL:DISTANCE_M:CENTER_OFFSET_M")
+    label, depth, center_offset = parts
+    if not label.strip():
+        raise SystemExit("--additional-object-gt label must not be empty")
+    try:
+        return _object_ground_truth(
+            label.strip(), float(depth), float(center_offset))
+    except ValueError:
+        raise SystemExit(
+            "--additional-object-gt needs numeric distance and offset")
+
+
+def _prompt_object_ground_truth(label, default=None):
+    """Ask for one additional object's distance and signed centre offset."""
+    print("Enter ground truth for additional object %s (q to finish):" % label)
+    default = default or {}
+    depth = _prompt_float("distance_m along optical axis (normal)",
+                          default.get("distance_m"))
+    center_offset = _prompt_float(
+        "center_offset_m along optical plane (+left)",
+        default.get("center_offset_m"))
+    return _object_ground_truth(label, depth, center_offset)
+
+
 def _prompt_occlusion_percent(default=0.0):
     """Ask for an occlusion percentage in the inclusive range 0-100."""
     while True:
@@ -314,18 +404,24 @@ def _id_number(value, signed=False):
 
 def capture_id_from_ground_truth(target, depth, center_offset,
                                  target_visible=True,
-                                 occlusion_percent=0.0, visible_side=None):
+                                 occlusion_percent=0.0, visible_side=None,
+                                 additional_objects=None):
     """Build a capture ID from the toy name and measured ground truth."""
     slug = _id_slug(target)
     occlusion_token = ""
     if float(occlusion_percent) > 0.0:
         occlusion_token = "_occ%s_%s" % (
             _id_number(occlusion_percent), _id_slug(visible_side or "left"))
+    objects = _object_labels(additional_objects)
+    object_token = ""
+    if objects:
+        object_token = "_plus_%s" % "_".join(_id_slug(item) for item in objects)
     if not target_visible:
-        return "%s_absent%s" % (slug, occlusion_token)
+        return "%s_absent%s%s" % (slug, occlusion_token, object_token)
     depth_token = _id_number(depth)
     offset_token = _id_number(center_offset, signed=True)
-    return "%s_d%s_o%s%s" % (slug, depth_token, offset_token, occlusion_token)
+    return "%s_d%s_o%s%s%s" % (
+        slug, depth_token, offset_token, occlusion_token, object_token)
 
 
 def capture_id_for_run(interactive=None, default=None):
@@ -367,6 +463,14 @@ def _build_parser():
                         help="default brief scene notes offered by the "
                              "interactive prompt; used directly in scripted "
                              "runs")
+    parser.add_argument("--additional-objects", default="",
+                        help="comma-separated labels for other objects in "
+                             "multi-object scenes, offered by the interactive "
+                             "prompt; stored in every scene")
+    parser.add_argument("--additional-object-gt", action="append", default=None,
+                        metavar="LABEL:DISTANCE_M:CENTER_OFFSET_M",
+                        help="ground truth for one additional object; repeat "
+                             "the flag for multiple objects")
     parser.add_argument("--occlusion-percent", type=float, default=0.0,
                         help="default occlusion percentage offered by the "
                              "interactive prompt (0-100)")
@@ -449,12 +553,34 @@ def _prepare_scene(args, config, output_dir, run_id, left_topic, right_topic,
         _scene_ground_truth(args, interactive, target=target,
                             target_visible=target_visible)
     notes = args.notes
+    object_labels = _object_labels(getattr(args, "additional_objects", ""))
+    cli_objects = [
+        _object_ground_truth_from_spec(spec)
+        for spec in (getattr(args, "additional_object_gt", None) or [])
+    ]
+    cli_objects_by_label = {obj["label"]: obj for obj in cli_objects}
     occlusion_percent = getattr(args, "occlusion_percent", 0.0)
     visible_side = getattr(args, "visible_side", "left")
     if interactive:
         notes = _prompt_notes(notes)
+        object_labels = _prompt_additional_objects(object_labels)
+        additional_objects = [
+            _prompt_object_ground_truth(label, cli_objects_by_label.get(label))
+            for label in object_labels
+        ]
         occlusion_percent, visible_side = _prompt_occlusion(args)
     else:
+        if object_labels:
+            missing = [label for label in object_labels
+                       if label not in cli_objects_by_label]
+            if missing:
+                raise SystemExit(
+                    "--additional-object-gt is required for: %s"
+                    % ", ".join(missing))
+            additional_objects = [cli_objects_by_label[label]
+                                  for label in object_labels]
+        else:
+            additional_objects = cli_objects
         percent_value = float(occlusion_percent)
         if not 0.0 <= percent_value <= 100.0:
             raise SystemExit("--occlusion-percent must be between 0 and 100")
@@ -467,7 +593,8 @@ def _prepare_scene(args, config, output_dir, run_id, left_topic, right_topic,
                 raise SystemExit("--visible-side must be left or right")
     default_capture_id = capture_id_from_ground_truth(
         target, depth, center_offset, target_visible,
-        occlusion_percent=occlusion_percent, visible_side=visible_side)
+        occlusion_percent=occlusion_percent, visible_side=visible_side,
+        additional_objects=additional_objects)
     capture_id = re.sub(r"[^A-Za-z0-9_.-]+", "_",
                         capture_id_for_run(interactive, default_capture_id))
     if interactive:
@@ -482,6 +609,7 @@ def _prepare_scene(args, config, output_dir, run_id, left_topic, right_topic,
         "lateral_bearing_deg": round(float(bearing), 2),
         "distance_m": round(float(depth), 3),
         "obstacle_ahead": args.obstacle or "none",
+        "additional_objects": additional_objects,
         "occlusion_percent": round(float(occlusion_percent), 1),
     }
     if visible_side:
@@ -565,6 +693,25 @@ def _scene_recap(scene):
     add("lateral_bearing_deg",
         "%+.2f" % ground_truth["lateral_bearing_deg"])
     add("obstacle_ahead", ground_truth.get("obstacle_ahead") or "none")
+    objects = ground_truth.get("additional_objects") or []
+    if not objects:
+        add("additional_objects", "none")
+    else:
+        for index, obj in enumerate(objects, 1):
+            prefix = "additional_objects[%d]" % index
+            if isinstance(obj, dict):
+                add(prefix + ".label", obj.get("label") or "object")
+                add(prefix + ".distance_m",
+                    "%.3f" % obj.get("distance_m", 0.0))
+                add(prefix + ".center_offset_m",
+                    str(float(obj.get("center_offset_m", 0.0))))
+                add(prefix + ".lateral_bearing_deg",
+                    "%+.2f" % obj.get("lateral_bearing_deg", 0.0))
+            else:
+                add(prefix + ".label", str(obj))
+                add(prefix + ".distance_m", "none")
+                add(prefix + ".center_offset_m", "none")
+                add(prefix + ".lateral_bearing_deg", "none")
     add("occlusion_percent",
         "%.1f" % ground_truth.get("occlusion_percent", 0.0))
     if ground_truth.get("visible_side"):

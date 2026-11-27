@@ -27,10 +27,14 @@ class CaptureIdTests(unittest.TestCase):
         self.assertIn("--pilot", options)
         self.assertIn("--occlusion-percent", options)
         self.assertIn("--visible-side", options)
+        self.assertIn("--additional-objects", options)
+        self.assertIn("--additional-object-gt", options)
         self.assertFalse(parser.get_default("pilot"))
         self.assertEqual(parser.get_default("shots"), 3)
         self.assertEqual(parser.get_default("occlusion_percent"), 0.0)
         self.assertEqual(parser.get_default("visible_side"), "left")
+        self.assertEqual(parser.get_default("additional_objects"), "")
+        self.assertIsNone(parser.get_default("additional_object_gt"))
 
     def test_shot_directory_names_are_zero_padded(self):
         self.assertEqual(vision_capture.shot_dir_name(1), "shot_01")
@@ -81,6 +85,27 @@ class CaptureIdTests(unittest.TestCase):
                 "dog bone", 0.0, 0.0, target_visible=False,
                 occlusion_percent=25.0, visible_side="left"),
             "dog_bone_absent_occ25_left")
+
+    def test_generated_id_includes_additional_objects_when_present(self):
+        self.assertEqual(
+            vision_capture.capture_id_from_ground_truth(
+                "red ball", 1.15, 0.244,
+                occlusion_percent=40.0, visible_side="right",
+                additional_objects=[
+                    {"label": "blue cube", "distance_m": 0.95,
+                     "center_offset_m": -0.1, "lateral_bearing_deg": -6.0},
+                    {"label": "yellow duck", "distance_m": 1.2,
+                     "center_offset_m": 0.05, "lateral_bearing_deg": 2.39}]),
+            "red_ball_d1p15_op0p244_occ40_right_plus_blue_cube_yellow_duck")
+        self.assertEqual(
+            vision_capture.capture_id_from_ground_truth(
+                "red ball", 1.15, 0.244,
+                additional_objects="blue cube"),
+            "red_ball_d1p15_op0p244_plus_blue_cube")
+        self.assertEqual(
+            vision_capture.capture_id_from_ground_truth(
+                "red ball", 1.15, 0.244, additional_objects="  "),
+            "red_ball_d1p15_op0p244")
 
     def test_interactive_prompt_requires_a_nonempty_id_without_default(self):
         answers = iter(["", "   ", "ball_115m_b12"])
@@ -194,6 +219,76 @@ class InteractiveSessionTests(unittest.TestCase):
             with self.assertRaises(vision_capture.CaptureFinished):
                 vision_capture._prompt_notes()
 
+    def test_additional_objects_prompt_splits_and_trims_labels(self):
+        answers = iter([" blue cube, yellow duck , ", "toy car"])
+        with patch("builtins.input",
+                   side_effect=lambda prompt: next(answers)) as prompted:
+            self.assertEqual(
+                vision_capture._prompt_additional_objects(),
+                ["blue cube", "yellow duck"])
+            self.assertEqual(
+                vision_capture._prompt_additional_objects(
+                    ["cli object"]),
+                ["toy car"])
+        self.assertIn("additional_objects (comma-separated",
+                      prompted.call_args_list[0].args[0])
+        self.assertIn("[cli object]", prompted.call_args_list[1].args[0])
+
+    def test_additional_objects_prompt_offers_default_and_allows_none(self):
+        with patch("builtins.input", return_value="") as prompted:
+            self.assertEqual(
+                vision_capture._prompt_additional_objects(
+                    "blue cube, yellow duck"),
+                ["blue cube", "yellow duck"])
+        self.assertIn("[blue cube, yellow duck]", prompted.call_args.args[0])
+        with patch("builtins.input", return_value=""):
+            self.assertEqual(vision_capture._prompt_additional_objects(), [])
+
+    def test_exit_at_additional_objects_prompt_finishes_session(self):
+        with patch("builtins.input", return_value="done"):
+            with self.assertRaises(vision_capture.CaptureFinished):
+                vision_capture._prompt_additional_objects()
+
+    def test_object_ground_truth_computes_bearing(self):
+        ground_truth = vision_capture._object_ground_truth(
+            "blue cube", 1.0, -0.1)
+        self.assertEqual(ground_truth["label"], "blue cube")
+        self.assertEqual(ground_truth["distance_m"], 1.0)
+        self.assertEqual(ground_truth["center_offset_m"], -0.1)
+        self.assertAlmostEqual(
+            ground_truth["lateral_bearing_deg"], -5.71, places=2)
+
+    def test_object_ground_truth_prompt_accepts_decimal_offset(self):
+        answers = iter(["0.8", "0.2"])
+        with patch("builtins.input",
+                   side_effect=lambda prompt: next(answers)) as prompted:
+            ground_truth = vision_capture._prompt_object_ground_truth(
+                "yellow duck")
+        self.assertEqual(ground_truth["distance_m"], 0.8)
+        self.assertEqual(ground_truth["center_offset_m"], 0.2)
+        self.assertAlmostEqual(
+            ground_truth["lateral_bearing_deg"], 14.04, places=2)
+        prompts = [call.args[0] for call in prompted.call_args_list]
+        self.assertIn("distance_m along optical axis (normal)", prompts[0])
+        self.assertIn("center_offset_m along optical plane (+left)", prompts[1])
+
+    def test_exit_at_object_ground_truth_prompt_finishes_session(self):
+        with patch("builtins.input", return_value="q"):
+            with self.assertRaises(vision_capture.CaptureFinished):
+                vision_capture._prompt_object_ground_truth("blue cube")
+
+    def test_scripted_object_gt_spec_is_parsed_and_validated(self):
+        ground_truth = vision_capture._object_ground_truth_from_spec(
+            "blue cube:0.95:-0.10")
+        self.assertEqual(ground_truth["label"], "blue cube")
+        self.assertEqual(ground_truth["distance_m"], 0.95)
+        self.assertEqual(ground_truth["center_offset_m"], -0.1)
+
+        for spec in ("blue cube:0.95", "blue cube:bad:0.1",
+                     "blue cube:-1.0:0.1", ":1.0:0.0"):
+            with self.assertRaises(SystemExit):
+                vision_capture._object_ground_truth_from_spec(spec)
+
     def test_occlusion_percent_prompt_validates_range(self):
         answers = iter(["150", "40"])
         with patch("builtins.input",
@@ -243,13 +338,22 @@ class InteractiveSessionTests(unittest.TestCase):
         args = SimpleNamespace(notes="cli note", obstacle="none", shots=1,
                                target="red ball", depth_m=None,
                                center_offset_m=None, bearing_deg=None,
-                               not_visible=False, occlusion_percent=0.0,
-                               visible_side="left")
+                               not_visible=False, additional_objects="cli object",
+                               additional_object_gt=None,
+                               occlusion_percent=0.0, visible_side="left")
         with tempfile.TemporaryDirectory() as tmp:
             with patch.object(vision_capture, "_scene_ground_truth",
                               return_value=("red ball", True, 1.0, 0.0, 0.0)), \
                  patch.object(vision_capture, "_prompt_notes",
                               return_value="scene note"), \
+                 patch.object(vision_capture, "_prompt_additional_objects",
+                              return_value=["blue cube", "yellow duck"]), \
+                 patch.object(
+                     vision_capture, "_prompt_object_ground_truth",
+                     side_effect=lambda label, default=None: {
+                         "label": label, "distance_m": 1.0,
+                         "center_offset_m": 0.1,
+                         "lateral_bearing_deg": 5.71}), \
                  patch.object(vision_capture, "_prompt_occlusion",
                               return_value=(40.0, "right")), \
                  patch.object(vision_capture, "_prompt_capture_ready"), \
@@ -261,6 +365,11 @@ class InteractiveSessionTests(unittest.TestCase):
                     args, {}, tmp, "run", "/l", "/r", True)
         ground_truth = scene["common_meta"]["ground_truth"]
         self.assertEqual(ground_truth["notes"], "scene note")
+        self.assertEqual(
+            [item["label"] for item in ground_truth["additional_objects"]],
+            ["blue cube", "yellow duck"])
+        self.assertEqual(
+            ground_truth["additional_objects"][0]["center_offset_m"], 0.1)
         self.assertEqual(ground_truth["occlusion_percent"], 40.0)
         self.assertEqual(ground_truth["visible_side"], "right")
 
@@ -295,6 +404,44 @@ class InteractiveSessionTests(unittest.TestCase):
         with self.assertRaises(SystemExit):
             vision_capture._prepare_scene(
                 args, {}, tmp, "run", "/l", "/r", False)
+
+    def test_scripted_additional_objects_are_saved_and_named(self):
+        args = SimpleNamespace(notes="", obstacle="none", shots=1,
+                               target="red ball", depth_m=1.0,
+                               center_offset_m=0.0, bearing_deg=None,
+                               not_visible=False,
+                               additional_objects="blue cube, yellow duck",
+                               additional_object_gt=[
+                                   "blue cube:0.95:-0.10",
+                                   "yellow duck:1.20:0.05"],
+                               occlusion_percent=0.0, visible_side="left")
+        with tempfile.TemporaryDirectory() as tmp:
+            with patch.object(vision_capture.vision_config, "eye_intrinsics",
+                              return_value={}):
+                scene = vision_capture._prepare_scene(
+                    args, {}, tmp, "run", "/l", "/r", False)
+        ground_truth = scene["common_meta"]["ground_truth"]
+        self.assertEqual(
+            [item["label"] for item in ground_truth["additional_objects"]],
+            ["blue cube", "yellow duck"])
+        self.assertEqual(
+            ground_truth["additional_objects"][0]["distance_m"], 0.95)
+        self.assertEqual(
+            ground_truth["additional_objects"][0]["center_offset_m"], -0.1)
+        self.assertAlmostEqual(
+            ground_truth["additional_objects"][0]["lateral_bearing_deg"],
+            -6.01, places=2)
+        self.assertEqual(
+            scene["capture_id"],
+            "red_ball_d1_op0_plus_blue_cube_yellow_duck")
+
+        args.additional_object_gt = ["blue cube:0.95:-0.10"]
+        with tempfile.TemporaryDirectory() as tmp:
+            with patch.object(vision_capture.vision_config, "eye_intrinsics",
+                              return_value={}):
+                with self.assertRaises(SystemExit):
+                    vision_capture._prepare_scene(
+                        args, {}, tmp, "run", "/l", "/r", False)
 
     def test_exit_at_toy_group_prompt_finishes_session(self):
         args = SimpleNamespace(target="red ball")
@@ -343,7 +490,8 @@ class InteractiveSessionTests(unittest.TestCase):
 
     def test_scene_recap_reports_ground_truth_for_scene(self):
         scene = {
-            "capture_id": "red_ball_d1p15_op0p244_occ40_right",
+            "capture_id":
+                "red_ball_d1p15_op0p244_occ40_right_plus_blue_cube_yellow_duck",
             "common_meta": {
                 "target": "red ball",
                 "ground_truth": {
@@ -352,6 +500,14 @@ class InteractiveSessionTests(unittest.TestCase):
                     "center_offset_m": 0.244,
                     "lateral_bearing_deg": 11.98,
                     "obstacle_ahead": "none",
+                    "additional_objects": [
+                        {"label": "blue cube", "distance_m": 0.95,
+                         "center_offset_m": -0.1,
+                         "lateral_bearing_deg": -6.01},
+                        {"label": "yellow duck", "distance_m": 1.2,
+                         "center_offset_m": 0.05,
+                         "lateral_bearing_deg": 2.39},
+                    ],
                     "occlusion_percent": 40.0,
                     "visible_side": "right",
                     "notes": "white bottle on the mat",
@@ -360,13 +516,23 @@ class InteractiveSessionTests(unittest.TestCase):
         }
         lines = vision_capture._scene_recap(scene).splitlines()
         self.assertEqual(
-            lines[0], "Recap red_ball_d1p15_op0p244_occ40_right (red ball):")
+            lines[0],
+            "Recap red_ball_d1p15_op0p244_occ40_right_plus_blue_cube_"
+            "yellow_duck (red ball):")
         for expected in (
                 "\ttarget_visible: true",
                 "\tdistance_m: 1.150",
                 "\tcenter_offset_m: 0.244",
                 "\tlateral_bearing_deg: +11.98",
                 "\tobstacle_ahead: none",
+                "\tadditional_objects[1].label: blue cube",
+                "\tadditional_objects[1].distance_m: 0.950",
+                "\tadditional_objects[1].center_offset_m: -0.1",
+                "\tadditional_objects[1].lateral_bearing_deg: -6.01",
+                "\tadditional_objects[2].label: yellow duck",
+                "\tadditional_objects[2].distance_m: 1.200",
+                "\tadditional_objects[2].center_offset_m: 0.05",
+                "\tadditional_objects[2].lateral_bearing_deg: +2.39",
                 "\tocclusion_percent: 40.0",
                 "\tvisible_side: right",
                 "\tnotes: white bottle on the mat"):
@@ -386,6 +552,7 @@ class InteractiveSessionTests(unittest.TestCase):
         }
         lines = vision_capture._scene_recap(scene).splitlines()
         self.assertIn("\ttarget_visible: false", lines)
+        self.assertIn("\tadditional_objects: none", lines)
         self.assertIn("\tocclusion_percent: 0.0", lines)
         self.assertFalse(any(line.startswith("\tcenter_offset_m")
                              for line in lines))

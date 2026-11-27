@@ -2,8 +2,10 @@
 
 Captures are written first by ``vision_capture``; this tool replays every saved
 shot through the selected vision pipeline, then writes a trial CSV that already
-contains the operator's ground truth. A scene captured with ``--shots 3`` has
-three independently scored shots that share one operator-measured ground truth.
+contains the operator's ground truth. Every object in a scene is scored: the
+primary target plus each entry in ``ground_truth.additional_objects``. A scene
+captured with ``--shots 3`` has three independently scored shots that share the
+same operator-measured ground truth for each object.
 
 No live camera topics and no ROS graph are needed. Only the shared detector
 config, the saved JPEGs, and the host services (detector, plus the depth service
@@ -25,7 +27,7 @@ outputs, keeping trial data out of the normal captures tree; explicit paths win.
 Outputs (defaults next to the captures directory, or inside the pilot root with
 ``--pilot``)::
 
-    vision_eval_trials.csv     one scored row per shot and model name
+    vision_eval_trials.csv     one scored row per object, shot, and model name
     vision_eval_results.jsonl  full /vision/result-style entries for inspection
     vision_eval_summary.json   aggregate metrics, pipeline, shuffle seed/order
 """
@@ -90,6 +92,63 @@ def _scene_id(meta, path=None):
             return os.path.basename(os.path.dirname(path))
         return base
     return "captures"
+
+
+def _object_label(value):
+    """Return a label from an additional-object entry or a plain string."""
+    if isinstance(value, dict):
+        value = (value.get("label") or value.get("name")
+                 or value.get("target"))
+    return str(value or "").strip()
+
+
+def scene_objects(meta):
+    """Return every labelled object to score in one shot's metadata.
+
+    The primary target uses the scene-level ground truth. Additional objects
+    come from ``ground_truth.additional_objects``; legacy captures may store
+    bare labels instead of per-object dictionaries. A stable ``object_id``
+    keeps repeated labels in one shot separate without changing the trial CSV
+    schema: it suffixes each additional object's ``ask_id`` (and ``trial_id``),
+    while the primary object keeps the historic shot ID.
+    """
+    ground_truth = meta.get("ground_truth")
+    if not isinstance(ground_truth, dict):
+        ground_truth = {}
+    objects = []
+    primary = _object_label(meta.get("target"))
+    if primary:
+        objects.append({
+            "object_id": "primary",
+            "role": "primary",
+            "label": primary,
+            "target": primary,
+            "ground_truth": dict(ground_truth),
+        })
+
+    extras = ground_truth.get("additional_objects") or []
+    if isinstance(extras, (str, dict)):
+        extras = [extras]
+    for index, item in enumerate(extras, 1):
+        label = _object_label(item)
+        if not label:
+            continue
+        object_ground_truth = dict(item) if isinstance(item, dict) else {}
+        # Additional objects are captured as present; older bare-label entries
+        # have no numeric truth, but can still be checked for visibility.
+        object_ground_truth.setdefault("target_visible", True)
+        for key in ("obstacle_ahead", "notes", "occlusion_percent",
+                    "visible_side"):
+            if key in ground_truth and key not in object_ground_truth:
+                object_ground_truth[key] = ground_truth[key]
+        objects.append({
+            "object_id": "additional_%02d" % index,
+            "role": "additional",
+            "label": label,
+            "target": label,
+            "ground_truth": object_ground_truth,
+        })
+    return objects
 
 
 def _shuffle_scenes_and_shots(selected, rng):
@@ -206,30 +265,57 @@ def load_capture(path):
 
 def evaluate_capture(path, config, pipeline=None, client=None,
                      depth_client=None):
-    """Replay one shot and return a /vision/result-style dict."""
+    """Replay one shot for every object and return a /vision/result-style dict.
+
+    Top-level fields describe the shot; ``result["objects"]`` holds one entry
+    per scored object with its own ``id``, target, ground truth, and pipeline
+    answers. The flat ``results`` list keeps the older single-shot shape for
+    inspection tools.
+    """
     meta, images = load_capture(path)
     name = vision_pipelines.pipeline_name(pipeline, config)
     capture_id = str(meta.get("capture_id") or os.path.basename(path))
     scene_id = str(meta.get("scene_id") or capture_id)
-    target = str(meta.get("target") or "")
+    base_id = shot_id(meta, path)
     result = {
-        "id": shot_id(meta, path),
+        "id": base_id,
         "scene_id": scene_id,
         "shot_index": _as_int(meta.get("shot_index"), 1),
         "shot_count": _as_int(meta.get("shot_count"), 1),
-        "target": target,
+        "target": str(meta.get("target") or ""),
         "pipeline": name,
         "models": [],
+        "objects": [],
+        "results": [],
         "stereo": True,
         "image_source": "rectified_color",
         "image": _image_relative_path(meta, path, "left"),
         "capture_dir": path,
     }
-    entries = vision_pipelines.run_pipeline(
-        name, target, images["left_jpeg"], images["right_jpeg"],
-        config, client=client, depth_client=depth_client)
-    result["results"] = entries
-    result["models"] = [entry.get("model", "unknown") for entry in entries]
+    for obj in scene_objects(meta):
+        entries = vision_pipelines.run_pipeline(
+            name, obj["target"], images["left_jpeg"], images["right_jpeg"],
+            config, client=client, depth_client=depth_client)
+        # The primary object keeps the historic shot ID so existing CSVs and
+        # paired analyses remain comparable; additional objects get a suffix.
+        suffix = "" if obj["role"] == "primary" else "__%s" % obj["object_id"]
+        object_result = dict(result)
+        object_result.update({
+            "id": base_id + suffix,
+            "shot_id": base_id,
+            "object_id": obj["object_id"],
+            "object_role": obj["role"],
+            "label": obj["label"],
+            "target": obj["target"],
+            "ground_truth": obj["ground_truth"],
+            "objects": [],
+            "results": entries,
+            "models": [entry.get("model", "unknown") for entry in entries],
+        })
+        result["objects"].append(object_result)
+        result["results"].extend(entries)
+    result["models"] = list(dict.fromkeys(
+        entry.get("model", "unknown") for entry in result["results"]))
     return result, meta
 
 
@@ -316,6 +402,8 @@ def main(argv=None):
     results = []
     scene_order = []
     shots_per_scene = {}
+    objects_per_scene = {}
+    objects_evaluated = 0
     for path in shots:
         try:
             result, meta = evaluate_capture(path, config, pipeline)
@@ -329,12 +417,27 @@ def main(argv=None):
             shots_per_scene[scene_id] = 0
         shots_per_scene[scene_id] += 1
         ground_truth = meta.get("ground_truth") or {}
-        for entry in result["results"]:
-            model = entry.get("model") or "unknown"
-            rows.append(llm_trials.vision_row(
-                result, entry, model, meta.get("run_id") or "captures",
-                args.tolerance, ground_truth=ground_truth,
-                bearing_tolerance=args.bearing_tolerance))
+        object_results = result.get("objects")
+        if not object_results:
+            # Older replay helpers may still return the flat shot-level shape.
+            object_results = [{
+                "id": result.get("id", ""),
+                "target": result.get("target", ""),
+                "ground_truth": ground_truth,
+                "results": result.get("results", []),
+            }]
+        objects_evaluated += len(object_results)
+        objects_per_scene[scene_id] = (
+            objects_per_scene.get(scene_id, 0) + len(object_results))
+        for object_result in object_results:
+            object_ground_truth = object_result.get("ground_truth", ground_truth)
+            for entry in object_result.get("results", []):
+                model = entry.get("model") or "unknown"
+                rows.append(llm_trials.vision_row(
+                    object_result, entry, model,
+                    meta.get("run_id") or "captures", args.tolerance,
+                    ground_truth=object_ground_truth,
+                    bearing_tolerance=args.bearing_tolerance))
 
     if not rows:
         print("No model rows produced", file=sys.stderr)
@@ -360,6 +463,8 @@ def main(argv=None):
         "scenes": len(scene_order),
         "scene_order": scene_order,
         "shots_per_scene": shots_per_scene,
+        "objects": objects_evaluated,
+        "objects_per_scene": objects_per_scene,
         "shuffle_seed": seed,
         "rows": len(rows),
         "pipeline": pipeline,
@@ -375,9 +480,10 @@ def main(argv=None):
     with open(summary_json, "w") as handle:
         json.dump(manifest, handle, indent=2)
 
-    print("Evaluated %d shot(s) across %d scene(s) with %s, wrote %d row(s) "
-          "to %s" % (len(shots), len(scene_order), pipeline, len(rows),
-                     output_csv))
+    print("Evaluated %d object(s) in %d shot(s) across %d scene(s) with %s, "
+          "wrote %d row(s) to %s"
+          % (objects_evaluated, len(shots), len(scene_order), pipeline,
+             len(rows), output_csv))
     llm_trials.print_summaries(summaries, as_json=args.json)
     return 0
 

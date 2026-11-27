@@ -77,14 +77,18 @@ spreadsheet annotation is required. Both pipelines also emit `distance_m`,
 and bearing are positive to the robot's left (ROS `+y`); no coarse side label is
 emitted or accepted.
 
-`vision_eval` writes one scored row per model per shot per invocation, with the
-columns already filled. Multi-shot `ask_id` values are `<capture_id>_shot_NN`, so
-paired statistics compare the same shot across models. The `model` column is the
-detector name for `open_vocab` or the dense depth model name for `stereo-net`.
-Its summary manifest records the selected pipeline, the `shuffle_seed`, the
-randomized `scene_order`, the `shot_order` within each scene, and
-`shots_per_scene`, so the same shots can be replayed in the same order by both
-pipelines.
+`vision_eval` writes one scored row per model per object per shot per
+invocation, with the columns already filled. Every object in a scene is scored:
+the primary toy plus each `additional_objects` entry, using that object's own
+ground truth. The primary object keeps the historic `ask_id`
+(`<capture_id>_shot_NN`, or `<capture_id>` for flat captures); additional
+objects append `__additional_NN`, so paired statistics compare the same object
+in the same shot across models without changing the CSV schema. The `model`
+column is the detector name for
+`open_vocab` or the dense depth model name for `stereo-net`. Its summary manifest
+records the selected pipeline, the `shuffle_seed`, the randomized `scene_order`,
+the `shot_order` within each scene, `shots_per_scene`, and `objects_per_scene`,
+so the same shots can be replayed in the same order by both pipelines.
 
 A live `/vision/ask` path remains available for robot control, but it does not
 record comparison trials. Use `vision_capture` and `vision_eval` for measured,
