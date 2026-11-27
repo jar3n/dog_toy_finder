@@ -18,7 +18,9 @@ This single entry point replaces the old ``stereo.launch.py`` and
 
 The stereo stages and the vision node can be switched off independently
 (``stereo``, ``stereo_proc``, ``vision``) so the same launch file serves
-depth-only debugging and the full dog-toy-finder stack.
+depth-only debugging and the full dog-toy-finder stack. Dataset collection uses
+``vision:=false stereo_proc:=false``; ``vision_capture`` is a separate offline
+tool and must not be run as part of the robot's live vision processing.
 
 Run inside the ROS 2 container:
     ros2 launch dog_toy_finder_vision stereo_vision.launch.py

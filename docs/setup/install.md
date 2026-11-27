@@ -30,7 +30,10 @@ docker compose build
 
 This builds `docker-ros2:latest` with ROS 2 Humble, the vision/mapping
 dependencies, the ROSA Python packages, and Pillow for JPEG conversion. The
-`open_vocab` pipeline runs detection on the computer, not in the container:
+`ros2` container runs your command as `HOST_UID:HOST_GID` (default
+`1000:1000`), so files it writes to the mounted repository are owned by the
+host user; export those variables first if your account uses different IDs.
+The `open_vocab` pipeline runs detection on the computer, not in the container:
 run `./scripts/start_yolo_service.sh` once to create a host venv with CPU torch,
 ultralytics, and transformers and download weights to
 `software/host_vision/models/`. Pick the backend with `DETECTOR_MODEL`

@@ -33,7 +33,7 @@ and the offline evaluator.
 
 | Tool | Purpose |
 |---|---|
-| `vision_capture` | Saves several fresh rectified stereo shots of one scene with operator-entered depth and center offset; computes bearing. |
+| `vision_capture` | Runs interactively through as many scenes as needed, saving several fresh rectified stereo shots per scene with operator-entered depth and center offset; computes bearing and exits on `q`. |
 | `vision_eval` | Replays every saved shot through the configured vision pipeline, then writes a scored CSV. |
 | `llm_trials` CLI | `template`, `score`, `aggregate`, and `analyze` for vision CSVs. |
 
@@ -172,9 +172,11 @@ is signed, positive to the robot's left; there is no coarse side label.
 
 ## Capture a vision dataset (step by step)
 
-Use two shells inside the ROS 2 container: one keeps the stereo pipeline
-running, the other runs `vision_capture`. No host detector or depth service is
-needed for capture; those are started later for `vision_eval`.
+Capture is offline data collection, not the robot's live vision processing. Use
+two shells inside the ROS 2 container: one runs the capture-only stereo
+publisher below, the other runs `vision_capture`. Do not use the live robot
+vision stack for dataset capture. No host detector or depth service is needed or
+started for capture; those are started later for `vision_eval`.
 
 ### Step 1 - Use the default settings in both shells
 
@@ -244,8 +246,9 @@ different `k` matrices and non-identity `r`, which is expected.
 
 `vision:=false` skips the live detector node, and `stereo_proc:=false` skips
 disparity/point-cloud generation. Capture only needs the rectified colour
-topics. Leave this launch running. Capturing while the full stack is running is
-also fine; `vision_capture` never publishes `/vision/ask`.
+topics. Leave this launch running. `vision_capture` never publishes
+`/vision/ask`, never calls a detector or depth model, and is not part of the
+live robot processing stack; keep dataset capture separate from the full stack.
 
 ### Step 3 - Confirm both rectified topics are publishing (second shell)
 
@@ -258,27 +261,16 @@ Each should report roughly `2.0` Hz. Press Ctrl+C after each check.
 If either topic is silent, fix the camera URL or rectification before
 capturing; `vision_capture` will otherwise time out.
 
-### Step 4 - Position the toy and measure ground truth
+### Step 4 - Start one interactive capture session for the whole run
 
-For each scene, which becomes one directory containing several shots:
-
-1. Put the toy where you want it and leave it still.
-2. Measure `distance_m` along the optical axis (the normal to the optical
-   plane) from the camera baseline to the toy's depth plane. This is
-   operator-entered ground truth, never an estimate from the pipeline under
-   test.
-3. Measure `center_offset_m`: the signed lateral distance from the optical-axis
-   center in that plane. Positive means the toy is to the robot's left (ROS
-   `+y`); negative means the opposite side; zero means on the optical axis.
-   `vision_capture` computes `lateral_bearing_deg = atan(center_offset_m /
-   distance_m)` using the convention above.
-4. Confirm the toy name; the tool will suggest a `capture_id` from the name and
-   these measurements, which you can accept or replace.
-
-Keep both measurements handy: Step 5 asks for them once, then uses the same
-ground truth for every shot of that scene and offers the generated ID.
-
-### Step 5 - Save several shots of one scene interactively
+Put the toy where you want the first scene and leave it still, then run the
+command below **once** in the second shell. Leave out `--depth-m` and
+`--center-offset-m`; the tool asks for a toy, how many scenes contain that toy,
+and the distance and center offset of each scene, as described in Step 5. After
+that toy's scenes are saved, it asks for another toy. Type `q`, `quit`, `done`,
+or `exit` at the toy, scene-count, measurement, or capture-ID prompt to finish.
+The session keeps one stereo subscriber open for the whole run. Scripted
+invocations that pass the measurement flags still capture one scene and exit.
 
 ```bash
 ros2 run dog_toy_finder_vision vision_capture \
@@ -290,38 +282,67 @@ ros2 run dog_toy_finder_vision vision_capture \
     --timeout "20.0"
 ```
 
-Leave out `--depth-m` and `--center-offset-m`. In this interactive (TTY) shell
-the tool prompts for the values you chose in Step 4, then offers an ID generated
-from the toy name and those measurements:
+Each scene in the session saves `--shots "3"` distinct fresh matched stereo
+pairs, so the same measured ground truth is used for all three shots. Each shot
+must contain camera frames newer than the previous shot, including across
+scene boundaries; the tool waits up to `--timeout` seconds for each pair. Use a
+different generated or custom `capture_id` for every scene; reusing an ID
+overwrites that scene directory. When the session finishes, the command prints
+one JSON object with `scene_count` and a `scenes` list, each entry carrying
+`capture_dir`, `shots`, `meta`, and `captures`. Use `--shots "1"` for the older
+flat layout if a script needs exactly one pair.
+
+If it times out, return to Step 3 and check the two rectified topics.
+
+### Step 5 - Enter the ground truth for each scene in the run
+
+After the Step 4 command starts, it first asks which toy to capture and how
+many scenes contain that toy. Each scene then becomes one directory containing
+several shots. The tool asks for that scene's ground truth once and reuses it
+for every shot of the scene:
 
 ```text
-Enter ground truth measured for this scene:
-center_offset_m along optical plane (+left): 0.244
+Describe a toy and how many scenes to capture with it (q to finish):
+toy [red ball]: red ball
+scenes with this toy [1]: 3
+Scene 1/3 for red ball
+Enter ground truth measured for this scene (q to finish):
 distance_m along optical axis (normal): 1.15
-Enter capture details for this capture:
+center_offset_m along optical plane (+left): 0.244
+Add in brief notes on the scene (q to finish): white bottle on the mat
 capture_id [red_ball_d1p15_op0p244]:
+Press Enter to capture stereo pair (q to finish):
 ```
+
+`--target` supplies the default toy for the first group and `--notes` supplies
+the default scene notes. Interactive groups assume the toy is visible in every
+scene; use the scripted `--not-visible` command below for an absent-target
+scene. Type `q`, `quit`, `done`, or `exit` at any prompt to finish without saving
+another scene.
+
+Enter these operator-measured values, never an estimate from the pipeline under
+test:
+
+1. Measure `distance_m` along the optical axis (the normal to the optical
+   plane) from the camera baseline to the toy's depth plane.
+2. Measure `center_offset_m`: the signed lateral distance from the optical-axis
+   center in that plane. Positive means the toy is to the robot's left (ROS
+   `+y`); negative means the opposite side; zero means on the optical axis.
+   `vision_capture` computes `lateral_bearing_deg = atan(center_offset_m /
+   distance_m)` using the convention above.
+3. The toy comes from the group prompt and is reused for every scene in that
+   group. The tool suggests a `capture_id` from the toy name and these
+   measurements, which you can accept or replace.
 
 Type each measurement and press Enter. At the `capture_id` prompt, press Enter
 again to accept the generated ID or type a custom one. In the generated ID, `d`
 marks distance, `o` marks the signed lateral offset, `p` replaces the decimal
-point, and `m` marks a negative offset. The tool computes and
-stores `lateral_bearing_deg` (about +12° for these numbers). `--obstacle` and
-`--notes` stay on the command line; they are not prompted for. For a script or
-other non-interactive shell, `--capture-id` is not accepted; the generated ID is
-used automatically, and `--depth-m` plus `--center-offset-m` are required for a
+point, and `m` marks a negative offset. The tool computes and stores
+`lateral_bearing_deg` (about +12° for these numbers). `--obstacle` and `--notes`
+stay on the command line; they are not prompted for. For a script or other
+non-interactive shell, `--capture-id` is not accepted; the generated ID is used
+automatically, and `--depth-m` plus `--center-offset-m` are required for a
 visible target (unless using `--not-visible`).
-
-One invocation saves `--shots "3"` distinct fresh matched stereo pairs under
-one scene, so the same measured ground truth is used for all three shots. Each
-shot must contain camera frames newer than the previous shot; the tool waits up
-to `--timeout` seconds for each pair. Use a different generated or custom
-`capture_id` for every scene; reusing an ID overwrites that scene directory.
-The command prints JSON with `capture_dir`, `shots`, and one `captures` entry
-per saved shot when it succeeds. Use `--shots "1"` for the older flat layout if
-a script needs exactly one pair.
-
-If it times out, return to Step 3 and check the two rectified topics.
 
 ### Step 6 - Verify the saved scene
 
@@ -357,9 +378,13 @@ The center offset, bearing, and distance in these files are the values
 
 ### Step 7 - Capture the other scene cases
 
-Move the toy or change the scene, then run Step 5 again, enter the new
-measurements, and accept the newly suggested `capture_id` (or type a custom
-one). Keep the same `--run-id` for the whole dataset. Common variants:
+Include every scene for one toy in that toy's count, entering fresh distance
+and center-offset measurements for each one. When that group is finished, enter
+the next toy and its scene count at the toy prompts. Keep the session open for
+the whole `--run-id`. Type `q` at a toy or scene-count prompt when no more
+scenes are needed. The scripted commands below are for non-interactive
+single-scene captures or for starting a new session with different command-line
+defaults:
 
 ```bash
 # Target absent: stores target_visible=false, distance=0, bearing=0; ID suggests red_ball_absent
@@ -422,13 +447,14 @@ to label an occluder.
 | Object in neither image | Target absent | `red_ball_absent` | `--not-visible` (no measurement prompts) |
 | Partially visible in one image | Toy cut by the left frame edge | `red_ball_d1p15_op0p244_partial_left` | measure the visible part's centre; `--notes "partial in left image only"` (use `_partial_right` when reversed) |
 | Partially visible in both images, occluded | Chair blocks part of the toy in both eyes | `red_ball_d0p9_om0p126_partial_both_occluded` | distance 0.90 m, offset -0.126 m; `--obstacle chair --notes "partial in both images, occluded by chair"` |
-| Different target | Dog bone | `dog_bone_d1p1_op0p194` | distance 1.10 m, offset +0.194 m (+10°), `--target "dog bone"` |
+| Different target | Dog bone | `dog_bone_d1p1_op0p194` | distance 1.10 m, offset +0.194 m (+10°), enter `dog bone` as a new toy group |
 
 ### Step 9 - Finish capture
 
-When all scenes are saved, press Ctrl+C in the first shell to stop the stereo
-launch. The captures can now be replayed offline; no camera topics, Pico, or
-ROS graph are needed for `vision_eval`.
+Type `q` at the toy or scene-count prompt so `vision_capture` finishes and
+prints its final JSON, then press Ctrl+C in the first shell to stop the stereo
+launch. The captures can now be replayed offline; no camera topics, Pico, or ROS
+graph are needed for `vision_eval`.
 
 ## Replay every shot offline
 

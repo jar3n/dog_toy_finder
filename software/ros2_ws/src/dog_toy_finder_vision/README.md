@@ -264,8 +264,11 @@ below: each selected pipeline sees the exact same saved images.
 
 ## Capture-first comparison
 
-With the rectified stereo pipeline running, save several labelled shots of one
-scene. No detector or `/vision/ask` is involved:
+`vision_capture` is an offline data-collection tool, separate from the live
+robot vision processing. With a capture-only rectified stereo pipeline running
+(`vision:=false`, `stereo_proc:=false`), start one session and save as many
+labelled scenes as needed. No detector, depth model, or `/vision/ask` is
+involved:
 
 ```bash
 cd /workspace
@@ -284,14 +287,31 @@ Add `--pilot` to capture pilot scenes under
 the same `--pilot` flag on `vision_eval` so its default trial outputs stay in
 that pilot tree.
 
-In a TTY, `vision_capture` prompts (unless the flags are given) once per scene
-for `center_offset_m along optical plane (+left)` and `distance_m along optical
-axis (normal)`, computes `lateral_bearing_deg`, then suggests a `capture_id`
-from the toy name and measurements, such as `red_ball_d1p15_op0p244`. Press
-Enter to accept the suggestion or type a custom ID; absent targets suggest
-`<toy>_absent`. `--capture-id` is not a command-line flag: non-interactive
-callers get the same generated ID and must pass `--depth-m` plus
-`--center-offset-m` (or, for older scripts, `--bearing-deg`).
+In a TTY, `vision_capture` stays open for the whole run and groups scenes by
+toy. It first asks:
+
+```text
+Describe a toy and how many scenes to capture with it (q to finish):
+toy [red ball]: red ball
+scenes with this toy [1]: 3
+```
+
+For each of those scenes it then asks for `distance_m along optical axis
+(normal)` and `center_offset_m along optical plane (+left)`, computes
+`lateral_bearing_deg`, asks `Add in brief notes on the scene` (`--notes`
+supplies the default), and then suggests a `capture_id` from the toy name and
+measurements, such as `red_ball_d1p15_op0p244`. Press Enter to accept the
+suggestion or type a custom ID, then press Enter at `Press Enter to capture
+stereo pair` to save the scene's shots. When that group is finished, it prompts
+for the next toy. Type `q`, `quit`, `done`, or `exit` at the toy, scene-count,
+measurement, notes, capture-ID, or capture-ready prompt to finish the session.
+Interactive groups assume the toy is visible; use the scripted `--not-visible`
+command below for an
+absent-target scene. `--obstacle` and `--notes` apply to every scene in the
+session. Scripted runs that pass `--depth-m` plus `--center-offset-m` (or, for
+older scripts, `--bearing-deg`) still capture one scene and exit.
+`--capture-id` is not a command-line flag: non-interactive callers get the same
+generated ID.
 
 The default `--shots "3"` saves three fresh matched pairs under
 `<output_dir>/<run_id>/<capture_id>/shot_01/` through `shot_03/`, plus

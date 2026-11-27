@@ -56,5 +56,11 @@ date -Iseconds > "${STAGING_DIR}/builddate.txt"
 rm -rf "${OUTPUT_DIR}"
 mv "${STAGING_DIR}" "${OUTPUT_DIR}"
 
+# rosdep needs root inside this builder, so hand the generated files back to
+# the host user before the container exits.
+host_uid="${HOST_UID:-1000}"
+host_gid="${HOST_GID:-1000}"
+chown -R "${host_uid}:${host_gid}" "${OUTPUT_DIR}" "${BUILD_ROOT}" 2>/dev/null || true
+
 echo "Created ${OUTPUT_DIR}/libmicroros.a"
 grep -E 'Tag_CPU_(name|arch)' "${OUTPUT_DIR}/architecture.txt" | sort -u

@@ -1,5 +1,6 @@
 """Tests for capture labeling in ``vision_capture``."""
 
+import json
 import os
 import re
 import sys
@@ -123,6 +124,144 @@ class FreshShotTests(unittest.TestCase):
         second = node.fresh_pair(after=first[3])
         self.assertIsNotNone(second)
         self.assertAlmostEqual(second[3], 1.3)
+
+
+class InteractiveSessionTests(unittest.TestCase):
+    def test_exit_commands_are_recognised_case_insensitively(self):
+        for value in ("q", "QUIT", " done ", "Exit"):
+            self.assertTrue(vision_capture._is_exit_command(value))
+        self.assertFalse(vision_capture._is_exit_command("red_ball_d1_op0"))
+
+    def test_exit_at_measurement_prompt_finishes_session(self):
+        with patch("builtins.input", return_value="q"):
+            with self.assertRaises(vision_capture.CaptureFinished):
+                vision_capture._prompt_float("distance_m")
+
+    def test_exit_at_capture_id_prompt_finishes_session(self):
+        with patch("builtins.input", return_value="quit"):
+            with self.assertRaises(vision_capture.CaptureFinished):
+                vision_capture.capture_id_for_run(
+                    True, "red_ball_d1p15_op0p244")
+
+    def test_capture_ready_prompt_waits_before_shots(self):
+        with patch("builtins.input", return_value="") as prompted:
+            vision_capture._prompt_capture_ready()
+        self.assertIn("Press Enter to capture stereo pair",
+                      prompted.call_args.args[0])
+
+    def test_exit_at_capture_ready_prompt_finishes_session(self):
+        with patch("builtins.input", return_value="q"):
+            with self.assertRaises(vision_capture.CaptureFinished):
+                vision_capture._prompt_capture_ready()
+
+    def test_notes_prompt_offers_default_and_accepts_text(self):
+        with patch("builtins.input", return_value="") as prompted:
+            self.assertEqual(vision_capture._prompt_notes("cli note"),
+                             "cli note")
+        self.assertIn("Add in brief notes on the scene",
+                      prompted.call_args.args[0])
+        with patch("builtins.input", return_value="scene note"):
+            self.assertEqual(vision_capture._prompt_notes("cli note"),
+                             "scene note")
+
+    def test_exit_at_notes_prompt_finishes_session(self):
+        with patch("builtins.input", return_value="q"):
+            with self.assertRaises(vision_capture.CaptureFinished):
+                vision_capture._prompt_notes()
+
+    def test_interactive_notes_are_saved_for_scene(self):
+        args = SimpleNamespace(notes="cli note", obstacle="none", shots=1,
+                               target="red ball", depth_m=None,
+                               center_offset_m=None, bearing_deg=None,
+                               not_visible=False)
+        with tempfile.TemporaryDirectory() as tmp:
+            with patch.object(vision_capture, "_scene_ground_truth",
+                              return_value=("red ball", True, 1.0, 0.0, 0.0)), \
+                 patch.object(vision_capture, "_prompt_notes",
+                              return_value="scene note"), \
+                 patch.object(vision_capture, "_prompt_capture_ready"), \
+                 patch.object(vision_capture, "capture_id_for_run",
+                              return_value="scene_a"), \
+                 patch.object(vision_capture.vision_config, "eye_intrinsics",
+                              return_value={}):
+                scene = vision_capture._prepare_scene(
+                    args, {}, tmp, "run", "/l", "/r", True)
+        self.assertEqual(scene["common_meta"]["ground_truth"]["notes"],
+                         "scene note")
+
+    def test_exit_at_toy_group_prompt_finishes_session(self):
+        args = SimpleNamespace(target="red ball")
+        with patch("builtins.input", return_value="q"):
+            with self.assertRaises(vision_capture.CaptureFinished):
+                vision_capture._prompt_toy_group(args)
+
+    def test_toy_group_prompts_for_toy_and_scene_count(self):
+        args = SimpleNamespace(target="red ball")
+        answers = iter(["white bottle", "3"])
+        with patch("builtins.input", lambda prompt: next(answers)):
+            toy, count = vision_capture._prompt_toy_group(args)
+        self.assertEqual(toy, "white bottle")
+        self.assertEqual(count, 3)
+
+    def test_scene_count_reprompts_until_a_positive_integer(self):
+        answers = iter(["0", "two", "2"])
+        with patch("builtins.input", lambda prompt: next(answers)):
+            self.assertEqual(
+                vision_capture._prompt_int("scenes with this toy"), 2)
+
+    def test_scene_ground_truth_uses_the_group_toy_and_assumes_visible(self):
+        args = SimpleNamespace(target="red ball", depth_m=None,
+                               center_offset_m=None, bearing_deg=None,
+                               not_visible=False)
+        answers = iter(["1.10", "0.194"])
+        with patch("builtins.input", lambda prompt: next(answers)):
+            result = vision_capture._scene_ground_truth(
+                args, True, target="dog bone", target_visible=True)
+        target, visible, depth, bearing, center_offset = result
+        self.assertEqual(target, "dog bone")
+        self.assertTrue(visible)
+        self.assertAlmostEqual(depth, 1.10)
+        self.assertAlmostEqual(center_offset, 0.194)
+        self.assertAlmostEqual(bearing, 10.0, delta=0.05)
+
+    def test_main_loops_over_toy_groups_until_exit(self):
+        scene_a = {"capture_id": "scene_a", "directory": "/tmp/scene_a",
+                   "common_meta": {"image_topics": {"left": "/l",
+                                                    "right": "/r"}}}
+        scene_b = {"capture_id": "scene_b", "directory": "/tmp/scene_b",
+                   "common_meta": {"image_topics": {"left": "/l",
+                                                    "right": "/r"}}}
+        with patch("sys.stdin.isatty", return_value=True), \
+                patch.object(vision_capture.vision_config, "load_config",
+                             return_value={}), \
+                patch.object(vision_capture.vision_config, "get",
+                             return_value="/stereo/topic"), \
+                patch.object(vision_capture.rclpy, "init"), \
+                patch.object(vision_capture.rclpy, "try_shutdown"), \
+                patch.object(vision_capture, "StereoCapture"), \
+                patch.object(vision_capture, "_prompt_toy_group",
+                             side_effect=[("white bottle", 2),
+                                          vision_capture.CaptureFinished()]) \
+                as toy_prompt, \
+                patch.object(vision_capture, "_prepare_scene",
+                             side_effect=[scene_a, scene_b]) as prepare, \
+                patch.object(vision_capture, "_capture_scene",
+                             side_effect=[(["a"], 1.0), (["b"], 2.0)]) \
+                as capture, \
+                patch("builtins.print") as printed:
+            code = vision_capture.main([])
+        self.assertEqual(code, 0)
+        self.assertEqual(toy_prompt.call_count, 2)
+        self.assertEqual(prepare.call_count, 2)
+        self.assertEqual(capture.call_count, 2)
+        prepare_kwargs = [call.kwargs for call in prepare.call_args_list]
+        self.assertEqual([item["target"] for item in prepare_kwargs],
+                         ["white bottle", "white bottle"])
+        self.assertTrue(all(item["target_visible"] for item in prepare_kwargs))
+        payload = json.loads(printed.call_args_list[-1].args[0])
+        self.assertEqual(payload["scene_count"], 2)
+        self.assertEqual([item["capture_id"] for item in payload["scenes"]],
+                         ["scene_a", "scene_b"])
 
 
 if __name__ == "__main__":

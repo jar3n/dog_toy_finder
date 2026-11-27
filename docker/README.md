@@ -10,6 +10,13 @@
 root is mounted at `/workspace` in the build containers, so the same tree is
 visible on the host and inside them.
 
+The `ros2` container starts D-Bus/Avahi as root, then runs your command as
+`HOST_UID:HOST_GID` (default `1000:1000`). Set those variables in the shell or
+a local `.env` if your account uses different IDs. Captures, `colcon build`
+output, and test files written to `/workspace` are then owned by you rather
+than root. `microros_builder` still needs root for `rosdep`, but it chowns its
+generated artifacts back to the same IDs when it finishes.
+
 Build the main image once:
 
 ```bash

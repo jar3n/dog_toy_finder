@@ -50,6 +50,22 @@ RUN pip3 install --no-cache-dir \
 # so this image only needs Pillow to convert ROS Image messages to JPEG
 # (installed as python3-pil above).
 
+# The entrypoint starts D-Bus/Avahi as root, then drops to the host user for
+# the requested command so colcon, captures, and test output written to the
+# mounted /workspace are owned by the caller instead of root.
+RUN apt-get update && apt-get install -y --no-install-recommends gosu \
+    && rm -rf /var/lib/apt/lists/*
+ARG CONTAINER_UID=1000
+ARG CONTAINER_GID=1000
+RUN if ! getent group "${CONTAINER_GID}" >/dev/null; then \
+        groupadd -g "${CONTAINER_GID}" dockeruser; \
+    fi \
+    && if ! getent passwd "${CONTAINER_UID}" >/dev/null; then \
+        useradd -u "${CONTAINER_UID}" -g "${CONTAINER_GID}" -m -s /bin/bash dockeruser; \
+    fi \
+    && mkdir -p /home/dockeruser \
+    && chown "${CONTAINER_UID}:${CONTAINER_GID}" /home/dockeruser
+
 # Source ROS 2 automatically in every shell
 RUN echo "source /opt/ros/humble/setup.bash" >> /etc/bash.bashrc
 ENV PYTHONPATH="/opt/ros/humble/lib/python3.10/dist-packages:/opt/ros/humble/local/lib/python3.10/dist-packages:${PYTHONPATH}"

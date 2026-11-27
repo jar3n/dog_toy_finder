@@ -1,22 +1,32 @@
 """Capture fresh rectified stereo shots with operator-entered ground truth.
 
 Capturing and evaluating are deliberately separate: this node waits for new
-left/right rectified-color pairs from the running stereo pipeline and writes
-them to disk. No detector runs at capture time, so the robot can be placed
-and the target measured without loading a vision model.
+left/right rectified-color pairs from a capture-only stereo publisher and writes
+them to disk. It is an offline data-collection tool, not part of the live robot
+vision processing stack. No detector or depth model runs at capture time, so the
+robot can be placed and the target measured without loading a vision model.
 
 Usage inside the ROS 2 container::
 
     ros2 run dog_toy_finder_vision vision_capture \
         --target "red ball" --depth-m 1.15 --center-offset-m 0.24 --run-id run1
 
-One invocation captures one scene with ``--shots`` fresh pairs (default 3)::
+An interactive invocation captures a whole run grouped by toy. It prompts for
+a toy and how many scenes contain that toy, then asks for the distance and
+signed centre offset of each scene. Each scene gets ``--shots`` fresh pairs
+(default 3)::
 
     <output_dir>/<run_id>/<capture_id>/
         scene.json
         shot_01/left.jpg  shot_01/right.jpg  shot_01/meta.json
         shot_02/left.jpg  shot_02/right.jpg  shot_02/meta.json
         shot_03/left.jpg  shot_03/right.jpg  shot_03/meta.json
+
+After that toy's scenes are saved, the session prompts for another toy. Type
+``q``, ``quit``, ``done``, or ``exit`` at the toy, scene-count, measurement, or
+capture-ID prompt to finish the session. Scripted invocations that pass
+``--depth-m`` plus ``--center-offset-m`` (or ``--bearing-deg``) still capture
+one scene and exit.
 
 ``--shots 1`` keeps the legacy flat layout with ``left.jpg``, ``right.jpg``,
 and ``meta.json`` directly in the scene directory. ``vision_eval`` discovers
@@ -25,15 +35,18 @@ either layout and writes one row per model per shot.
 ``output_dir`` defaults to ``$VISION_CAPTURE_DIR`` when set, otherwise the
 repository's ``data/vision/captures`` directory. ``--pilot`` selects the sibling
 ``data/vision/pilot_captures`` directory instead; an explicit ``--output-dir``
-still wins. In a TTY the operator enters
-the signed offset from the optical-axis centre in the optical plane (positive =
-robot-left) and the distance along the normal to that plane; the lateral bearing
-is computed as ``atan(offset / depth)``. These are operator measurements, not
-estimates from a detector under test, and are shared by every shot of the
-scene. A suggested ``capture_id`` is then built from the toy name and those
+still wins. In a TTY the operator enters, for every scene, the distance along
+the normal to the optical plane and the signed offset from the optical-axis
+centre (positive = robot-left); the lateral bearing is computed as
+``atan(offset / depth)``. These are operator measurements, not estimates from a
+detector under test, and are shared by every shot of the scene. The operator
+is then asked to add brief notes on the scene (``--notes`` supplies the
+default). A suggested ``capture_id`` is built from the toy name and those
 measured distances; pressing Enter accepts it, and the operator may type a
-different ID. Non-interactive callers get the same generated ID, and scripts
-may pass ``--bearing-deg`` directly instead of the offset.
+different ID. The operator must then press Enter at ``Press Enter to capture
+stereo pair`` before any shots are saved. Non-interactive callers get the same
+generated ID, and scripts may pass ``--bearing-deg`` directly instead of the
+offset.
 """
 
 import argparse
@@ -54,6 +67,18 @@ from rclpy.qos import qos_profile_sensor_data
 from sensor_msgs.msg import Image
 
 from . import vision_config
+
+
+EXIT_COMMANDS = ("q", "quit", "done", "exit")
+
+
+class CaptureFinished(Exception):
+    """Raised when the operator asks to end an interactive capture session."""
+
+
+def _is_exit_command(value):
+    """Return True when ``value`` asks to finish the capture session."""
+    return str(value).strip().lower() in EXIT_COMMANDS
 
 
 def image_to_jpeg(msg):
@@ -166,20 +191,76 @@ def _wait_for_pair(node, timeout, after=None):
 
 
 def _prompt_float(label, default=None):
+    """Ask for a measurement, accepting ``default`` on an empty line."""
     suffix = " [%.2f]" % default if default is not None else ""
+    while True:
+        raw = input("%s%s: " % (label, suffix)).strip()
+        if _is_exit_command(raw):
+            raise CaptureFinished()
+        if not raw and default is not None:
+            return float(default)
+        try:
+            return float(raw)
+        except ValueError:
+            print("%s must be a number (or q to finish)" % label)
+
+
+def _prompt_text(label, default=None):
+    """Ask for text, accepting ``default`` on an empty line."""
+    suffix = " [%s]" % default if default else ""
     raw = input("%s%s: " % (label, suffix)).strip()
-    if not raw and default is not None:
-        return float(default)
-    return float(raw)
+    if _is_exit_command(raw):
+        raise CaptureFinished()
+    return raw or default or ""
 
 
 def _prompt_required_text(label):
     """Ask for a non-empty line of text, reprompting on blank input."""
     while True:
-        value = input("%s: " % label).strip()
+        value = _prompt_text(label)
         if value:
             return value
         print("%s must not be empty" % label)
+
+
+def _prompt_int(label, default=None):
+    """Ask for a positive integer, accepting ``default`` on an empty line."""
+    suffix = " [%d]" % default if default is not None else ""
+    while True:
+        raw = input("%s%s: " % (label, suffix)).strip()
+        if _is_exit_command(raw):
+            raise CaptureFinished()
+        if not raw and default is not None:
+            return int(default)
+        try:
+            value = int(raw)
+        except ValueError:
+            print("%s must be a whole number (or q to finish)" % label)
+            continue
+        if value < 1:
+            print("%s must be at least 1 (or q to finish)" % label)
+            continue
+        return value
+
+
+def _prompt_toy_group(args):
+    """Prompt for a toy and how many visible scenes to capture with it."""
+    print("Describe a toy and how many scenes to capture with it (q to finish):")
+    toy = _prompt_text("toy", default=args.target)
+    count = _prompt_int("scenes with this toy", default=1)
+    return toy, count
+
+
+def _prompt_notes(default=None):
+    """Ask for brief scene notes, accepting ``default`` on an empty line."""
+    return _prompt_text("Add in brief notes on the scene", default)
+
+
+def _prompt_capture_ready():
+    """Wait for the operator to confirm the scene is ready to capture."""
+    raw = input("Press Enter to capture stereo pair (q to finish): ").strip()
+    if _is_exit_command(raw):
+        raise CaptureFinished()
 
 
 def _id_slug(value):
@@ -210,36 +291,44 @@ def capture_id_from_ground_truth(target, depth, center_offset,
 
 
 def capture_id_for_run(interactive=None, default=None):
-    """Prompt for a capture ID, accepting ``default`` on an empty line."""
+    """Prompt for a capture ID, accepting ``default`` on an empty line.
+
+    An exit command finishes the interactive session instead of saving a scene.
+    """
     if interactive is None:
         interactive = sys.stdin.isatty()
     if not interactive:
         return default or datetime.now().strftime("%Y%m%d_%H%M%S_%f")[:-3]
     if default:
-        value = input("capture_id [%s]: " % default).strip()
-        return value or default
+        return _prompt_text("capture_id", default)
     return _prompt_required_text("capture_id")
 
 
 def _build_parser():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--target", default="red ball",
-                        help="operator's description of the toy to measure")
+                        help="default toy for the first interactive group, or "
+                             "the toy for a scripted scene")
     parser.add_argument("--depth-m", type=float, default=None,
                         help="distance along the optical axis (normal to the "
-                             "optical plane) in metres; stored as distance_m")
+                             "optical plane) in metres; an interactive prompt "
+                             "offers this as the default")
     parser.add_argument("--center-offset-m", type=float, default=None,
                         help="signed distance from the optical-axis centre in "
-                             "the optical plane (metres, +left); lateral "
-                             "bearing is computed from this and --depth-m")
+                             "the optical plane (metres, +left); an interactive "
+                             "prompt offers this as the default")
     parser.add_argument("--bearing-deg", type=float, default=None,
                         help="explicit lateral bearing in degrees, +left; "
                              "mutually exclusive with --center-offset-m")
     parser.add_argument("--not-visible", action="store_true",
-                        help="capture a frame where the target is absent")
+                        help="capture an absent target in a scripted run; "
+                             "interactive toy groups assume the toy is visible")
     parser.add_argument("--obstacle", default="none",
-                        help="optional operator obstacle label in the centre")
-    parser.add_argument("--notes", default="", help="free-form operator notes")
+                        help="operator obstacle label applied to every scene")
+    parser.add_argument("--notes", default="",
+                        help="default brief scene notes offered by the "
+                             "interactive prompt; used directly in scripted "
+                             "runs")
     parser.add_argument("--shots", type=int, default=3,
                         help="fresh stereo pairs to capture for this scene "
                              "(default: 3; 1 keeps the legacy flat layout)")
@@ -264,68 +353,67 @@ def _build_parser():
     return parser
 
 
-def main(argv=None):
-    """Capture one labelled scene with one or more fresh stereo shots."""
-    args = _build_parser().parse_args(argv)
-    if args.shots < 1:
-        raise SystemExit("--shots must be at least 1")
-    config = vision_config.load_config(args.config)
-    output_dir = os.path.abspath(os.path.expanduser(
-        args.output_dir or vision_config.default_capture_dir(pilot=args.pilot)))
+def _scene_ground_truth(args, interactive, target=None, target_visible=None):
+    """Return target, visibility, depth, bearing, and signed centre offset."""
+    if args.center_offset_m is not None and args.bearing_deg is not None:
+        raise SystemExit("use --center-offset-m or --bearing-deg, not both")
 
-    interactive = sys.stdin.isatty()
-    if interactive and not args.not_visible:
-        print("Enter ground truth measured for this scene:")
+    if target is None:
+        target = args.target
+    if target_visible is None:
+        target_visible = not args.not_visible
 
-    if args.not_visible:
-        target_visible = False
-        depth = 0.0
-        bearing = 0.0
-        center_offset = None
-    else:
-        target_visible = True
-        depth = args.depth_m
-        center_offset = args.center_offset_m
-        bearing = args.bearing_deg
-        if center_offset is not None and bearing is not None:
-            raise SystemExit(
-                "use --center-offset-m or --bearing-deg, not both")
-        if depth is None or (center_offset is None and bearing is None):
-            if not interactive:
-                raise SystemExit(
-                    "--depth-m and either --center-offset-m or --bearing-deg "
-                    "are required for a visible target when not running "
-                    "interactively")
-            if center_offset is None and bearing is None:
-                center_offset = _prompt_float(
-                    "center_offset_m along optical plane (+left)")
-            if depth is None:
-                depth = _prompt_float(
-                    "distance_m along optical axis (normal)")
-        if depth is None or depth < 0.0:
-            raise SystemExit("--depth-m must be non-negative")
-        if center_offset is not None:
-            bearing = vision_config.bearing_deg_from_center_offset(
-                center_offset, depth)
-        else:
-            bearing = float(bearing)
-        if abs(bearing) > 90.0:
-            raise SystemExit("--bearing-deg must be within +/-90")
-        if center_offset is None:
-            center_offset = depth * math.tan(math.radians(bearing))
+    if not target_visible:
+        return target, False, 0.0, 0.0, None
 
-    default_capture_id = capture_id_from_ground_truth(
-        args.target, depth, center_offset, target_visible)
+    depth = args.depth_m
+    center_offset = args.center_offset_m
+    bearing = args.bearing_deg
     if interactive:
-        print("Enter capture details for this scene:")
+        print("Enter ground truth measured for this scene (q to finish):")
+        depth = _prompt_float("distance_m along optical axis (normal)",
+                              depth)
+        if center_offset is None and bearing is not None:
+            center_offset = depth * math.tan(math.radians(bearing))
+        center_offset = _prompt_float(
+            "center_offset_m along optical plane (+left)", center_offset)
+        bearing = None
+    elif depth is None or (center_offset is None and bearing is None):
+        raise SystemExit(
+            "--depth-m and either --center-offset-m or --bearing-deg "
+            "are required for a visible target when not running "
+            "interactively")
+
+    if depth is None or depth < 0.0:
+        raise SystemExit("--depth-m must be non-negative")
+    if center_offset is not None:
+        bearing = vision_config.bearing_deg_from_center_offset(
+            center_offset, depth)
+    else:
+        bearing = float(bearing)
+    if abs(bearing) > 90.0:
+        raise SystemExit("--bearing-deg must be within +/-90")
+    if center_offset is None:
+        center_offset = depth * math.tan(math.radians(bearing))
+    return target, True, depth, bearing, center_offset
+
+
+def _prepare_scene(args, config, output_dir, run_id, left_topic, right_topic,
+                   interactive, target=None, target_visible=None):
+    """Prompt for ground truth and initialise one scene in the capture run."""
+    target, target_visible, depth, bearing, center_offset = \
+        _scene_ground_truth(args, interactive, target=target,
+                            target_visible=target_visible)
+    notes = args.notes
+    if interactive:
+        notes = _prompt_notes(notes)
+    default_capture_id = capture_id_from_ground_truth(
+        target, depth, center_offset, target_visible)
     capture_id = re.sub(r"[^A-Za-z0-9_.-]+", "_",
                         capture_id_for_run(interactive, default_capture_id))
+    if interactive:
+        _prompt_capture_ready()
 
-    left_topic = args.left_topic or vision_config.get(
-        config, "camera", "left_rectified_topic")
-    right_topic = args.right_topic or vision_config.get(
-        config, "camera", "right_rectified_topic")
-    run_id = re.sub(r"[^A-Za-z0-9_.-]+", "_", args.run_id)
     directory = os.path.join(output_dir, run_id, capture_id)
     os.makedirs(directory, exist_ok=True)
     _clear_previous_shots(directory)
@@ -335,7 +423,7 @@ def main(argv=None):
         "lateral_bearing_deg": round(float(bearing), 2),
         "distance_m": round(float(depth), 3),
         "obstacle_ahead": args.obstacle or "none",
-        "notes": args.notes,
+        "notes": notes,
     }
     if target_visible and center_offset is not None:
         ground_truth["center_offset_m"] = round(float(center_offset), 3)
@@ -345,7 +433,7 @@ def main(argv=None):
         "scene_id": capture_id,
         "run_id": run_id,
         "created_at": datetime.now().isoformat(timespec="seconds"),
-        "target": args.target,
+        "target": target,
         "ground_truth": ground_truth,
         "image_source": "rectified_color",
         "image_topics": {"left": left_topic, "right": right_topic},
@@ -364,46 +452,118 @@ def main(argv=None):
         scene_meta = dict(common_meta, shot_count=args.shots)
         with open(os.path.join(directory, "scene.json"), "w") as handle:
             json.dump(scene_meta, handle, indent=2)
+    return {"capture_id": capture_id, "directory": directory,
+            "common_meta": common_meta}
+
+
+def _capture_scene(node, args, scene, after=None):
+    """Save every shot of one scene; return its answers and latest receipt."""
+    directory = scene["directory"]
+    common_meta = scene["common_meta"]
+    left_topic = common_meta["image_topics"]["left"]
+    right_topic = common_meta["image_topics"]["right"]
+    saved = []
+    for index in range(1, args.shots + 1):
+        pair = _wait_for_pair(node, args.timeout, after=after)
+        if pair is None:
+            raise RuntimeError(
+                "No fresh matched rectified pair for shot %d/%d of %s on %s / "
+                "%s within %.1f s; is stereo_vision.launch.py running?"
+                % (index, args.shots, scene["capture_id"], left_topic,
+                   right_topic, args.timeout))
+        left, right, stamps, received_at = pair
+        shot_meta = dict(common_meta, shot_index=index)
+        shot_meta["stamps_s"] = {
+            "left": stamps[0], "right": stamps[1]}
+        if args.shots > 1:
+            shot_dir = os.path.join(directory, shot_dir_name(index))
+        else:
+            shot_dir = directory
+        write_capture(shot_dir, left, right, shot_meta)
+        saved.append({"shot_dir": shot_dir, "meta": shot_meta})
+        after = received_at
+        print("vision_capture: saved shot %d/%d of %s to %s"
+              % (index, args.shots, scene["capture_id"], shot_dir),
+              file=sys.stderr)
+    return saved, after
+
+
+def main(argv=None):
+    """Capture one labelled scene, or an interactive run of several scenes."""
+    args = _build_parser().parse_args(argv)
+    if args.shots < 1:
+        raise SystemExit("--shots must be at least 1")
+    config = vision_config.load_config(args.config)
+    output_dir = os.path.abspath(os.path.expanduser(
+        args.output_dir or vision_config.default_capture_dir(pilot=args.pilot)))
+    left_topic = args.left_topic or vision_config.get(
+        config, "camera", "left_rectified_topic")
+    right_topic = args.right_topic or vision_config.get(
+        config, "camera", "right_rectified_topic")
+    run_id = re.sub(r"[^A-Za-z0-9_.-]+", "_", args.run_id)
+    run_dir = os.path.join(output_dir, run_id)
+    interactive = sys.stdin.isatty()
 
     rclpy.init()
     node = StereoCapture(left_topic, right_topic, args.pair_tolerance)
-    saved = []
+    scenes = []
+    after = None
     try:
-        after = None
-        for index in range(1, args.shots + 1):
-            pair = _wait_for_pair(node, args.timeout, after=after)
-            if pair is None:
-                raise RuntimeError(
-                    "No fresh matched rectified pair for shot %d/%d on %s / %s "
-                    "within %.1f s; is stereo_vision.launch.py running?"
-                    % (index, args.shots, left_topic, right_topic,
-                       args.timeout))
-            left, right, stamps, received_at = pair
-            shot_meta = dict(common_meta, shot_index=index)
-            shot_meta["stamps_s"] = {
-                "left": stamps[0], "right": stamps[1]}
-            if args.shots > 1:
-                shot_dir = os.path.join(directory, shot_dir_name(index))
-            else:
-                shot_dir = directory
-            write_capture(shot_dir, left, right, shot_meta)
-            saved.append({"shot_dir": shot_dir, "meta": shot_meta})
-            after = received_at
-            print("vision_capture: saved shot %d/%d to %s"
-                  % (index, args.shots, shot_dir), file=sys.stderr)
+        while True:
+            try:
+                if interactive:
+                    toy, count = _prompt_toy_group(args)
+                    for scene_index in range(1, count + 1):
+                        print("Scene %d/%d for %s" % (scene_index, count, toy))
+                        scene = _prepare_scene(
+                            args, config, output_dir, run_id, left_topic,
+                            right_topic, interactive, target=toy,
+                            target_visible=True)
+                        saved, after = _capture_scene(
+                            node, args, scene, after=after)
+                        scenes.append({
+                            "capture_dir": scene["directory"],
+                            "capture_id": scene["capture_id"],
+                            "shots": len(saved),
+                            "meta": scene["common_meta"],
+                            "captures": saved,
+                        })
+                else:
+                    scene = _prepare_scene(args, config, output_dir, run_id,
+                                           left_topic, right_topic, interactive)
+                    saved, after = _capture_scene(
+                        node, args, scene, after=after)
+                    scenes.append({
+                        "capture_dir": scene["directory"],
+                        "capture_id": scene["capture_id"],
+                        "shots": len(saved),
+                        "meta": scene["common_meta"],
+                        "captures": saved,
+                    })
+                    break
+            except CaptureFinished:
+                break
+
+        payload = {
+            "run_dir": run_dir,
+            "scene_count": len(scenes),
+            "scenes": scenes,
+        }
+        if len(scenes) == 1:
+            payload.update({
+                "capture_dir": scenes[0]["capture_dir"],
+                "shots": scenes[0]["shots"],
+                "meta": scenes[0]["meta"],
+                "captures": scenes[0]["captures"],
+            })
+        print(json.dumps(payload, indent=2))
+        return 0
     except Exception as error:
         print("vision_capture failed: %s" % error, file=sys.stderr)
         return 1
     finally:
         node.destroy_node()
         rclpy.try_shutdown()
-    print(json.dumps({
-        "capture_dir": directory,
-        "shots": len(saved),
-        "meta": common_meta,
-        "captures": saved,
-    }, indent=2))
-    return 0
 
 
 if __name__ == "__main__":
