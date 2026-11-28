@@ -21,6 +21,7 @@ sys.path.insert(0, SRC_ROOT)
 from dog_toy_finder_vision import depth_client  # noqa: E402
 from dog_toy_finder_vision import vision_config  # noqa: E402
 from dog_toy_finder_vision import vision_eval  # noqa: E402
+from dog_toy_finder_vision import vision_overlay  # noqa: E402
 from dog_toy_finder_vision import vision_pipelines  # noqa: E402
 from dog_toy_finder_vision import yolo_client  # noqa: E402
 try:  # installed ROS workspace vs. plain source checkout
@@ -99,6 +100,13 @@ class OfflineEvalTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.config = vision_config.load_config()
+        # Most tests exercise one model per pipeline; the full matrix gets its
+        # own tests that restore the real backend lists.
+        for name, value in (("DETECTOR_BACKENDS", ("yolo_world",)),
+                            ("DEPTH_BACKENDS", ("lite_any_stereo",))):
+            backend_patch = mock.patch.object(vision_config, name, value)
+            backend_patch.start()
+            self.addCleanup(backend_patch.stop)
         # Offline replay mechanics are tested with coincident rectified
         # principal points. The principal-point disparity correction itself is
         # covered in test_vision_config, test_open_vocab_stereo, and
@@ -645,6 +653,103 @@ class OfflineEvalTests(unittest.TestCase):
         self.assertEqual(rows[0]["method"], "triangulation")
         self.assertIn("method", fields)
         self.assertTrue(os.path.isfile(results_path))
+
+    def test_main_writes_detection_overlays_for_each_pipeline(self):
+        self._write_synthetic_pair()
+        with mock.patch.object(yolo_client, "detect", _fake_detect_both), \
+             mock.patch.object(yolo_client, "detect_one", _fake_detect_one), \
+             mock.patch.object(depth_client, "sample", _fake_sample_depth), \
+             contextlib.redirect_stdout(io.StringIO()):
+            code = vision_eval.main([
+                "--config", self.config_path, "--captures-dir", self.root,
+                "--seed", "42"])
+        self.assertEqual(code, 0)
+        overlays_dir = os.path.join(
+            self.temp.name, "vision_eval_overlays")
+        triangulation_left = os.path.join(
+            overlays_dir, "triangulation", "run1", "cap1", "primary_left.jpg")
+        triangulation_right = os.path.join(
+            overlays_dir, "triangulation", "run1", "cap1", "primary_right.jpg")
+        stereo_left = os.path.join(
+            overlays_dir, "stereo-net", "run1", "cap1", "primary_left.jpg")
+        stereo_right = os.path.join(
+            overlays_dir, "stereo-net", "run1", "cap1", "primary_right.jpg")
+        for path in (triangulation_left, triangulation_right, stereo_left):
+            self.assertTrue(os.path.isfile(path), path)
+            with Image.open(path) as image:
+                self.assertEqual(image.size, (320, 240))
+                pixels = image.convert("RGB").load()
+                self.assertTrue(
+                    any(red < 100 and green > 180 and blue < 100
+                        for y in range(240) for x in range(320)
+                        for red, green, blue in [pixels[x, y]]),
+                    "expected a green model box in %s" % path)
+        self.assertFalse(os.path.exists(stereo_right))
+
+        with open(os.path.join(
+                self.temp.name, "vision_eval_triangulation_summary.json")) \
+                as handle:
+            triangulation_summary = json.load(handle)
+        self.assertEqual(triangulation_summary["overlay_count"], 2)
+        self.assertEqual(triangulation_summary["overlays_dir"], overlays_dir)
+        self.assertEqual(
+            len(triangulation_summary["overlay_images"]), 2)
+        with open(os.path.join(
+                self.temp.name, "vision_eval_stereo-net_summary.json")) \
+                as handle:
+            stereo_summary = json.load(handle)
+        self.assertEqual(stereo_summary["overlay_count"], 1)
+
+        with open(os.path.join(
+                self.temp.name, "vision_eval_all_summary.json")) as handle:
+            combined = json.load(handle)
+        self.assertEqual(combined["overlay_count"], 3)
+        self.assertEqual(combined["overlays_dir"], overlays_dir)
+
+    def test_main_no_overlays_skips_annotated_images(self):
+        self._write_synthetic_pair()
+        with mock.patch.object(yolo_client, "detect", _fake_detect_both), \
+             mock.patch.object(yolo_client, "detect_one", _fake_detect_one), \
+             mock.patch.object(depth_client, "sample", _fake_sample_depth), \
+             contextlib.redirect_stdout(io.StringIO()):
+            code = vision_eval.main([
+                "--config", self.config_path, "--captures-dir", self.root,
+                "--seed", "42", "--no-overlays"])
+        self.assertEqual(code, 0)
+        self.assertFalse(os.path.exists(os.path.join(
+            self.temp.name, "vision_eval_overlays")))
+        with open(os.path.join(
+                self.temp.name, "vision_eval_triangulation_summary.json")) \
+                as handle:
+            summary = json.load(handle)
+        self.assertIsNone(summary["overlays_dir"])
+        self.assertEqual(summary["overlay_count"], 0)
+
+    def test_main_removes_overlay_artifacts_when_sigint_arrives(self):
+        self._write_synthetic_pair()
+        written = []
+        original = vision_overlay.write_object_overlays
+
+        def interrupted_after_overlay(*args, **kwargs):
+            made = original(*args, **kwargs)
+            written.extend(made.values())
+            raise vision_eval._SigintInterrupted()
+
+        with mock.patch.object(yolo_client, "detect", _fake_detect_both), \
+             mock.patch.object(yolo_client, "detect_one", _fake_detect_one), \
+             mock.patch.object(depth_client, "sample", _fake_sample_depth), \
+             mock.patch.object(vision_overlay, "write_object_overlays",
+                               side_effect=interrupted_after_overlay), \
+             contextlib.redirect_stdout(io.StringIO()), \
+             contextlib.redirect_stderr(io.StringIO()) as errors:
+            code = vision_eval.main([
+                "--config", self.config_path, "--captures-dir", self.root,
+                "--pipeline", "triangulation", "--seed", "42"])
+        self.assertEqual(code, 130)
+        self.assertEqual(len(written), 2)
+        for path in written:
+            self.assertFalse(os.path.exists(path), path)
+        self.assertIn("SIGINT received", errors.getvalue())
 
     def test_main_records_seed_and_shuffled_capture_order(self):
         self._write_synthetic_pair()
@@ -1218,7 +1323,7 @@ class OfflineEvalTests(unittest.TestCase):
         summary_path = os.path.join(self.temp.name, "interrupted.json")
         written = []
 
-        def interrupted(shots, root, config, args, pipeline, outputs):
+        def interrupted(shots, root, config, args, pipeline, outputs, run_key=None):
             written.extend(outputs)
             for path in outputs:
                 with open(path, "w") as handle:
@@ -1254,7 +1359,7 @@ class OfflineEvalTests(unittest.TestCase):
                 handle.write("original result")
             originals[path] = "original result"
 
-        def interrupted(shots, root, config, args, pipeline, outputs):
+        def interrupted(shots, root, config, args, pipeline, outputs, run_key=None):
             for path in outputs:
                 with open(path, "w") as handle:
                     handle.write("partial result")
@@ -1302,7 +1407,7 @@ class OfflineEvalTests(unittest.TestCase):
         ]
         self.unload_mock.side_effect = RuntimeError("detector unload failed")
 
-        def interrupted(shots, root, config, args, pipeline, outputs):
+        def interrupted(shots, root, config, args, pipeline, outputs, run_key=None):
             for path in outputs:
                 with open(path, "w") as handle:
                     handle.write("partial")
@@ -1321,6 +1426,187 @@ class OfflineEvalTests(unittest.TestCase):
             self.assertFalse(os.path.exists(path), path)
         self.assertIn("Failed to unload host model(s)", errors.getvalue())
         self.assertIn("SIGINT received", errors.getvalue())
+
+    def _use_full_backend_lists(self):
+        detectors = ("yolo_world", "yoloe_26", "grounding_dino")
+        depths = ("lite_any_stereo", "fast_foundation_stereo", "rt_igevpp")
+        for name, value in (("DETECTOR_BACKENDS", detectors),
+                            ("DEPTH_BACKENDS", depths)):
+            patch = mock.patch.object(vision_config, name, value)
+            patch.start()
+            self.addCleanup(patch.stop)
+        return detectors, depths
+
+    def test_main_runs_full_model_matrix_by_default(self):
+        self._write_synthetic_pair()
+        detectors, depths = self._use_full_backend_lists()
+        events = []
+
+        def configure(pipeline, config):
+            events.append((
+                "configure", pipeline,
+                vision_config.detector_backend(config),
+                vision_config.depth_backend(config)
+                if pipeline == "stereo-net" else None))
+
+        def unload(pipeline, config):
+            events.append((
+                "unload", pipeline,
+                vision_config.detector_backend(config),
+                vision_config.depth_backend(config)
+                if pipeline == "stereo-net" else None))
+            return {"detector": {"ok": True, "unloaded": True}}
+
+        self.configure_mock.side_effect = configure
+        self.unload_mock.side_effect = unload
+        with mock.patch.object(yolo_client, "detect", _fake_detect_both), \
+             mock.patch.object(yolo_client, "detect_one", _fake_detect_one), \
+             mock.patch.object(depth_client, "sample", _fake_sample_depth), \
+             contextlib.redirect_stdout(io.StringIO()):
+            code = vision_eval.main([
+                "--config", self.config_path, "--captures-dir", self.root,
+                "--seed", "42"])
+        self.assertEqual(code, 0)
+
+        expected = []
+        for detector in detectors:
+            expected.append(("configure", "triangulation", detector, None))
+            expected.append(("unload", "triangulation", detector, None))
+        for detector in detectors:
+            for depth in depths:
+                expected.append(("configure", "stereo-net", detector, depth))
+                expected.append(("unload", "stereo-net", detector, depth))
+        self.assertEqual(events, expected)
+
+        combined_path = os.path.join(
+            self.temp.name, "vision_eval_all_summary.json")
+        with open(combined_path) as handle:
+            combined = json.load(handle)
+        self.assertEqual(len(combined["run_keys"]), 12)
+        self.assertEqual(combined["pipelines"],
+                         ["triangulation", "stereo-net"])
+        self.assertEqual(set(combined["unloads"]),
+                         set(combined["run_keys"]))
+        self.assertEqual(combined["failed_runs"], [])
+        rows, _ = llm_trials.read_csv(combined["trial_csv"])
+        self.assertEqual(len(rows), 12)
+        methods = [row["method"] for row in rows]
+        self.assertEqual(methods.count("triangulation"), 3)
+        self.assertEqual(methods.count("stereo-net"), 9)
+        for run_key in combined["run_keys"]:
+            summary_path = os.path.join(
+                self.temp.name, "vision_eval_%s_summary.json" % run_key)
+            with open(summary_path) as handle:
+                self.assertEqual(json.load(handle)["run_key"], run_key)
+
+    def test_main_matrix_filters_select_one_configuration(self):
+        self._write_synthetic_pair()
+        self._use_full_backend_lists()
+        events = []
+
+        def configure(pipeline, config):
+            events.append((pipeline, vision_config.detector_backend(config),
+                           vision_config.depth_backend(config)))
+
+        self.configure_mock.side_effect = configure
+        summary_path = os.path.join(self.temp.name, "filtered_summary.json")
+        with mock.patch.object(yolo_client, "detect", _fake_detect_both), \
+             mock.patch.object(yolo_client, "detect_one", _fake_detect_one), \
+             mock.patch.object(depth_client, "sample", _fake_sample_depth), \
+             contextlib.redirect_stdout(io.StringIO()):
+            code = vision_eval.main([
+                "--config", self.config_path, "--captures-dir", self.root,
+                "--seed", "42", "--pipeline", "stereo-net",
+                "--detector", "yoloe-26s-seg", "--depth-model", "rt_igevpp",
+                "--summary-json", summary_path])
+        self.assertEqual(code, 0)
+        self.assertEqual(events, [("stereo-net", "yoloe_26", "rt_igevpp")])
+        with open(summary_path) as handle:
+            summary = json.load(handle)
+        self.assertEqual(summary["detector_backend"], "yoloe_26")
+        self.assertEqual(summary["depth_backend"], "rt_igevpp")
+        self.assertFalse(os.path.exists(os.path.join(
+            self.temp.name, "filtered_summary_stereo-net__yoloe_26__rt_igevpp.json")))
+
+    def test_main_rejects_unknown_model_filter(self):
+        self._write_synthetic_pair()
+        with contextlib.redirect_stdout(io.StringIO()), \
+             contextlib.redirect_stderr(io.StringIO()):
+            with self.assertRaisesRegex(ValueError, "Unknown detector"):
+                vision_eval.main([
+                    "--config", self.config_path, "--captures-dir", self.root,
+                    "--detector", "not-a-detector"])
+
+    def test_main_continues_matrix_after_one_configuration_produces_no_rows(self):
+        self._write_synthetic_pair()
+        self._use_full_backend_lists()
+        attempted = []
+
+        def detect_both(left_jpeg, right_jpeg, classes, config):
+            backend = vision_config.detector_backend(config)
+            attempted.append(backend)
+            if backend == "yoloe_26":
+                raise RuntimeError("detector inference failed")
+            return _fake_detect_both(left_jpeg, right_jpeg, classes, config)
+
+        with mock.patch.object(yolo_client, "detect", detect_both), \
+             contextlib.redirect_stdout(io.StringIO()), \
+             contextlib.redirect_stderr(io.StringIO()):
+            code = vision_eval.main([
+                "--config", self.config_path, "--captures-dir", self.root,
+                "--seed", "42", "--pipeline", "triangulation"])
+        self.assertEqual(code, 1)
+        self.assertEqual(attempted, list(vision_config.DETECTOR_BACKENDS))
+        self.assertEqual(self.unload_mock.call_count, 3)
+
+        combined_path = os.path.join(
+            self.temp.name, "vision_eval_all_summary.json")
+        with open(combined_path) as handle:
+            combined = json.load(handle)
+        self.assertEqual(combined["failed_runs"],
+                         ["triangulation__yoloe_26"])
+        self.assertEqual(combined["failed_pipelines"], [])
+        self.assertEqual(len(combined["run_keys"]), 3)
+        self.assertEqual(len(combined["runs"]), 2)
+        rows, _ = llm_trials.read_csv(combined["trial_csv"])
+        self.assertEqual(len(rows), 2)
+
+    def test_main_cleans_every_config_artifact_when_sigint_arrives(self):
+        self._write_synthetic_pair()
+        written = []
+        keys = []
+
+        def interrupted(shots, root, config, args, pipeline, outputs,
+                        run_key=None):
+            keys.append(run_key)
+            written.extend(outputs)
+            for path in outputs:
+                with open(path, "w") as handle:
+                    handle.write("partial")
+            if run_key.endswith("grounding_dino"):
+                raise vision_eval._SigintInterrupted()
+            return None
+
+        with mock.patch.object(vision_eval, "_evaluate_pipeline",
+                               side_effect=interrupted), \
+             contextlib.redirect_stdout(io.StringIO()), \
+             contextlib.redirect_stderr(io.StringIO()) as errors:
+            code = vision_eval.main([
+                "--config", self.config_path, "--captures-dir", self.root,
+                "--pipeline", "triangulation", "--detector", "yolo_world",
+                "--detector", "grounding_dino",
+                "--output-csv", os.path.join(self.temp.name, "multi.csv"),
+                "--results-json", os.path.join(self.temp.name, "multi.jsonl"),
+                "--summary-json", os.path.join(self.temp.name, "multi.json")])
+        self.assertEqual(code, 130)
+        self.assertEqual(keys, ["triangulation__yolo_world",
+                                "triangulation__grounding_dino"])
+        self.assertEqual(len(written), 6)
+        for path in written:
+            self.assertFalse(os.path.exists(path), path)
+        self.assertIn("SIGINT received; removed 6 new artifact file(s)",
+                      errors.getvalue())
+        self.assertEqual(self.unload_mock.call_count, 2)
 
 
 if __name__ == "__main__":

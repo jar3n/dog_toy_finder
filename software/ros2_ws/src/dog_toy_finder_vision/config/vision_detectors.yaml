@@ -5,7 +5,8 @@
 # Both pipelines take the operator's text target plus the rectified left/right
 # JPEGs and return the object's location. An explicit `pipeline:=` launch arg or
 # VISION_PIPELINE overrides the choice below for the live node. Offline
-# vision_eval runs both pipelines by default; use --pipeline NAME to select one.
+# vision_eval runs the full model matrix by default; use --pipeline NAME and the
+# repeatable --detector/--depth-model flags to select a subset.
 #
 # The per-eye camera values must match the rectified intrinsics passed to
 # stereo_vision.launch.py. Detection and triangulation use the left eye; the
@@ -13,7 +14,7 @@
 # Bearing uses atan((left.cx - u) / left.fx), positive to the left.
 
 # Live vision pipeline used when no explicit selector is given (vision_eval
-# ignores this default and evaluates both pipelines unless --pipeline is passed):
+# ignores this default and sweeps all models unless filters are passed):
 #   triangulation - detect in both eyes, triangulate distance from disparity
 #   stereo-net  - detect in the left eye, read dense-stereo depth
 pipeline: triangulation

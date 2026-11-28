@@ -68,6 +68,10 @@ DEFAULT_ITERS = {
 }
 
 _CACHE = {}
+# Upstream repos both provide a top-level `core` package. Python caches that
+# package name, so switching backends in one long-lived service must also drop
+# modules imported from the previous repo.
+_ACTIVE_REPO = None
 
 
 def model_name(config):
@@ -97,16 +101,67 @@ def _repo_path(name, config=None):
     return Path(configured) if configured else MODELS_DIR / REPO_PATHS[name]
 
 
+def _known_repo_paths():
+    """Return the resolved paths of all configured upstream repo checkouts."""
+    roots = set()
+    for model in MODELS:
+        try:
+            roots.add(str(_repo_path(model).expanduser().resolve()))
+        except OSError:  # pragma: no cover - a broken path is handled on load
+            continue
+    if _ACTIVE_REPO:
+        roots.add(_ACTIVE_REPO)
+    return roots
+
+
+def _drop_repo_modules():
+    """Forget modules imported from upstream repos and their sys.path entries.
+
+    Lite Any Stereo and Fast Foundation Stereo both ship a ``core`` package. If
+    ``core`` is left in ``sys.modules`` after unload, unpickling a Fast
+    Foundation checkpoint fails with ``No module named
+    'core.foundation_stereo'``. Clearing these entries lets each backend import
+    its own modules when it is next configured.
+    """
+    roots = _known_repo_paths()
+    if not roots:
+        return
+    roots = [Path(root) for root in roots]
+    for name, module in list(sys.modules.items()):
+        filename = getattr(module, "__file__", None)
+        if not filename:
+            continue
+        try:
+            resolved = Path(filename).resolve()
+        except OSError:
+            continue
+        if any(root in resolved.parents or resolved == root
+               for root in roots):
+            sys.modules.pop(name, None)
+    for entry in list(sys.path):
+        try:
+            resolved = Path(entry).resolve()
+        except OSError:
+            continue
+        if resolved in roots:
+            sys.path.remove(entry)
+
+
 def _require_repo(name, config=None):
+    global _ACTIVE_REPO
     repo = _repo_path(name, config).expanduser()
     if not repo.is_dir():
         raise FileNotFoundError(
             "Dense stereo source for %s not found at %s. Run "
             "./scripts/start_stereo_service.sh first (or set %s)."
             % (name, repo, REPO_ENV[name]))
+    resolved = str(repo.resolve())
+    if _ACTIVE_REPO and _ACTIVE_REPO != resolved:
+        _drop_repo_modules()
     text = str(repo)
     if text not in sys.path:
         sys.path.insert(0, text)
+    _ACTIVE_REPO = resolved
     return repo
 
 
@@ -236,8 +291,11 @@ def load_model(config, model=None):
 
 
 def clear_cache():
-    """Drop cached depth models so their weights can be released."""
+    """Drop cached depth models and repo modules so weights can be released."""
+    global _ACTIVE_REPO
     _CACHE.clear()
+    _drop_repo_modules()
+    _ACTIVE_REPO = None
 
 
 def _pad_pair(left, right, multiple=32):

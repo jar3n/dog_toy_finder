@@ -138,9 +138,26 @@ class TestVisionConfig(unittest.TestCase):
             vision_config.depth_backend(
                 {"stereo-net": {"name": "fast_foundation_stereo"}}),
             "fast_foundation_stereo")
+        self.assertEqual(
+            vision_config.depth_backend(
+                {"stereo-net": {"name": "sceneflow"}}),
+            "rt_igevpp")
         with self.assertRaisesRegex(ValueError, "Unknown dense stereo model"):
             vision_config.depth_backend(
                 {"stereo-net": {"model": "not-a-model"}})
+
+    def test_with_model_selection_pins_backends_without_mutating_source(self):
+        source = {"open_vocab": {"detector": "yolo_world", "name": "keep"},
+                  "stereo-net": {"model": "lite_any_stereo", "name": "keep"}}
+        selected = vision_config.with_model_selection(
+            source, detector="grounding-dino-tiny", depth="rt_igevpp")
+        self.assertEqual(selected["open_vocab"]["detector"],
+                         "grounding_dino")
+        self.assertEqual(selected["open_vocab"]["name"],
+                         "grounding-dino-tiny")
+        self.assertEqual(selected["stereo-net"]["model"], "rt_igevpp")
+        self.assertEqual(source["open_vocab"]["name"], "keep")
+        self.assertEqual(source["stereo-net"]["model"], "lite_any_stereo")
 
     def test_pilot_capture_dir_is_a_sibling_of_captures(self):
         with mock.patch.dict(os.environ, {}, clear=True):

@@ -22,7 +22,8 @@ computer, never in the ROS container.
 The live pipeline is chosen by the launch arg `pipeline:=triangulation|stereo-net`,
 the `VISION_PIPELINE` environment variable, or the top-level `pipeline` key in
 `vision_detectors.yaml` (in that order of precedence). `vision_eval` defaults to
-both pipelines in one run and has `--pipeline NAME` for a single pipeline.
+the full model matrix in one run and has `--pipeline NAME` plus repeatable
+`--detector` / `--depth-model` flags for a subset.
 
 The node subscribes only to `/stereo/{left,right}/image_rect_color`. Raw images
 still exist for rectification and the point-cloud pipeline, but detector inputs
@@ -30,7 +31,8 @@ are rectified.
 
 Comparison is **capture-first**. `vision_capture` saves several rectified
 left/right shots per scene with operator-measured ground truth, and `vision_eval`
-later replays every saved shot through both pipelines in one command. Each live answer
+later replays every saved shot through the full model matrix in one command.
+Each live answer
 reports `distance_m` along the optical axis, `center_offset_m` as the signed
 lateral distance from the optical-axis center (positive = robot-left / ROS
 `+y`), and `lateral_bearing_deg` in degrees from the optical axis. They satisfy
@@ -358,17 +360,16 @@ ros2 run dog_toy_finder_vision vision_capture \
 ```
 
 After capturing all scenes, replay them offline. One `vision_eval` command runs
-`triangulation` then `stereo-net` on the same captures and the same shuffle seed,
-and writes separate outputs for each. The detector backend in
-`open_vocab.detector` is shared by both pipelines; `stereo-net` also uses
-`stereo-net.model` for depth. Start both services in the background first;
-`vision_eval` sends those selections with `POST /configure` before each pipeline,
-then unloads the host models and caches before the next pipeline loads its own.
-The HTTP processes stay running. Stop them with
-`./scripts/stop_host_vision_services.sh`. No camera topics or ROS graph are
-needed. If you interrupt `vision_eval` with Ctrl+C, it unloads the host models
-and removes any output files created by that run; files that already existed
-are restored.
+the full model matrix on the same captures and the same shuffle seed: all three
+detectors for `triangulation`, then all nine detector/depth pairs for
+`stereo-net`. `vision_eval` selects each combination with `POST /configure`,
+then unloads the host models and caches before the next combination. Start both
+services in the background first with
+`./scripts/start_host_vision_services.sh`; the HTTP processes stay running.
+Stop them with `./scripts/stop_host_vision_services.sh`. No camera topics or ROS
+graph are needed. If you interrupt `vision_eval` with Ctrl+C, it unloads the
+host models and removes any output files or annotated images created by that
+run; files that already existed are restored.
 
 ```bash
 ros2 run dog_toy_finder_vision vision_eval \
@@ -378,14 +379,26 @@ ros2 run dog_toy_finder_vision vision_eval \
     --seed "1234"
 ```
 
-Progress lines show the active pipeline, detector/depth models, and the current
-scene and shot being processed. Defaults are
-`vision_eval_triangulation_{trials.csv,results.jsonl,summary.json}`, the matching
-`vision_eval_stereo-net_*` files, a combined
-`vision_eval_all_trials.csv`, and a `vision_eval_all_summary.json` index. With
-explicit output paths, each pipeline's name is inserted before the extension.
-Pass `--pipeline triangulation` or `--pipeline stereo-net` to evaluate only one
-pipeline with the historic generic `vision_eval_*` output names.
+Progress lines show the active run key, detector/depth models, and the current
+scene and shot being processed. Defaults are one trio of
+`vision_eval_<run_key>_{trials.csv,results.jsonl,summary.json}` per matrix run,
+for example `vision_eval_triangulation__yolo_world_*` and
+`vision_eval_stereo-net__yolo_world__lite_any_stereo_*`, plus a combined
+`vision_eval_all_trials.csv` and `vision_eval_all_summary.json` index. With
+explicit output paths, the run key is inserted before the extension. Use
+`--pipeline NAME` to evaluate one pipeline's whole matrix, or repeatable
+`--detector NAME` / `--depth-model NAME` to restrict it. When only one
+configuration remains, the historic generic `vision_eval_*` output names are
+kept.
+
+By default `vision_eval` also writes annotated detection images under
+`vision_eval_overlays/<run_key>/<run_id>/<capture_id>/...`. Each scored object
+gets `<object_id>_left.jpg` (and `<object_id>_right.jpg` when triangulation
+matched both eyes), with the model's selected box in green, its centre in cyan,
+and the operator-measured bearing as a yellow dashed guide on the left eye. A
+missed target is labelled `NOT SEEN`; the raw captures are never modified. The
+per-run summary records `overlay_count` and `overlay_images`. Pass
+`--overlays-dir DIR` to relocate the tree or `--no-overlays` to disable it.
 
 `vision_eval` needs no ROS graph. It writes one scored row per model per object
 per shot using the model name produced by each pipeline (detector name for

@@ -254,11 +254,53 @@ DETECTOR_NAME_ALIASES = {
     "grounding_dino_tiny": "grounding_dino",
     "grounding-dino-tiny": "grounding_dino",
 }
+DETECTOR_DISPLAY_NAMES = {
+    "yolo_world": "yolov8s-world",
+    "yoloe_26": "yoloe-26s-seg",
+    "grounding_dino": "grounding-dino-tiny",
+}
 DEPTH_BACKENDS = ("lite_any_stereo", "fast_foundation_stereo", "rt_igevpp")
+DEPTH_NAME_ALIASES = {
+    "lite_any_stereo": "lite_any_stereo",
+    "las2_s": "lite_any_stereo",
+    "fast_foundation_stereo": "fast_foundation_stereo",
+    "model_best_bp2_serialize": "fast_foundation_stereo",
+    "rt_igevpp": "rt_igevpp",
+    "sceneflow": "rt_igevpp",
+}
+DEPTH_DISPLAY_NAMES = {
+    "lite_any_stereo": "lite_any_stereo",
+    "fast_foundation_stereo": "fast_foundation_stereo",
+    "rt_igevpp": "rt_igevpp",
+}
 
 
 def _normalise_name(value):
     return str(value or "").strip().lower().replace("-", "_")
+
+
+def canonical_detector_backend(value):
+    """Resolve a detector backend id or known weights name to a backend id."""
+    name = _normalise_name(value)
+    if name in DETECTOR_BACKENDS:
+        return name
+    if name in DETECTOR_NAME_ALIASES:
+        return DETECTOR_NAME_ALIASES[name]
+    raise ValueError(
+        "Unknown detector %r; choose one of: %s"
+        % (value, ", ".join(DETECTOR_BACKENDS)))
+
+
+def canonical_depth_backend(value):
+    """Resolve a dense-stereo backend id or known weights name."""
+    name = _normalise_name(value)
+    if name in DEPTH_BACKENDS:
+        return name
+    if name in DEPTH_NAME_ALIASES:
+        return DEPTH_NAME_ALIASES[name]
+    raise ValueError(
+        "Unknown dense stereo model %r; choose one of: %s"
+        % (value, ", ".join(DEPTH_BACKENDS)))
 
 
 def detector_backend(config):
@@ -270,14 +312,7 @@ def detector_backend(config):
     configured = (get(config, "open_vocab", "detector")
                   or get(config, "open_vocab", "name")
                   or "yolov8s-world")
-    name = _normalise_name(configured)
-    if name in DETECTOR_BACKENDS:
-        return name
-    if name in DETECTOR_NAME_ALIASES:
-        return DETECTOR_NAME_ALIASES[name]
-    raise ValueError(
-        "Unknown detector %r; choose one of: %s"
-        % (configured, ", ".join(DETECTOR_BACKENDS)))
+    return canonical_detector_backend(configured)
 
 
 def detector_display_name(config):
@@ -291,12 +326,26 @@ def depth_backend(config):
     configured = (get(config, "stereo-net", "model")
                   or get(config, "stereo-net", "name")
                   or "lite_any_stereo")
-    name = _normalise_name(configured)
-    if name in DEPTH_BACKENDS:
-        return name
-    raise ValueError(
-        "Unknown dense stereo model %r; choose one of: %s"
-        % (configured, ", ".join(DEPTH_BACKENDS)))
+    return canonical_depth_backend(configured)
+
+
+def with_model_selection(config, detector=None, depth=None):
+    """Return a copy of ``config`` pinned to specific detector/depth backends.
+
+    This is used by the offline evaluator's full model matrix. Setting ``name``
+    alongside the backend keeps logs and fallback labels accurate; actual
+    weights are selected by the host service from the backend id.
+    """
+    result = copy.deepcopy(config)
+    if detector is not None:
+        backend = canonical_detector_backend(detector)
+        result.setdefault("open_vocab", {})["detector"] = backend
+        result["open_vocab"]["name"] = DETECTOR_DISPLAY_NAMES[backend]
+    if depth is not None:
+        backend = canonical_depth_backend(depth)
+        result.setdefault("stereo-net", {})["model"] = backend
+        result["stereo-net"]["name"] = DEPTH_DISPLAY_NAMES[backend]
+    return result
 
 
 # --- Lateral bearing -------------------------------------------------------

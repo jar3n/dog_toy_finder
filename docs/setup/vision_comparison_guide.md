@@ -2,15 +2,17 @@
 
 This guide covers **capture-first** comparison of the two vision pipelines.
 Save rectified left/right images with operator-entered ground truth once, then
-replay every saved capture offline through both pipelines in one command.
+replay every saved capture offline through the full model matrix in one command:
+all detectors for `triangulation` and all detector/depth pairs for `stereo-net`.
 Planning model comparison is separate; see the
 [planning comparison guide](planning_comparison_guide.md).
 
 Live `/vision/ask` requests use the pipeline selected with
 `pipeline:=triangulation|stereo-net` on the launch command, `VISION_PIPELINE` in
 `scripts/full_system_eval.conf`, or the top-level `pipeline` key in
-`vision_detectors.yaml`. `vision_eval` defaults to both pipelines; pass
-`--pipeline NAME` to evaluate one:
+`vision_detectors.yaml`. `vision_eval` defaults to the full model matrix; pass
+`--pipeline NAME` to evaluate one pipeline's matrix, or repeatable
+`--detector` / `--depth-model` flags to restrict it:
 
 - `triangulation`: one host-side open-vocabulary detector (YOLO-World, YOLOE-26,
   or Grounding DINO) runs on both rectified images, matching detections are
@@ -57,14 +59,15 @@ data/
     captures/<run_id>/<capture_id>/shot_01/meta.json
     captures/<run_id>/<capture_id>/shot_02/...       # one directory per shot
     captures/<run_id>/<capture_id>/shot_03/...
-    vision_eval_triangulation_trials.csv          # default all-pipeline outputs
-    vision_eval_triangulation_results.jsonl
-    vision_eval_triangulation_summary.json
-    vision_eval_stereo-net_trials.csv
-    vision_eval_stereo-net_results.jsonl
-    vision_eval_stereo-net_summary.json
-    vision_eval_all_trials.csv                 # rows from both pipelines
-    vision_eval_all_summary.json               # index of both runs
+    vision_eval_triangulation__yolo_world_trials.csv      # one trio per matrix run
+    vision_eval_triangulation__yolo_world_results.jsonl
+    vision_eval_triangulation__yolo_world_summary.json
+    vision_eval_stereo-net__yolo_world__lite_any_stereo_trials.csv
+    vision_eval_stereo-net__yolo_world__lite_any_stereo_results.jsonl
+    vision_eval_stereo-net__yolo_world__lite_any_stereo_summary.json
+    ...                                          # all 12 combinations
+    vision_eval_all_trials.csv                 # rows from every run
+    vision_eval_all_summary.json               # index of all runs
     vision_eval_analysis.json
 ```
 
@@ -93,17 +96,19 @@ itself runs on the computer: `./scripts/start_yolo_service.sh` starts a
 background service that creates a host venv with CPU
 torch/ultralytics/transformers and prepares all supported weights under
 `software/host_vision/models/` (`yolov8s-world.pt`, `yoloe-26s-seg.pt`, and
-`IDEA-Research/grounding-dino-tiny`). One detector runs at a time; the backend
-is selected by `POST /configure` from `open_vocab.detector` in the vision YAML
-(`yolo_world`, `yoloe_26`, or `grounding_dino`). The container sends rectified
+`IDEA-Research/grounding-dino-tiny`). One detector runs at a time. The live node
+selects the backend with `POST /configure` from `open_vocab.detector` in the
+vision YAML (`yolo_world`, `yoloe_26`, or `grounding_dino`); offline `vision_eval`
+selects each one in turn while sweeping the matrix. The container sends rectified
 JPEGs to that service at `YOLO_SERVICE_URL` (default `http://localhost:5006`).
 
 For the `stereo-net` pipeline also start `./scripts/start_stereo_service.sh` on
 the host. It reuses the same venv and serves dense disparity at
 `STEREO_SERVICE_URL` (default `http://localhost:5007`). It prepares all three
 upstream repositories and checkpoints under `software/host_vision/models/`;
-the backend is selected by `POST /configure` from `stereo-net.model`
-(`lite_any_stereo`, `fast_foundation_stereo`, or `rt_igevpp`). The depth model
+the live node selects the backend with `POST /configure` from `stereo-net.model`
+(`lite_any_stereo`, `fast_foundation_stereo`, or `rt_igevpp`), while offline
+`vision_eval` cycles through all three for each detector. The depth model
 name, not the detector name, is recorded in the `model` column so runs can be
 compared. Device and checkpoint overrides belong in the vision YAML (or in the
 service process environment), not in the start commands. Stop both services
@@ -133,9 +138,11 @@ vision pipeline for the live `/vision/ask` node (`triangulation` by default);
 the fallback model name recorded in results and trial CSVs. The
 `stereo-net.model` key selects the host depth backend; `stereo-net.service_url`,
 `stereo-net.window_radius_px`, and `stereo-net.max_disparity` tune the
-dense-depth path. Both backends are sent to the already-running host services
-with `POST /configure` when `vision_node` or `vision_eval` starts, so changing
-the backend is a YAML edit rather than a service restart. The left eye's `fx` and the shared
+dense-depth path. `vision_node` sends those backends to the already-running
+host services with `POST /configure`, so changing the live backend is a YAML
+edit rather than a service restart. `vision_eval` uses the same configuration
+keys for intrinsics and filtering, but overrides the two backend selections for
+each matrix run. The left eye's `fx` and the shared
 `baseline_m` drive both triangulation and dense depth, and the left eye's
 `cx`/`fx` set the bearing. Because the rectified principal points differ,
 both pipelines use `disparity = (u_left - u_right) - (left.cx - right.cx)` before
@@ -543,15 +550,14 @@ be replayed offline; no camera topics, Pico, or ROS graph are needed for
 
 ## Replay every shot offline
 
-`vision_eval` runs **both pipelines in one invocation** by default:
-`triangulation`, then `stereo-net`. Both replay the same shots in the same
-randomized order and write separate outputs, so no second command is needed.
-The detector backend comes from `open_vocab.detector` and is shared by both
-pipelines; `stereo-net` also uses the depth backend from `stereo-net.model`.
-Start both host services before the command, as described below. Before each
-pipeline, `vision_eval` sends those selections to the host services with
-`POST /configure`; after each pipeline it asks them to unload their models and
-caches. The HTTP processes stay running and the next pipeline loads fresh
+`vision_eval` runs the **full model matrix in one invocation** by default:
+three detector configurations for `triangulation`, then all nine
+detector/depth pairs for `stereo-net`. Every run replays the same shots in the
+same randomized order and writes its own outputs, so no scripted loop over YAML
+files is needed. Start both host services before the command, as described
+below. Before each run, `vision_eval` sends the backend selections to the host
+services with `POST /configure`; after each run it asks them to unload their
+models and caches. The HTTP processes stay running and the next run loads fresh
 weights. No camera topics or ROS graph are needed. If you stop the evaluator
 with Ctrl+C, it unloads the active host models and removes any output files
 created by that interrupted run; files that already existed are restored.
@@ -590,9 +596,10 @@ weights. Stop both services when finished:
 ```
 
 Or stop them individually with `./scripts/stop_yolo_service.sh` and
-`./scripts/stop_stereo_service.sh`. To change the detector or depth backend, edit
-the vision YAML; `vision_eval` and `vision_node` send the new selection on their
-next run. If you pass `--pipeline triangulation`, the depth service is not
+`./scripts/stop_stereo_service.sh`. The YAML still selects the live
+`/vision/ask` backend for `vision_node`; offline `vision_eval` ignores that
+selection and sweeps every backend unless `--detector` / `--depth-model` filters
+are given. If you pass `--pipeline triangulation`, the depth service is not
 needed.
 
 ```bash
@@ -606,35 +613,39 @@ ros2 run dog_toy_finder_vision vision_eval \
 Every shot of every scene is replayed; scenes are shuffled first, then the shots
 inside each scene are shuffled, so directory names do not determine the
 processing order. `--limit` applies after this hierarchical shuffle. One seed
-is generated when `--seed` is omitted, printed once, and reused for both
-pipelines. Progress lines show the active pipeline, detector/depth models, and
+is generated when `--seed` is omitted, printed once, and reused for all twelve
+matrix runs. Progress lines show the active run key, detector/depth models, and
 the current scene and shot being processed.
 
-Without output overrides, the command writes:
+Without output overrides, the command writes one CSV/JSONL/summary trio per run,
+for example:
 
 ```text
-/workspace/data/vision/vision_eval_triangulation_trials.csv
-/workspace/data/vision/vision_eval_triangulation_results.jsonl
-/workspace/data/vision/vision_eval_triangulation_summary.json
-/workspace/data/vision/vision_eval_stereo-net_trials.csv
-/workspace/data/vision/vision_eval_stereo-net_results.jsonl
-/workspace/data/vision/vision_eval_stereo-net_summary.json
+/workspace/data/vision/vision_eval_triangulation__yolo_world_*.{csv,jsonl,json}
+/workspace/data/vision/vision_eval_triangulation__yoloe_26_*.{csv,jsonl,json}
+/workspace/data/vision/vision_eval_triangulation__grounding_dino_*.{csv,jsonl,json}
+/workspace/data/vision/vision_eval_stereo-net__yolo_world__lite_any_stereo_*.{csv,jsonl,json}
+...
 /workspace/data/vision/vision_eval_all_trials.csv
 /workspace/data/vision/vision_eval_all_summary.json
+/workspace/data/vision/vision_eval_overlays/<run_key>/<run_id>/<capture_id>/...
 ```
 
 With `--pilot`, those defaults move into
 `/workspace/data/vision/pilot_captures/`. If you pass explicit output paths,
-each pipeline's name is inserted before the extension; for example
+the run key is inserted before the extension; for example
 `--output-csv /workspace/data/vision/trials.csv` writes
-`trials_triangulation.csv` and `trials_stereo-net.csv`, plus
-`trials_all.csv` with both pipelines' rows; the combined manifest becomes
-`.../summary_all.json`. Pass `--pipeline triangulation` or
-`--pipeline stereo-net` to evaluate only one pipeline; that keeps the generic
-`vision_eval_trials.csv`, `vision_eval_results.jsonl`, and
-`vision_eval_summary.json` names (or your exact explicit paths).
+`trials_triangulation__yolo_world.csv`,
+`trials_stereo-net__grounding_dino__rt_igevpp.csv`, and so on, plus
+`trials_all.csv` with every run's rows; the combined manifest becomes
+`.../summary_all.json`. Pass `--pipeline triangulation` or `--pipeline
+stereo-net` to evaluate one pipeline's whole matrix. Repeatable filters such as
+`--detector yolo_world --depth-model rt_igevpp` narrow the matrix; when only one
+configuration remains, the generic `vision_eval_trials.csv`,
+`vision_eval_results.jsonl`, and `vision_eval_summary.json` names are kept (or
+your exact explicit paths).
 
-One scored row is written per model per object per shot in each pipeline's CSV.
+One scored row is written per model per object per shot in each run's CSV.
 Every object recorded for a scene is evaluated separately: the primary toy plus
 each label in `additional_objects`, each with its own ground truth. A
 single-object scene captured with `--shots "3"` contributes three rows; adding
@@ -653,12 +664,23 @@ rows may still carry `method=open_vocab`; the retired ML path uses `method=ml`.
 Ground truth is copied from each shot's
 `meta.json`: the primary toy's fields for `primary`, and each object's own
 distance, offset, and bearing for `additional_*`; no spreadsheet annotation is
-needed. Each per-pipeline summary manifest records the pipeline that produced
-the rows, the shared `shuffle_seed`, the resulting `shot_order` (paths relative
-to `--captures-dir`), `scene_order`, `shots_per_scene`, and `objects_per_scene`.
-`vision_eval_all_trials.csv` contains both pipelines' rows for paired analysis,
-and `vision_eval_all_summary.json` lists both runs, their output paths, row and
-object counts, models, unload statuses, and any failed pipeline.
+needed. Each per-run summary manifest records the pipeline, detector backend,
+depth backend (for `stereo-net`), its `run_key`, the shared `shuffle_seed`, the
+resulting `shot_order` (paths relative to `--captures-dir`), `scene_order`,
+`shots_per_scene`, and `objects_per_scene`. `vision_eval_all_trials.csv`
+contains every matrix run's rows for paired analysis, and
+`vision_eval_all_summary.json` lists all runs, their output paths, row and
+object counts, models, unload statuses, and any failed runs or pipelines.
+
+Each run also writes annotated JPEGs under
+`vision_eval_overlays/<run_key>/<run_id>/<capture_id>/...`. For every scored
+object there is a `<object_id>_left.jpg`, plus `<object_id>_right.jpg` when
+triangulation matched the target in both eyes. The model's selected box is
+green, its reported centre is a cyan cross, and the left eye shows the
+operator's bearing as a yellow dashed guide; a miss is labelled `NOT SEEN`.
+The raw saved captures are not modified, and the per-run summary records
+`overlay_count` and `overlay_images`. Use `--overlays-dir DIR` to place the tree
+elsewhere or `--no-overlays` to skip image generation entirely.
 
 Useful options:
 
@@ -667,7 +689,7 @@ Useful options:
 ros2 run dog_toy_finder_vision vision_eval \
     --capture /workspace/data/vision/captures/capture_run1/red_ball_d1p15_op0p244
 
-# --limit applies after the scene/shot shuffle; both pipelines share the order
+# --limit applies after the scene/shot shuffle; every matrix run shares the order
 ros2 run dog_toy_finder_vision vision_eval \
     --captures-dir "/workspace/data/vision/captures" --limit 10
 
@@ -675,9 +697,21 @@ ros2 run dog_toy_finder_vision vision_eval \
 ros2 run dog_toy_finder_vision vision_eval \
     --captures-dir "/workspace/data/vision/captures" --seed 1234
 
-# evaluate one pipeline only, with its historic default output names
+# evaluate one pipeline's whole detector matrix
 ros2 run dog_toy_finder_vision vision_eval \
     --captures-dir "/workspace/data/vision/captures" --pipeline triangulation
+
+# evaluate one specific detector/depth pair with historic default output names
+ros2 run dog_toy_finder_vision vision_eval \
+    --captures-dir "/workspace/data/vision/captures" \
+    --pipeline stereo-net --detector yolo_world --depth-model rt_igevpp
+
+# relocate or skip the annotated detection images
+ros2 run dog_toy_finder_vision vision_eval \
+    --captures-dir "/workspace/data/vision/captures" \
+    --overlays-dir "/workspace/data/vision/detection_overlays"
+ros2 run dog_toy_finder_vision vision_eval \
+    --captures-dir "/workspace/data/vision/captures" --no-overlays
 ```
 
 ## Score and analyse the replay
@@ -696,12 +730,12 @@ ros2 run dog_toy_finder_data llm_trials analyze "/workspace/data/vision/vision_e
     --output "/workspace/data/vision/vision_eval_analysis.json"
 ```
 
-The per-pipeline CSVs remain available for single-pipeline inspection. Vision
-rows are paired by `run_id` + `ask_id`; for offline captures, `ask_id` is the
-shot ID for the primary object and the shot ID plus `__additional_NN` for each
-additional object, so each pipeline's `model` value is compared on the same
-saved object in the same shot. One `vision_eval` invocation already uses the
-same captures and seed for both pipelines.
+The per-run CSVs remain available for individual model inspection. Vision rows
+are paired by `run_id` + `ask_id`; for offline captures, `ask_id` is the shot ID
+for the primary object and the shot ID plus `__additional_NN` for each
+additional object, so every model is compared on the same saved object in the
+same shot. One `vision_eval` invocation already uses the same captures and seed
+for all matrix runs.
 
 The live `/vision/ask` path remains available for robot control, but it does not
 record comparison trials. Capture-first comparisons use the same answer schema
@@ -786,14 +820,13 @@ results.
 
 ## Experiment discipline
 
-1. Keep the pipeline and its host detector/depth model selection identical
-   across a comparison run.
-2. Use one `run_id` per experiment and a new run ID when the setup changes.
+1. Keep the captures and evaluation settings identical across the models being
+   compared; `vision_eval` changes only the detector/depth backend per run.
+2. Use one `run_id` per experiment and a new run ID when the captures change.
 3. Save several shots of each scene with `vision_capture` and replay those same
-   shots with one `vision_eval` command; keep the YAML backend selection fixed, reuse the
-   recorded seed so both pipelines see the same order, measure depth and center
-   offset before running `vision_eval`, and never use a detector under test to
-   create ground truth.
+   shots with one `vision_eval` command; reuse the recorded seed so every run
+   sees the same order, measure depth and center offset before running
+   `vision_eval`, and never use a detector under test to create ground truth.
 4. Keep the captures, the raw CSV, the summary manifest, and the `*_scored.csv`;
    the raw files preserve what the robot saw and what each pipeline produced.
 5. Run `llm_trials analyze` on the completed CSV and keep the `*_analysis.json`

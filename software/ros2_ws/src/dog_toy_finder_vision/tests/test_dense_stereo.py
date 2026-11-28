@@ -8,6 +8,8 @@ map. The real backends are only imported inside load_model/disparity_map.
 import importlib.util
 import os
 import sys
+import tempfile
+import types
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -85,6 +87,45 @@ class ModelSelectionTests(unittest.TestCase):
         feature = create_model()
         self.assertIsInstance(feature.act1, FakeIdentity)
         self.assertIs(timm.create_model, original)
+
+
+    def test_clear_cache_drops_repo_modules_and_sys_path_entries(self):
+        with tempfile.TemporaryDirectory() as directory:
+            models_dir = Path(directory)
+            repo = models_dir / dense_stereo.REPO_PATHS[
+                dense_stereo.LITE_ANY_STEREO]
+            repo.mkdir(parents=True)
+            module = types.ModuleType("core")
+            module.__file__ = str(repo / "core" / "__init__.py")
+            with mock.patch.object(dense_stereo, "MODELS_DIR", models_dir), \
+                 mock.patch.object(dense_stereo, "_ACTIVE_REPO", None), \
+                 mock.patch.dict(sys.modules, {"core": module}), \
+                 mock.patch.object(sys, "path", [str(repo), "/unrelated"]):
+                dense_stereo.clear_cache()
+                self.assertNotIn("core", sys.modules)
+                self.assertEqual(sys.path, ["/unrelated"])
+
+    def test_switching_repo_drops_the_previous_core_package(self):
+        with tempfile.TemporaryDirectory() as directory:
+            models_dir = Path(directory)
+            lite_repo = models_dir / dense_stereo.REPO_PATHS[
+                dense_stereo.LITE_ANY_STEREO]
+            fast_repo = models_dir / dense_stereo.REPO_PATHS[
+                dense_stereo.FAST_FOUNDATION_STEREO]
+            lite_repo.mkdir(parents=True)
+            fast_repo.mkdir(parents=True)
+            module = types.ModuleType("core")
+            module.__file__ = str(lite_repo / "core" / "__init__.py")
+            with mock.patch.object(dense_stereo, "MODELS_DIR", models_dir), \
+                 mock.patch.object(dense_stereo, "_ACTIVE_REPO",
+                                   str(lite_repo.resolve())), \
+                 mock.patch.dict(sys.modules, {"core": module}), \
+                 mock.patch.object(sys, "path", [str(lite_repo)]):
+                dense_stereo._require_repo(
+                    dense_stereo.FAST_FOUNDATION_STEREO)
+                self.assertNotIn("core", sys.modules)
+                self.assertNotIn(str(lite_repo), sys.path)
+                self.assertIn(str(fast_repo), sys.path)
 
 
 class DepthSamplingTests(unittest.TestCase):

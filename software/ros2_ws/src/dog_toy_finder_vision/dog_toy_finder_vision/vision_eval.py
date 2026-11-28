@@ -1,19 +1,23 @@
 r"""Offline batch evaluation of saved rectified stereo shots.
 
 Captures are written first by ``vision_capture``; this tool replays every saved
-shot through every vision pipeline, then writes one trial CSV per pipeline that
-already contains the operator's ground truth. Every object in a scene is scored:
+shot through every pipeline/model combination, then writes one trial CSV per
+run that already contains the operator's ground truth. Every object in a scene
+is scored:
 the primary target plus each entry in ``ground_truth.additional_objects``. A
 scene captured with ``--shots 3`` has three independently scored shots that
-share the same operator-measured ground truth for each object.
+share the same operator-measured ground truth for each object. By default each
+object also gets an annotated JPEG showing the model's selected box/centre on
+the saved rectified eye(s), so a reported location can be visually checked.
 
-By default (or with ``--pipeline all``), one invocation runs ``triangulation`` and
-``stereo-net`` in sequence against the same captures and the same shuffle seed.
-Before each pipeline, the evaluator tells the already-running host services which
-detector/depth models to load from the config. After each pipeline, it unloads
-those models before the next pipeline loads its own; the HTTP services stay
-running. Use ``--pipeline triangulation`` or ``--pipeline stereo-net`` to evaluate
-only one pipeline. ``stereo-net`` also needs the host depth service running.
+By default (or with ``--pipeline all``), one invocation runs the full model
+matrix against the same captures and the same shuffle seed: every detector for
+``triangulation``, then every detector/depth pair for ``stereo-net``. Before each
+run, the evaluator tells the already-running host services which models to load.
+After each run, it unloads those models before the next run loads its own; the
+HTTP services stay running. Use ``--pipeline NAME`` to evaluate one pipeline's
+whole model matrix, or ``--detector``/``--depth-model`` to restrict the matrix.
+``stereo-net`` also needs the host depth service running.
 
 No live camera topics and no ROS graph are needed. Only the shared detector
 config, the saved JPEGs, and the host services (detector, plus the depth service
@@ -31,23 +35,24 @@ flat captures are discovered. ``--pilot`` selects
 ``/workspace/data/vision/pilot_captures`` for both replay input and default
 outputs, keeping trial data out of the normal captures tree; explicit paths win.
 
-Default all-pipeline outputs (next to the captures directory, or inside the
+Default full-matrix outputs (next to the captures directory, or inside the
 pilot root with ``--pilot``)::
 
-    vision_eval_triangulation_trials.csv      per-object scored rows
-    vision_eval_triangulation_results.jsonl   full /vision/result-style entries
-    vision_eval_triangulation_summary.json    aggregate metrics and shuffle order
-    vision_eval_stereo-net_*.{csv,jsonl,json}
-    vision_eval_all_trials.csv             combined rows from both pipelines
-    vision_eval_all_summary.json           index of the per-pipeline outputs
+    vision_eval_triangulation__yolo_world_*.{csv,jsonl,json}
+    vision_eval_stereo-net__yolo_world__lite_any_stereo_*.{csv,jsonl,json}
+    ...one trio for every detector and every detector/depth pair...
+    vision_eval_all_trials.csv             combined rows from every matrix run
+    vision_eval_all_summary.json           index of all matrix runs
+    vision_eval_overlays/<run_key>/...     annotated detection images
 
-With an explicit output path, each pipeline's name is inserted before the file
-extension (``trials.csv`` becomes ``trials_triangulation.csv``). A single-pipeline
-run with ``--pipeline NAME`` keeps the generic ``vision_eval_*`` names.
+With an explicit output path, the run key is inserted before the file extension
+(``trials.csv`` becomes ``trials_triangulation__yolo_world.csv``). When only one
+configuration is selected, the simpler historic names are kept.
 
-If interrupted with Ctrl+C, the evaluator unloads the host models and removes
-any output files created by that run; files that already existed before the run
-are restored instead of deleted.
+Pass ``--overlays-dir DIR`` to move the annotated images or ``--no-overlays`` to
+skip them. If interrupted with Ctrl+C, the evaluator unloads the host models and
+removes any output files and annotated images created by that run; files that
+already existed before the run are restored instead of deleted.
 """
 
 import argparse
@@ -60,7 +65,8 @@ import signal
 import sys
 from datetime import datetime
 
-from . import depth_client, vision_config, vision_pipelines, yolo_client
+from . import depth_client, vision_config, vision_overlay, \
+    vision_pipelines, yolo_client
 
 # Both packages are installed together in the ROS workspace. The fallback lets
 # the tool run from a source checkout in a plain Python environment, where the
@@ -364,6 +370,68 @@ def _with_pipeline_suffix(path, pipeline):
     return "%s_%s%s" % (base, pipeline, extension)
 
 
+def _selected_backends(values, resolver, available):
+    """Resolve optional repeatable CLI filters to a unique backend list."""
+    if not values:
+        return list(available)
+    return list(dict.fromkeys(resolver(value) for value in values))
+
+
+def _run_key(pipeline, detector, depth=None, include_models=True):
+    """Build a filesystem-safe run key for one pipeline/model combination."""
+    parts = [pipeline]
+    if include_models:
+        parts.append(detector)
+        if pipeline == vision_pipelines.STEREO_NET:
+            parts.append(depth)
+    return "__".join(part for part in parts if part)
+
+
+def _matrix_runs(pipelines, config, args):
+    """Return every ``(pipeline, config, run_key)`` combination to evaluate.
+
+    ``triangulation`` needs one detector; ``stereo-net`` needs a detector and a
+    depth model. Omitted CLI filters mean all known backends, so the default
+    invocation covers the whole matrix. The caller adds model names to each key
+    when more than one configuration per pipeline is present.
+    """
+    detectors = _selected_backends(
+        args.detector, vision_config.canonical_detector_backend,
+        vision_config.DETECTOR_BACKENDS)
+    depths = _selected_backends(
+        args.depth_model, vision_config.canonical_depth_backend,
+        vision_config.DEPTH_BACKENDS)
+    runs = []
+    for pipeline in pipelines:
+        for detector in detectors:
+            if pipeline == vision_pipelines.STEREO_NET:
+                for depth in depths:
+                    runs.append({
+                        "pipeline": pipeline,
+                        "detector": detector,
+                        "depth": depth,
+                        "config": vision_config.with_model_selection(
+                            config, detector=detector, depth=depth),
+                        "key": pipeline,
+                    })
+            else:
+                runs.append({
+                    "pipeline": pipeline,
+                    "detector": detector,
+                    "depth": None,
+                    "config": vision_config.with_model_selection(
+                        config, detector=detector),
+                    "key": pipeline,
+                })
+    return runs
+
+
+def _matrix_mode(runs):
+    """Return True when at least one pipeline has multiple model configs."""
+    pipelines = {run["pipeline"] for run in runs}
+    return len(runs) > len(pipelines)
+
+
 def _log(message):
     """Print progress immediately so long model calls do not look stalled."""
     print(message, flush=True)
@@ -422,9 +490,9 @@ def _unload_pipeline(pipeline, config):
     return status
 
 
-def _pipeline_outputs(args, output_root, pipeline, all_pipelines):
-    """Return (trial CSV, results JSONL, summary JSON) for one pipeline."""
-    if not all_pipelines:
+def _pipeline_outputs(args, output_root, run_key, multiple_runs):
+    """Return (trial CSV, results JSONL, summary JSON) for one matrix run."""
+    if not multiple_runs:
         return (
             args.output_csv or _default_output(
                 output_root, "vision_eval_trials.csv"),
@@ -433,15 +501,15 @@ def _pipeline_outputs(args, output_root, pipeline, all_pipelines):
             args.summary_json or _default_output(
                 output_root, "vision_eval_summary.json"))
     return (
-        _with_pipeline_suffix(args.output_csv, pipeline) if args.output_csv
+        _with_pipeline_suffix(args.output_csv, run_key) if args.output_csv
         else _default_output(output_root,
-                             "vision_eval_%s_trials.csv" % pipeline),
-        _with_pipeline_suffix(args.results_json, pipeline) if args.results_json
+                             "vision_eval_%s_trials.csv" % run_key),
+        _with_pipeline_suffix(args.results_json, run_key) if args.results_json
         else _default_output(output_root,
-                             "vision_eval_%s_results.jsonl" % pipeline),
-        _with_pipeline_suffix(args.summary_json, pipeline) if args.summary_json
+                             "vision_eval_%s_results.jsonl" % run_key),
+        _with_pipeline_suffix(args.summary_json, run_key) if args.summary_json
         else _default_output(output_root,
-                             "vision_eval_%s_summary.json" % pipeline))
+                             "vision_eval_%s_summary.json" % run_key))
 
 
 def _all_summary_output(args, output_root):
@@ -485,6 +553,13 @@ def _build_parser():
     parser.add_argument("--pipeline", default=None,
                         help="vision pipeline: triangulation|stereo-net|all "
                              "(default: all; NAME evaluates one pipeline only)")
+    parser.add_argument("--detector", action="append", default=None,
+                        help="restrict the detector matrix to this backend "
+                             "(repeatable; default: all detectors)")
+    parser.add_argument("--depth-model", action="append", default=None,
+                        help="restrict the stereo-net depth matrix to this "
+                             "backend or weights name (repeatable; default: "
+                             "all depth models)")
     parser.add_argument("--tolerance", type=float, default=0.25,
                         help="distance tolerance in metres")
     parser.add_argument("--bearing-tolerance", type=float, default=5.0,
@@ -497,13 +572,20 @@ def _build_parser():
     parser.add_argument("--output-csv", default=None, help="trial CSV path")
     parser.add_argument("--results-json", default=None, help="full results JSONL")
     parser.add_argument("--summary-json", default=None, help="aggregate JSON path")
+    parser.add_argument("--overlays-dir", default=None,
+                        help="directory for annotated detection images "
+                             "(default: vision_eval_overlays beside outputs)")
+    parser.add_argument("--no-overlays", action="store_true",
+                        help="do not write annotated detection images")
     parser.add_argument("--json", action="store_true",
                         help="print the per-model summary as JSON")
     return parser
 
 
-def _evaluate_pipeline(shots, root, config, args, pipeline, outputs):
-    """Evaluate one pipeline over the shared shot order and write its outputs."""
+def _evaluate_pipeline(shots, root, config, args, pipeline, outputs,
+                       run_key=None):
+    """Evaluate one pipeline/config over the shared order and write outputs."""
+    run_key = run_key or pipeline
     output_csv, results_json, summary_json = outputs
     rows = []
     results = []
@@ -513,6 +595,10 @@ def _evaluate_pipeline(shots, root, config, args, pipeline, outputs):
     objects_evaluated = 0
     detector_model = None
     depth_model = None
+    overlays = []
+    save_overlays = bool(getattr(args, "save_overlays", True))
+    overlays_dir = getattr(args, "overlays_dir", None)
+    artifacts = getattr(args, "artifact_tracker", None)
     _log("[eval] starting %s tolerance=%.3f bearing_tolerance=%.3f"
          % (_pipeline_status(pipeline, config), args.tolerance,
             args.bearing_tolerance))
@@ -552,6 +638,19 @@ def _evaluate_pipeline(shots, root, config, args, pipeline, outputs):
                 "ground_truth": ground_truth,
                 "results": result.get("results", []),
             }]
+        if save_overlays and overlays_dir:
+            for object_result in object_results:
+                try:
+                    made = vision_overlay.write_object_overlays(
+                        path, object_result, config, overlays_dir, run_key,
+                        root, artifacts=artifacts)
+                except Exception as error:
+                    print("Failed to write detection overlay for %s: %s"
+                          % (object_result.get("id", shot_label), error),
+                          file=sys.stderr)
+                    continue
+                object_result["overlays"] = made
+                overlays.extend(made.values())
         objects_evaluated += len(object_results)
         objects_per_scene[scene_id] = (
             objects_per_scene.get(scene_id, 0) + len(object_results))
@@ -598,6 +697,10 @@ def _evaluate_pipeline(shots, root, config, args, pipeline, outputs):
         "shuffle_seed": args.seed,
         "rows": len(rows),
         "pipeline": pipeline,
+        "run_key": run_key,
+        "detector_backend": vision_config.detector_backend(config),
+        "depth_backend": (vision_config.depth_backend(config)
+                          if pipeline == vision_pipelines.STEREO_NET else None),
         "models": sorted({row["model"] for row in rows}),
         "distance_tolerance": args.tolerance,
         "bearing_tolerance": args.bearing_tolerance,
@@ -605,16 +708,20 @@ def _evaluate_pipeline(shots, root, config, args, pipeline, outputs):
         "trial_csv": output_csv,
         "results_json": results_json,
         "summary_json": summary_json,
+        "overlays_dir": overlays_dir if save_overlays else None,
+        "overlay_count": len(overlays),
+        "overlay_images": overlays,
         "summary": summaries,
     }
     os.makedirs(os.path.dirname(os.path.abspath(summary_json)), exist_ok=True)
     with open(summary_json, "w") as handle:
         json.dump(manifest, handle, indent=2)
 
-    _log("[eval] finished %s shots=%d scenes=%d objects=%d rows=%d csv=%s"
+    _log("[eval] finished %s shots=%d scenes=%d objects=%d rows=%d "
+         "overlays=%d csv=%s"
          % (_pipeline_status(pipeline, config, detector_model, depth_model),
             len(shots), len(scene_order), objects_evaluated, len(rows),
-            output_csv))
+            len(overlays), output_csv))
     return manifest
 
 
@@ -637,6 +744,13 @@ class _ArtifactTracker:
 
     def __init__(self):
         self._snapshots = {}
+        self._directories = {}
+
+    def track_dir(self, path):
+        """Remember a directory so interrupt cleanup can remove it if empty."""
+        absolute = os.path.abspath(path)
+        if absolute not in self._directories:
+            self._directories[absolute] = os.path.isdir(absolute)
 
     def track(self, *paths):
         """Remember whether each output file existed before this run."""
@@ -674,18 +788,37 @@ class _ArtifactTracker:
                 print("Could not clean partial artifact %s: %s"
                       % (path, error), file=sys.stderr)
         self._snapshots.clear()
+        # Deepest first so nested overlay directories can be removed too.
+        for path, existed in sorted(
+                self._directories.items(),
+                key=lambda item: item[0].count(os.sep), reverse=True):
+            if existed or not os.path.isdir(path):
+                continue
+            try:
+                os.rmdir(path)
+            except OSError:
+                # A directory with pre-existing contents is not ours to remove.
+                pass
+        self._directories.clear()
         return removed, restored
 
     def commit(self):
         """Forget snapshots after a successful run; keep the written outputs."""
         self._snapshots.clear()
+        self._directories.clear()
 
 
 def _run(args, artifacts):
-    """Evaluate the requested pipelines and return the process exit code."""
+    """Evaluate every requested pipeline/model combination and return a code."""
     config = vision_config.load_config(args.config)
     pipelines = _requested_pipelines(args.pipeline)
-    all_pipelines = len(pipelines) > 1
+    runs = _matrix_runs(pipelines, config, args)
+    matrix_mode = _matrix_mode(runs)
+    if matrix_mode:
+        for run in runs:
+            run["key"] = _run_key(run["pipeline"], run["detector"],
+                                  run["depth"], include_models=True)
+    multiple_runs = len(runs) > 1
     if args.captures_dir:
         root = os.path.abspath(os.path.expanduser(args.captures_dir))
     elif args.capture:
@@ -695,6 +828,15 @@ def _run(args, artifacts):
     # Pilot outputs stay inside the pilot tree; normal outputs stay beside the
     # captures tree so they share one data/vision directory.
     output_root = root if args.pilot else os.path.dirname(root.rstrip(os.sep))
+
+    args.save_overlays = not args.no_overlays
+    args.overlays_dir = (
+        os.path.abspath(os.path.expanduser(args.overlays_dir))
+        if args.overlays_dir
+        else os.path.join(output_root, "vision_eval_overlays"))
+    args.artifact_tracker = artifacts
+    if args.save_overlays:
+        artifacts.track_dir(args.overlays_dir)
 
     seed = args.seed if args.seed is not None else secrets.randbelow(2 ** 32)
     args.seed = seed
@@ -709,46 +851,56 @@ def _run(args, artifacts):
           % (len(shots), seed))
 
     manifests = []
-    failed = []
+    failed_runs = []
     unloads = {}
-    for pipeline in pipelines:
-        outputs = _pipeline_outputs(args, output_root, pipeline, all_pipelines)
+    for run in runs:
+        pipeline = run["pipeline"]
+        run_config = run["config"]
+        run_key = run["key"]
+        outputs = _pipeline_outputs(args, output_root, run_key, multiple_runs)
         artifacts.track(*outputs)
         configured = False
         run_error = None
         try:
-            _configure_pipeline(pipeline, config)
+            _configure_pipeline(pipeline, run_config)
             configured = True
             manifest = _evaluate_pipeline(
-                shots, root, config, args, pipeline, outputs)
+                shots, root, run_config, args, pipeline, outputs, run_key)
         except BaseException as error:
             run_error = error
             raise
         finally:
-            # Tear this pipeline's host models down before the next pipeline
+            # Tear this configuration's host models down before the next run
             # loads its own, even if evaluation of this one failed. Do not
             # attempt an unload when configuration never reached the service,
             # and do not let an unload error hide the original failure (or a
             # SIGINT that main() still needs to clean up for).
             if configured:
                 try:
-                    unloads[pipeline] = _unload_pipeline(pipeline, config)
+                    unloads[run_key] = _unload_pipeline(pipeline, run_config)
                 except Exception as error:
                     print("Failed to unload host model(s) for %s: %s"
-                          % (pipeline, error), file=sys.stderr)
+                          % (run_key, error), file=sys.stderr)
                     if run_error is None:
                         raise
                 else:
-                    print("Unloaded host model(s) for %s" % pipeline)
+                    print("Unloaded host model(s) for %s" % run_key)
         if manifest is None:
-            failed.append(pipeline)
+            failed_runs.append(run_key)
             continue
         manifests.append(manifest)
+
+    # A pipeline is only reported as failed when none of its configurations
+    # produced rows; individual configuration failures stay in `failed_runs`.
+    succeeded = {manifest["pipeline"] for manifest in manifests}
+    failed_pipelines = [
+        pipeline for pipeline in dict.fromkeys(
+            run["pipeline"] for run in runs) if pipeline not in succeeded]
 
     if not manifests:
         return 1
 
-    if all_pipelines:
+    if multiple_runs:
         all_rows = []
         fields = None
         for manifest in manifests:
@@ -770,19 +922,29 @@ def _run(args, artifacts):
             "scenes": manifests[0]["scenes"],
             "scene_order": manifests[0]["scene_order"],
             "shuffle_seed": seed,
-            "pipelines": [manifest["pipeline"] for manifest in manifests],
-            "failed_pipelines": failed,
+            "pipelines": list(dict.fromkeys(
+                manifest["pipeline"] for manifest in manifests)),
+            "run_keys": [run["key"] for run in runs],
+            "failed_pipelines": failed_pipelines,
+            "failed_runs": failed_runs,
             "unloads": unloads,
             "trial_csv": combined_csv,
             "rows": len(all_rows),
+            "overlays_dir": (args.overlays_dir if args.save_overlays else None),
+            "overlay_count": sum(
+                manifest.get("overlay_count", 0) for manifest in manifests),
             "runs": {
-                manifest["pipeline"]: {
+                manifest["run_key"]: {
+                    "pipeline": manifest["pipeline"],
+                    "detector_backend": manifest["detector_backend"],
+                    "depth_backend": manifest["depth_backend"],
                     "trial_csv": manifest["trial_csv"],
                     "results_json": manifest["results_json"],
                     "summary_json": manifest["summary_json"],
                     "rows": manifest["rows"],
                     "objects": manifest["objects"],
                     "models": manifest["models"],
+                    "overlay_count": manifest.get("overlay_count", 0),
                 }
                 for manifest in manifests
             },
@@ -790,26 +952,26 @@ def _run(args, artifacts):
         os.makedirs(os.path.dirname(os.path.abspath(all_summary)), exist_ok=True)
         with open(all_summary, "w") as handle:
             json.dump(combined, handle, indent=2)
-        print("All-pipeline CSV and manifest written to %s and %s"
+        print("All-run CSV and manifest written to %s and %s"
               % (combined_csv, all_summary))
 
     # The run has finished writing everything; Ctrl+C during summary printing
     # should not remove completed artifacts.
     artifacts.commit()
     if args.json:
-        if all_pipelines:
+        if multiple_runs:
             print(json.dumps({
-                manifest["pipeline"]: manifest["summary"]
+                manifest["run_key"]: manifest["summary"]
                 for manifest in manifests
             }, indent=2))
         else:
             llm_trials.print_summaries(manifests[0]["summary"], as_json=True)
     else:
         for manifest in manifests:
-            if all_pipelines:
-                print("\n=== pipeline: %s ===" % manifest["pipeline"])
+            if multiple_runs:
+                print("\n=== run: %s ===" % manifest["run_key"])
             llm_trials.print_summaries(manifest["summary"])
-    return 1 if failed else 0
+    return 1 if failed_runs else 0
 
 
 def main(argv=None):

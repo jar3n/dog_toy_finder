@@ -109,10 +109,16 @@ the optical axis, signed `center_offset_m` from the optical-axis center, and
 = robot-left / ROS `+y`); no coarse side label is emitted or accepted. For
 comparison, `vision_capture` saves several rectified shots per scene with
 operator-measured ground truth, and `vision_eval` replays every shot offline
-through both pipelines in one command, writing separate per-pipeline outputs
-plus a combined CSV. Host models are unloaded between pipelines so the next
-configuration loads fresh weights. A seed-recorded order shuffles scenes and the
-shots within each scene; `--pipeline NAME` evaluates only one pipeline.
+through the full model matrix in one command: every detector for `triangulation`
+and every detector/depth pair for `stereo-net`. It writes one output trio per
+model combination plus a combined CSV. Host models are unloaded between runs so
+the next configuration loads fresh weights. A seed-recorded order shuffles
+scenes and the shots within each scene; `--pipeline NAME` evaluates one
+pipeline's whole matrix, and repeatable `--detector` / `--depth-model` flags
+restrict it. Every run also writes annotated JPEGs showing the selected
+detection box/centre on each saved shot (plus the operator bearing on the left
+eye), so model localisations can be verified visually; use `--no-overlays` to
+skip them or `--overlays-dir` to move them.
 
 ## Running the full system
 
@@ -136,9 +142,11 @@ services in the background once with `./scripts/start_host_vision_services.sh`
 (or start them individually with `./scripts/start_yolo_service.sh` and
 `./scripts/start_stereo_service.sh`). On first run they create a local venv,
 install CPU torch/ultralytics/transformers, and download all supported weights.
-No model variable is needed: the vision node or `vision_eval` selects the
-backend with `POST /configure` using `open_vocab.detector` and `stereo-net.model`
-in `software/ros2_ws/src/dog_toy_finder_vision/config/vision_detectors.yaml`.
+No model variable is needed: `vision_node` selects its live backend with
+`POST /configure` using `open_vocab.detector` and `stereo-net.model` in
+`software/ros2_ws/src/dog_toy_finder_vision/config/vision_detectors.yaml`,
+while offline `vision_eval` sweeps every supported backend unless filters are
+given.
 Stop both services with `./scripts/stop_host_vision_services.sh`. No vision
 Ollama server is needed; Ollama is used separately by the ROSA planner.
 

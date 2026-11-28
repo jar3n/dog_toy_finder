@@ -77,9 +77,10 @@ and bearing are positive to the robot's left (ROS `+y`); no coarse side label is
 emitted or accepted.
 
 `vision_eval` writes one scored row per model per object per shot in each
-pipeline's CSV, with the columns already filled. One invocation runs both
-pipelines and also writes `vision_eval_all_trials.csv` with both pipelines' rows
-for paired statistics. Every object in a scene is scored: the primary toy plus
+matrix run's CSV, with the columns already filled. One invocation runs every
+detector for `triangulation` and every detector/depth pair for `stereo-net`, and
+also writes `vision_eval_all_trials.csv` with all runs' rows for paired
+statistics. Every object in a scene is scored: the primary toy plus
 each `additional_objects` entry, using that object's own ground truth. The
 primary object keeps the historic `ask_id` (`<capture_id>_shot_NN`, or
 `<capture_id>` for flat captures); additional objects append `__additional_NN`,
@@ -89,7 +90,9 @@ without changing the CSV schema. The `model` column is the detector name for
 manifest records its pipeline, the shared `shuffle_seed`, the randomized
 `scene_order`, the `shot_order` within each scene, `shots_per_scene`, and
 `objects_per_scene`, so the same shots are replayed in the same order by both
-pipelines.
+pipelines. `vision_eval` also writes annotated detection JPEGs under
+`vision_eval_overlays/` unless `--no-overlays` is passed, so the selected box
+and centre can be compared with the saved image.
 
 A live `/vision/ask` path remains available for robot control, but it does not
 record comparison trials. Use `vision_capture` and `vision_eval` for measured,

@@ -4,8 +4,9 @@ Two kinds of trial are compared with the same tooling:
 
 - ``vision``: one row per evaluated object, shot, and model name produced by a
   vision pipeline. ``vision_eval`` writes these when replaying stereo captures,
-  including every object recorded for a multi-object scene. Its all-pipeline
-  run also writes a combined CSV with rows from both pipelines.
+  including every object recorded for a multi-object scene. Its default
+  full-matrix run also writes a combined CSV with rows from every model
+  combination.
 - ``planning``: one row per prompt and model. ``rosa_agent --compare`` writes
   these, including the reply and the tools the model called.
 
