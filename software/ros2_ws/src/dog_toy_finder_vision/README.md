@@ -396,9 +396,11 @@ By default `vision_eval` also writes annotated detection images under
 gets `<object_id>_left.jpg` (and `<object_id>_right.jpg` when triangulation
 matched both eyes), with the model's selected box in green, its centre in cyan,
 and the operator-measured bearing as a yellow dashed guide on the left eye. A
-missed target is labelled `NOT SEEN`; the raw captures are never modified. The
-per-run summary records `overlay_count` and `overlay_images`. Pass
-`--overlays-dir DIR` to relocate the tree or `--no-overlays` to disable it.
+missed target is labelled `NOT SEEN`; the raw captures are never modified. For
+an absent target, including a scene labelled `none`, a clean image is labelled
+`CORRECT: NO DETECTION` and a hallucinated box is `FALSE POSITIVE`. The per-run
+summary records `overlay_count` and `overlay_images`. Pass `--overlays-dir DIR`
+to relocate the tree or `--no-overlays` to disable it.
 
 `vision_eval` needs no ROS graph. It writes one scored row per model per object
 per shot using the model name produced by each pipeline (detector name for
@@ -408,7 +410,9 @@ primary toy plus each `additional_objects` entry with its own ground truth. The
 primary object keeps the historic `ask_id` (`<capture_id>_shot_NN`, or
 `<capture_id>` for flat captures); additional objects append `__additional_NN`,
 so each object in each shot pairs across pipelines without changing the CSV
-schema.
+schema. A target labelled `none` means the scene intentionally contains no
+object: `vision_eval` overrides any recorded distance and scores a no-detection
+answer as correct, while a reported detection is wrong.
 Scenes are shuffled first and the shots inside each scene are shuffled next
 (`--limit` applies after both shuffles); a random `shuffle_seed` is generated
 unless `--seed` is given, and the seed, `shot_order`, `scene_order`,

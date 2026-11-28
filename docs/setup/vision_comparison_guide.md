@@ -814,7 +814,12 @@ Fill in the answer and ground-truth columns (including
 Each summary manifest also reports `bearing_mae_deg` and
 `bearing_within_rate` for each `model` value reported by its pipeline (detector
 name for `triangulation`, dense depth model name for `stereo-net`). Rows where
-the toy is not visible only score visibility and obstacle checks. Blank
+the toy is not visible only score visibility and obstacle checks. A scene whose
+target label is `none` is treated the same way even if an older capture recorded
+a nominal distance: `vision_eval` rewrites its ground truth to
+`target_visible=false`, clears distance/offset/bearing, and scores a no-detection
+answer as correct. A spurious detection in that scene is marked wrong, and its
+overlay is labelled `FALSE POSITIVE` rather than a normal hit. Blank
 ground-truth fields are ignored, so partial annotation still produces useful
 results.
 

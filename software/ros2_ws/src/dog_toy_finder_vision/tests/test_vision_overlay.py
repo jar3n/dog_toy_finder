@@ -85,6 +85,24 @@ class OverlayTests(unittest.TestCase):
                     for red, green, blue in _rgb_colors(image))
         self.assertTrue(found)
 
+    def test_annotate_marks_correct_absence_and_false_positive(self):
+        ground_truth = {"target_visible": False}
+        correct = vision_overlay.annotate_image(
+            _jpeg(), "none", {"target_visible": False}, "left", self.config,
+            ground_truth)
+        self.assertFalse(any(red > 180 and green < 130 and blue < 130
+                             for red, green, blue in _rgb_colors(correct)))
+        self.assertTrue(any(green > 180 and red < 180
+                            for red, green, blue in _rgb_colors(correct)))
+
+        false_positive = vision_overlay.annotate_image(
+            _jpeg(), "none",
+            {"target_visible": True, "confidence": 0.9,
+             "bbox_px": [90, 100, 110, 120]},
+            "left", self.config, ground_truth)
+        self.assertTrue(any(red > 180 and green < 130 and blue < 130
+                            for red, green, blue in _rgb_colors(false_positive)))
+
     def test_write_object_overlays_uses_detected_eyes_and_tracks_files(self):
         shot = os.path.join(self.temp.name, "run1", "cap1")
         os.makedirs(shot)

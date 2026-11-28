@@ -9,6 +9,8 @@ scene captured with ``--shots 3`` has three independently scored shots that
 share the same operator-measured ground truth for each object. By default each
 object also gets an annotated JPEG showing the model's selected box/centre on
 the saved rectified eye(s), so a reported location can be visually checked.
+A scene labelled ``none`` contains no object, so not detecting anything is the
+correct answer even if an older capture recorded a nominal distance.
 
 By default (or with ``--pipeline all``), one invocation runs the full model
 matrix against the same captures and the same shuffle seed: every detector for
@@ -127,6 +129,23 @@ def _object_label(value):
     return str(value or "").strip()
 
 
+# ``none`` is the operator's convention for a scene with no toy in it. Older
+# captures may still record a nominal distance for such a scene, so the evaluator
+# treats the label itself as authoritative and scores non-detection as correct.
+_ABSENT_TARGETS = {"none", "nothing", "no object", "no toy"}
+
+
+def _absent_target_ground_truth(target, ground_truth):
+    """Return ground truth with no measurable target for a ``none`` scene."""
+    if str(target or "").strip().lower() not in _ABSENT_TARGETS:
+        return ground_truth
+    truth = dict(ground_truth or {})
+    truth["target_visible"] = False
+    for key in ("distance_m", "center_offset_m", "lateral_bearing_deg"):
+        truth.pop(key, None)
+    return truth
+
+
 def scene_objects(meta):
     """Return every labelled object to score in one shot's metadata.
 
@@ -135,7 +154,8 @@ def scene_objects(meta):
     bare labels instead of per-object dictionaries. A stable ``object_id``
     keeps repeated labels in one shot separate without changing the trial CSV
     schema: it suffixes each additional object's ``ask_id`` (and ``trial_id``),
-    while the primary object keeps the historic shot ID.
+    while the primary object keeps the historic shot ID. A ``none`` label is
+    treated as an absent target even if older captures recorded a distance.
     """
     ground_truth = meta.get("ground_truth")
     if not isinstance(ground_truth, dict):
@@ -148,7 +168,7 @@ def scene_objects(meta):
             "role": "primary",
             "label": primary,
             "target": primary,
-            "ground_truth": dict(ground_truth),
+            "ground_truth": _absent_target_ground_truth(primary, ground_truth),
         })
 
     extras = ground_truth.get("additional_objects") or []
@@ -166,6 +186,8 @@ def scene_objects(meta):
                     "visible_side"):
             if key in ground_truth and key not in object_ground_truth:
                 object_ground_truth[key] = ground_truth[key]
+        object_ground_truth = _absent_target_ground_truth(
+            label, object_ground_truth)
         objects.append({
             "object_id": "additional_%02d" % index,
             "role": "additional",

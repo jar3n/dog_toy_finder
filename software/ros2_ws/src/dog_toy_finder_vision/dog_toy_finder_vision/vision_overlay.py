@@ -8,7 +8,10 @@ whether the model actually saw the requested target in that scene.
 ``triangulation`` selects one matched detection pair, so both eyes are drawn.
 ``stereo-net`` detects only in the left eye, so only that eye is drawn. The
 left-eye overlay also marks the operator-measured bearing when available, which
-makes a false localisation easy to distinguish from a missed detection.
+makes a false localisation easy to distinguish from a missed detection. For an
+absent target (including a ``none`` scene), a clean image is labelled as the
+correct no-detection result instead of a miss; a hallucinated box is flagged as
+a false positive.
 
 This module only uses Pillow, already required by the ROS-side vision package.
 It never contacts a host model service or modifies the saved capture images.
@@ -27,6 +30,7 @@ BOX_COLOR = (0, 255, 0)
 CENTER_COLOR = (0, 220, 255)
 TRUTH_COLOR = (255, 235, 0)
 MISS_COLOR = (255, 90, 90)
+OK_COLOR = (110, 255, 130)
 TEXT_COLOR = (255, 255, 255)
 BANNER_COLOR = (22, 22, 22)
 
@@ -55,6 +59,19 @@ def _as_float(value):
     except (TypeError, ValueError):
         return None
     return number if math.isfinite(number) else None
+
+
+def _expected_absent(ground_truth):
+    """Return whether this object was annotated as absent from the scene."""
+    if not isinstance(ground_truth, dict):
+        return False
+    value = ground_truth.get("target_visible")
+    if value is None:
+        return False
+    if isinstance(value, bool):
+        return not value
+    return str(value).strip().lower() in (
+        "false", "0", "no", "n", "not visible", "absent", "missing", "none")
 
 
 def _bbox(entry, eye):
@@ -102,8 +119,7 @@ def _eyes(entry, pipeline):
 
 def _ground_truth_u(ground_truth, config, width):
     """Convert the operator bearing back to an expected left-eye column."""
-    if not isinstance(ground_truth, dict) or not ground_truth.get(
-            "target_visible", True):
+    if not isinstance(ground_truth, dict) or _expected_absent(ground_truth):
         return None
     bearing = _as_float(ground_truth.get("lateral_bearing_deg"))
     if bearing is None:
@@ -143,6 +159,7 @@ def annotate_image(jpeg, target, entry, eye, config, ground_truth=None):
     draw = ImageDraw.Draw(image)
     width, height = image.size
     visible = bool(entry.get("target_visible")) if isinstance(entry, dict) else False
+    expected_absent = _expected_absent(ground_truth)
 
     header = "target: %s" % (target or "")
     if visible:
@@ -158,6 +175,10 @@ def annotate_image(jpeg, target, entry, eye, config, ground_truth=None):
             details.append("bearing %.1f deg" % bearing)
         if details:
             header += "  |  " + ", ".join(details)
+        if expected_absent:
+            header += "  |  UNEXPECTED DETECTION"
+    elif expected_absent:
+        header += "  |  CORRECT: NO DETECTION"
     else:
         header += "  |  NOT SEEN"
     draw.rectangle((0, 0, width, 18), fill=BANNER_COLOR)
@@ -165,8 +186,14 @@ def annotate_image(jpeg, target, entry, eye, config, ground_truth=None):
     draw.text((4, height - 13), "%s eye" % eye, fill=TEXT_COLOR)
 
     if not visible:
-        _label(draw, (4, 24), "NO DETECTION FOR THIS TARGET", MISS_COLOR)
+        if expected_absent:
+            _label(draw, (4, 24), "NO TARGET EXPECTED", OK_COLOR)
+        else:
+            _label(draw, (4, 24), "NO DETECTION FOR THIS TARGET", MISS_COLOR)
         return image
+
+    if expected_absent:
+        _label(draw, (4, 24), "FALSE POSITIVE: TARGET ABSENT", MISS_COLOR)
 
     box = _bbox(entry, eye)
     center = _center(entry, eye, box)

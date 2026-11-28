@@ -654,6 +654,86 @@ class OfflineEvalTests(unittest.TestCase):
         self.assertIn("method", fields)
         self.assertTrue(os.path.isfile(results_path))
 
+    def test_scene_objects_treats_none_as_absent(self):
+        meta = {
+            "target": "none",
+            "ground_truth": {
+                "target_visible": True,
+                "distance_m": 2.0,
+                "center_offset_m": 0.0,
+                "lateral_bearing_deg": 0.0,
+                "obstacle_ahead": "none",
+            },
+        }
+        objects = vision_eval.scene_objects(meta)
+        self.assertEqual(len(objects), 1)
+        truth = objects[0]["ground_truth"]
+        self.assertIs(truth["target_visible"], False)
+        for key in ("distance_m", "center_offset_m",
+                    "lateral_bearing_deg"):
+            self.assertNotIn(key, truth)
+        self.assertEqual(truth["obstacle_ahead"], "none")
+
+    def test_main_scores_none_scene_as_correct_no_detection(self):
+        self._write_synthetic_pair(visible=False)
+        meta_path = os.path.join(self.capture_dir, "meta.json")
+        with open(meta_path) as handle:
+            meta = json.load(handle)
+        meta["target"] = "none"
+        meta["ground_truth"].update({
+            "target_visible": True, "distance_m": 2.0,
+            "center_offset_m": 0.0, "lateral_bearing_deg": 0.0,
+        })
+        with open(meta_path, "w") as handle:
+            json.dump(meta, handle)
+
+        csv_path = os.path.join(self.temp.name, "none_trials.csv")
+        with mock.patch.object(yolo_client, "detect", _fake_detect_both), \
+             contextlib.redirect_stdout(io.StringIO()):
+            code = vision_eval.main([
+                "--config", self.config_path, "--captures-dir", self.root,
+                "--pipeline", "triangulation", "--seed", "42",
+                "--output-csv", csv_path])
+        self.assertEqual(code, 0)
+        rows, _ = llm_trials.read_csv(csv_path)
+        self.assertEqual(len(rows), 1)
+        row = rows[0]
+        self.assertEqual(row["gt_target_visible"], "False")
+        self.assertEqual(row["target_visible"], "False")
+        self.assertEqual(row["visible_correct"], "True")
+        self.assertEqual(row["distance_within_tolerance"], "")
+        self.assertEqual(row["bearing_within_tolerance"], "")
+        self.assertEqual(float(row["score"]), 1.0)
+
+    def test_main_scores_none_scene_false_positive_as_wrong(self):
+        self._write_synthetic_pair(visible=False)
+        meta_path = os.path.join(self.capture_dir, "meta.json")
+        with open(meta_path) as handle:
+            meta = json.load(handle)
+        meta["target"] = "none"
+        meta["ground_truth"]["target_visible"] = True
+        with open(meta_path, "w") as handle:
+            json.dump(meta, handle)
+
+        def false_positive(left_jpeg, right_jpeg, classes, config):
+            return ([_detection(100, 100, classes[0])],
+                    [_detection(80, 100, classes[0])], "fake-world")
+
+        csv_path = os.path.join(self.temp.name, "none_false_positive.csv")
+        with mock.patch.object(yolo_client, "detect", false_positive), \
+             contextlib.redirect_stdout(io.StringIO()):
+            code = vision_eval.main([
+                "--config", self.config_path, "--captures-dir", self.root,
+                "--pipeline", "triangulation", "--seed", "42",
+                "--output-csv", csv_path])
+        self.assertEqual(code, 0)
+        rows, _ = llm_trials.read_csv(csv_path)
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["gt_target_visible"], "False")
+        self.assertEqual(rows[0]["target_visible"], "True")
+        self.assertEqual(rows[0]["visible_correct"], "False")
+        self.assertEqual(float(rows[0]["score"]), 0.5)
+
     def test_main_writes_detection_overlays_for_each_pipeline(self):
         self._write_synthetic_pair()
         with mock.patch.object(yolo_client, "detect", _fake_detect_both), \
