@@ -112,7 +112,7 @@ def _match(left, right, config):
 def _entry(answer, name, confidence, seconds, distance_source):
     answer.update({
         "model": name,
-        "method": "open_vocab",
+        "method": "triangulation",
         "distance_source": distance_source,
         "confidence": round(float(confidence), 3),
         "seconds": round(seconds, 3),

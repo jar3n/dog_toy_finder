@@ -12,7 +12,7 @@ Publishes   /vision/result                       std_msgs/String (JSON)
 Parameters
 ----------
 config_path       : str   detector YAML path (from full_system_eval.conf)
-pipeline          : str   open_vocab|stereo-net (empty = VISION_PIPELINE / YAML)
+pipeline          : str   triangulation|stereo-net (empty = VISION_PIPELINE / YAML)
 yolo_service_url  : str   host detector service (empty = env / YAML / default)
 stereo_service_url: str   host dense-depth service (empty = env / YAML / default)
 left_rect_topic   : str   override the left rectified-color topic
@@ -34,7 +34,7 @@ from rclpy.time import Time
 from sensor_msgs.msg import Image
 from std_msgs.msg import String
 
-from . import vision_config, vision_pipelines
+from . import depth_client, vision_config, vision_pipelines, yolo_client
 
 RESULTS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "results", "images")
 FRESH_PHOTO_TIMEOUT = 5.0
@@ -92,6 +92,18 @@ class VisionNode(Node):
         self.get_logger().info(
             "Vision node ready: pipeline=%s, rectified stereo %s + %s"
             % (self.pipeline, left_topic, right_topic))
+        try:
+            self.configure_host_models()
+        except Exception as error:
+            # The services may start after this node; each ask retries configure.
+            self.get_logger().warning(
+                "Could not configure host vision models yet: %s" % error)
+
+    def configure_host_models(self):
+        """Select this node's detector/depth models on the running services."""
+        yolo_client.configure(self.config)
+        if self.pipeline == vision_pipelines.STEREO_NET:
+            depth_client.configure(self.config)
 
     def on_left(self, msg):
         with self.lock:
@@ -156,6 +168,7 @@ class VisionNode(Node):
                     left_msg, right_msg = photo
                     jpegs = [self._to_jpeg(left_msg), self._to_jpeg(right_msg)]
                     result["image"] = self.save(left_msg, request["id"])
+                    self.configure_host_models()
                     entries = vision_pipelines.run_pipeline(
                         self.pipeline, request["target"],
                         jpegs[0], jpegs[1], self.config)

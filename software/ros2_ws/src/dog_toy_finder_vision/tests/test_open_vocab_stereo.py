@@ -1,4 +1,4 @@
-"""Tests for open-vocabulary stereo matching and disparity triangulation.
+"""Tests for triangulation stereo matching and disparity triangulation.
 
 No ultralytics weights or torch are needed: a fake detector client returns the
 plain-Python detection dictionaries the host service would return for the red
@@ -129,7 +129,7 @@ class TriangulationTests(unittest.TestCase):
         self.assertIs(client.calls[0][0], left)
         self.assertIs(client.calls[0][1], right)
         self.assertTrue(entry["target_visible"])
-        self.assertEqual(entry["method"], "open_vocab")
+        self.assertEqual(entry["method"], "triangulation")
         self.assertEqual(entry["distance_source"], "stereo_triangulation")
         self.assertEqual(entry["model"], "fake-world")
         # fx * baseline / disparity = 250 * 0.08 / 20 = 1.0 m.

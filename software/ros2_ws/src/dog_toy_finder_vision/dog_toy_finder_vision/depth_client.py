@@ -3,7 +3,8 @@
 The ROS container has no torch or dense-stereo checkpoints. For the ``stereo-net``
 pipeline it sends the two rectified JPEGs plus the pixels to sample (all mask
 pixels, or a small window around a box centre) to the service on the computer
-and receives the median disparity and derived depth.
+and receives the median disparity and derived depth. ``unload`` releases the
+host depth model between pipeline configurations.
 
 ``STEREO_SERVICE_URL`` overrides the ``stereo-net.service_url`` config key when set
 in the container environment.
@@ -26,6 +27,52 @@ def service_url(config):
             or vision_config.get(config, "stereo-net", "service_url",
                                  default=DEFAULT_SERVICE_URL)
             or DEFAULT_SERVICE_URL)
+
+
+def configure(config):
+    """Tell the already-running host service which depth backend to load.
+
+    The service process starts without a model selection; ``stereo-net.name``
+    (or ``stereo-net.model``) in the ROS config decides which model to load.
+    """
+    url = service_url(config).rstrip("/") + "/configure"
+    timeout = float(vision_config.get(
+        config, "stereo-net", "timeout_s", default=180))
+    backend = vision_config.depth_backend(config)
+    payload = {
+        "model": backend,
+        "name": str(vision_config.get(config, "stereo-net", "name")
+                    or backend),
+        "max_disp": int(vision_config.get(
+            config, "stereo-net", "max_disparity", default=192)),
+    }
+    device = vision_config.get(config, "stereo-net", "device", default="")
+    if device:
+        payload["device"] = device
+    iterations = vision_config.get(config, "stereo-net", "iterations",
+                                   default=None)
+    if iterations is not None:
+        payload["iters"] = int(iterations)
+    request = urllib.request.Request(
+        url, data=json.dumps(payload).encode("utf-8"),
+        headers={"Content-Type": "application/json"}, method="POST")
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            body = json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as error:
+        detail = error.read().decode("utf-8", "replace")[:500]
+        raise RuntimeError(
+            "Stereo depth service at %s returned HTTP %s on /configure: %s"
+            % (url, error.code, detail)) from error
+    except (urllib.error.URLError, TimeoutError, OSError) as error:
+        raise RuntimeError(
+            "Cannot reach the stereo depth service at %s to configure it. "
+            "Start it with ./scripts/start_stereo_service.sh (%s)"
+            % (url, error)) from error
+    if not isinstance(body, dict) or not body.get("ok"):
+        raise RuntimeError("Stereo depth service at %s returned %r on /configure"
+                           % (url, body))
+    return body
 
 
 def sample(left_jpeg, right_jpeg, sample_spec, config):
@@ -66,5 +113,31 @@ def sample(left_jpeg, right_jpeg, sample_spec, config):
 
     if not isinstance(body, dict) or "error" in body:
         raise RuntimeError("Stereo depth service at %s returned %r"
+                           % (url, body))
+    return body
+
+
+def unload(config):
+    """Ask the host service to release its loaded dense-stereo model."""
+    url = service_url(config).rstrip("/") + "/unload"
+    timeout = float(vision_config.get(
+        config, "stereo-net", "timeout_s", default=180))
+    request = urllib.request.Request(
+        url, data=b"{}", headers={"Content-Type": "application/json"},
+        method="POST")
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            body = json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as error:
+        detail = error.read().decode("utf-8", "replace")[:500]
+        raise RuntimeError(
+            "Stereo depth service at %s returned HTTP %s on /unload: %s"
+            % (url, error.code, detail)) from error
+    except (urllib.error.URLError, TimeoutError, OSError) as error:
+        raise RuntimeError(
+            "Cannot reach the stereo depth service at %s to unload it (%s)"
+            % (url, error)) from error
+    if not isinstance(body, dict) or not body.get("ok"):
+        raise RuntimeError("Stereo depth service at %s returned %r on /unload"
                            % (url, body))
     return body

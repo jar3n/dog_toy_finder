@@ -33,17 +33,20 @@ dependencies, the ROSA Python packages, and Pillow for JPEG conversion. The
 `ros2` container runs your command as `HOST_UID:HOST_GID` (default
 `1000:1000`), so files it writes to the mounted repository are owned by the
 host user; export those variables first if your account uses different IDs.
-The `open_vocab` pipeline runs detection on the computer, not in the container:
+The `triangulation` pipeline runs detection on the computer, not in the container:
 run `./scripts/start_yolo_service.sh` once to create a host venv with CPU torch,
-ultralytics, and transformers and download weights to
-`software/host_vision/models/`. Pick the backend with `DETECTOR_MODEL`
-(`yolo_world`, `yoloe_26`, or `grounding_dino`). The container reaches the
-service at `YOLO_SERVICE_URL` (default `http://localhost:5006`). The `stereo-net`
-pipeline also runs dense stereo on the host: `./scripts/start_stereo_service.sh`
-serves depth at `STEREO_SERVICE_URL` (default `http://localhost:5007`), with one
-model chosen by `DEPTH_MODEL` (`lite_any_stereo`, `fast_foundation_stereo`, or
-`rt_igevpp`). No vision Ollama server or model pull is needed (ROSA planning uses
-Ollama separately).
+ultralytics, and transformers and download the supported weights to
+`software/host_vision/models/`. The service runs in the background and starts
+with no model selected; the vision client sends `open_vocab.detector` from the
+vision YAML with `POST /configure` (`yolo_world`, `yoloe_26`, or
+`grounding_dino`). The container reaches the service at `YOLO_SERVICE_URL`
+(default `http://localhost:5006`). The `stereo-net` pipeline also runs dense
+stereo on the host: `./scripts/start_stereo_service.sh` serves depth at
+`STEREO_SERVICE_URL` (default `http://localhost:5007`), with the backend sent
+from `stereo-net.model` (`lite_any_stereo`, `fast_foundation_stereo`, or
+`rt_igevpp`). No model variable is needed at startup; stop both services with
+`./scripts/stop_host_vision_services.sh`. No vision Ollama server or model pull
+is needed (ROSA planning uses Ollama separately).
 
 ## 3. Build the micro-ROS library (Pico)
 

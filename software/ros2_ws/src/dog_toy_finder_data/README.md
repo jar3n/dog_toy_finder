@@ -23,9 +23,10 @@ ros2 run dog_toy_finder_data dataset_summary /tmp/dog_toy_dataset/run1
 
 Vision and planning comparisons share one CSV schema and one scoring tool, so
 vision-pipeline answers and a planner can be judged with the same fields. Vision
-rows contain automated answers first (including a `method` column: `open_vocab`
-for new vision rows, `ml` only for legacy rows), then `gt_*` ground-truth
-fields, then metrics computed by `score`.
+rows contain automated answers first (including a `method` column:
+`triangulation` for new vision rows, `open_vocab` in older pilot rows, and `ml`
+only for the retired ML path), then `gt_*` ground-truth fields, then metrics
+computed by `score`.
 
 Trial data lives in the repository's `data/` folder, next to `hardware/` and
 `software/`: `data/vision/captures/`, `data/vision/vision_eval_*` files, and
@@ -49,11 +50,9 @@ ros2 run dog_toy_finder_vision vision_capture \
     --output-dir "/workspace/data/vision/captures" --config "/workspace/software/ros2_ws/src/dog_toy_finder_vision/config/vision_detectors.yaml"
 
 ros2 run dog_toy_finder_vision vision_eval \
-    --captures-dir "/workspace/data/vision/captures" --pipeline "open_vocab" \
+    --captures-dir "/workspace/data/vision/captures" \
     --tolerance "0.25" \
-    --bearing-tolerance "5.0" \
-    --output-csv "/workspace/data/vision/vision_eval_trials.csv" --results-json "/workspace/data/vision/vision_eval_results.jsonl" \
-    --summary-json "/workspace/data/vision/vision_eval_summary.json"
+    --bearing-tolerance "5.0"
 ```
 
 The capture command is interactive: it prompts for
@@ -70,25 +69,27 @@ With `--shots "3"`, each scene stores `scene.json` plus `shot_01/` through
 each shot directory contains `left.jpg`, `right.jpg`, and `meta.json`. All shots
 of a scene share the same ground truth. `--shots "1"` keeps the older flat
 layout with the three files directly in `<capture_id>/`. The `gt_*` columns in
-`/workspace/data/vision/vision_eval_trials.csv` are copied from each shot's
+`/workspace/data/vision/vision_eval_all_trials.csv` are copied from each shot's
 `meta.json`, including `gt_center_offset_m` and `gt_lateral_bearing_deg`; no
 spreadsheet annotation is required. Both pipelines also emit `distance_m`,
 `center_offset_m`, and `lateral_bearing_deg` on every live answer. Lateral offset
 and bearing are positive to the robot's left (ROS `+y`); no coarse side label is
 emitted or accepted.
 
-`vision_eval` writes one scored row per model per object per shot per
-invocation, with the columns already filled. Every object in a scene is scored:
-the primary toy plus each `additional_objects` entry, using that object's own
-ground truth. The primary object keeps the historic `ask_id`
-(`<capture_id>_shot_NN`, or `<capture_id>` for flat captures); additional
-objects append `__additional_NN`, so paired statistics compare the same object
-in the same shot across models without changing the CSV schema. The `model`
-column is the detector name for
-`open_vocab` or the dense depth model name for `stereo-net`. Its summary manifest
-records the selected pipeline, the `shuffle_seed`, the randomized `scene_order`,
-the `shot_order` within each scene, `shots_per_scene`, and `objects_per_scene`,
-so the same shots can be replayed in the same order by both pipelines.
+`vision_eval` writes one scored row per model per object per shot in each
+pipeline's CSV, with the columns already filled. One invocation runs both
+pipelines and also writes `vision_eval_all_trials.csv` with both pipelines' rows
+for paired statistics. Every object in a scene is scored: the primary toy plus
+each `additional_objects` entry, using that object's own ground truth. The
+primary object keeps the historic `ask_id` (`<capture_id>_shot_NN`, or
+`<capture_id>` for flat captures); additional objects append `__additional_NN`,
+so paired statistics compare the same object in the same shot across models
+without changing the CSV schema. The `model` column is the detector name for
+`triangulation` or the dense depth model name for `stereo-net`. Each summary
+manifest records its pipeline, the shared `shuffle_seed`, the randomized
+`scene_order`, the `shot_order` within each scene, `shots_per_scene`, and
+`objects_per_scene`, so the same shots are replayed in the same order by both
+pipelines.
 
 A live `/vision/ask` path remains available for robot control, but it does not
 record comparison trials. Use `vision_capture` and `vision_eval` for measured,
@@ -130,7 +131,7 @@ Score after entering the ground truth (offline `vision_eval` output is already
 scored, but re-scoring is safe after manual annotation):
 
 ```bash
-ros2 run dog_toy_finder_data llm_trials score "/workspace/data/vision/vision_eval_trials.csv"
+ros2 run dog_toy_finder_data llm_trials score "/workspace/data/vision/vision_eval_all_trials.csv"
 ros2 run dog_toy_finder_data llm_trials score \
     /workspace/data/planning/plan1/planning_trials.csv --tolerance 0.3
 ros2 run dog_toy_finder_data llm_trials aggregate \
@@ -145,7 +146,7 @@ writing a file.
 After collection and annotation, run statistical analysis:
 
 ```bash
-ros2 run dog_toy_finder_data llm_trials analyze "/workspace/data/vision/vision_eval_trials.csv" \
+ros2 run dog_toy_finder_data llm_trials analyze "/workspace/data/vision/vision_eval_all_trials.csv" \
     --tolerance "0.25" \
     --bearing-tolerance "5.0" \
     --output "/workspace/data/vision/vision_eval_analysis.json"

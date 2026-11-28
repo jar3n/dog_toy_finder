@@ -62,7 +62,7 @@ cd /workspace/docker
 docker compose up -d micro_ros_agent
 # then, in the ROS 2 container:
 ros2 launch dog_toy_finder_bringup robot.launch.py
-ros2 launch dog_toy_finder_vision stereo_vision.launch.py pipeline:="open_vocab"
+ros2 launch dog_toy_finder_vision stereo_vision.launch.py pipeline:="triangulation"
 ```
 
 If the Pico is intentionally off, you can still capture replies and tool calls,

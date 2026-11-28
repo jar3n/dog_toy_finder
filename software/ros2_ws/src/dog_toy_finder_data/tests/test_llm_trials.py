@@ -252,13 +252,13 @@ class RowAndCsvTests(unittest.TestCase):
     def test_vision_row_keeps_pipeline_method(self):
         result = {"id": "44", "target": "red ball", "image": ""}
         entry = {
-            "model": "yolov8s-world", "method": "open_vocab",
+            "model": "yolov8s-world", "method": "triangulation",
             "target_visible": True, "lateral_bearing_deg": 15.6,
             "distance_m": 1.0,
             "distance_source": "stereo_triangulation", "seconds": 0.08,
         }
         row = llm_trials.vision_row(result, entry, "yolov8s-world", "vision1")
-        self.assertEqual(row["method"], "open_vocab")
+        self.assertEqual(row["method"], "triangulation")
         self.assertEqual(row["model"], "yolov8s-world")
 
     def test_append_then_read_roundtrip(self):

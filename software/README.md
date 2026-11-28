@@ -41,7 +41,7 @@ Pico firmware                         Computer
 ESP32-CAM left/right --HTTP--> stereo_camera_node -> image_proc
                                     -> stereo_image_proc -> /stereo/disparity, /stereo/points2
                                     -> rectified colour pair -> vision_node
-                                        (open_vocab: two-eye triangulation;
+                                        (triangulation: two-eye triangulation;
                                          stereo-net: one-eye detection + dense
                                          stereo depth) -> /vision/result
                                              |                         |
@@ -49,19 +49,21 @@ ESP32-CAM left/right --HTTP--> stereo_camera_node -> image_proc
                                              |                             -> /map, /detected_toys
                                              |                             -> map_webserver -> browser
                                              +-> vision_capture -> saved L/R shots + meta.json
-                                                                  -> vision_eval (offline)
-                                                                      -> vision_eval_trials.csv
+                                                                  -> vision_eval (offline, both pipelines)
+                                                                      -> vision_eval_all_trials.csv
 ```
 
 The vision node is request-driven: planners and ROSA publish a JSON request on
 `/vision/ask` and read the matching answer on `/vision/result`. Select the
-pipeline with `pipeline:=open_vocab|stereo-net` at launch, `VISION_PIPELINE`, or the
-top-level `pipeline` key in `vision_detectors.yaml`. `open_vocab` triangulates
-two-eye detections; `stereo-net` detects in the left eye and reads depth from a
+pipeline with `pipeline:=triangulation|stereo-net` at launch, `VISION_PIPELINE`, or the
+top-level `pipeline` key in `vision_detectors.yaml`. `triangulation` matches
+two-eye detections and derives depth from disparity; `stereo-net` detects in the
+left eye and reads depth from a
 dense stereo map. All answers use a numeric `lateral_bearing_deg`
 (`atan((cx - u) / fx)`, positive = robot-left). For fair comparison, capture
 several rectified shots per scene with `vision_capture` and replay them offline
-with `vision_eval`; no live pose or detector is needed at capture time.
+with `vision_eval`, which runs both pipelines in one command and unloads host
+models between them; no live pose or detector is needed at capture time.
 
 ## Quick start
 
@@ -75,12 +77,12 @@ docker compose -f docker/docker-compose.yml up -d micro_ros_agent
 docker compose -f docker/docker-compose.yml run --rm ros2
 ```
 
-On the host, before starting the vision node, start the detector service
-(`./scripts/start_yolo_service.sh`, one detector at a time via
-`DETECTOR_MODEL=yolo_world|yoloe_26|grounding_dino`). For the `stereo-net` pipeline
-also start the dense-stereo depth service
-(`./scripts/start_stereo_service.sh`, one model at a time via
-`DEPTH_MODEL=lite_any_stereo|fast_foundation_stereo|rt_igevpp`). Both keep torch
+On the host, before starting the vision node, start both services in the
+background with `./scripts/start_host_vision_services.sh` (or individually with
+`./scripts/start_yolo_service.sh` and `./scripts/start_stereo_service.sh`). No
+model variable is needed: `vision_node` / `vision_eval` select the backend with
+`POST /configure` using `open_vocab.detector` and `stereo-net.model` in the vision
+YAML. Stop them with `./scripts/stop_host_vision_services.sh`. Both keep torch
 and weights out of the container; see
 [`software/ros2_ws/src/dog_toy_finder_vision/README.md`](ros2_ws/src/dog_toy_finder_vision/README.md)
 for the full host setup.
@@ -106,7 +108,7 @@ ros2 launch dog_toy_finder_bringup robot.launch.py
 
 # cameras + stereo depth + open-vocabulary vision pipeline
 ros2 launch dog_toy_finder_vision stereo_vision.launch.py \
-    pipeline:=open_vocab
+    pipeline:=triangulation
 
 # occupancy map and browser viewer
 ros2 launch dog_toy_finder_mapping mapping.launch.py

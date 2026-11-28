@@ -1,29 +1,38 @@
 #!/usr/bin/env python3
-"""Host-side open-vocabulary detector service for the open_vocab pipeline.
+"""Host-side open-vocabulary detector service for the triangulation pipeline.
 
 Runs on the computer (not in the ROS 2 container) so torch, ultralytics,
 transformers and the model weights stay out of the container image. The
 container sends one or two rectified JPEGs plus text class prompts to
 ``POST /detect``; this service runs the selected detector on each image and
-returns plain-Python detection dictionaries. ``open_vocab`` sends both eyes for
+returns plain-Python detection dictionaries. ``triangulation`` sends both eyes for
 stereo matching in the container; ``stereo-net`` sends only the left eye and asks
 for mask-pixel samples for the host depth service.
 
-One detector runs at a time, selected on the host with ``DETECTOR_MODEL`` or
-``--detector``: ``yolo_world``, ``yoloe_26``, or ``grounding_dino``.
+One detector runs at a time. The service starts without a model selection; the
+ROS client chooses the backend with ``POST /configure``: ``yolo_world``,
+``yoloe_26``, or ``grounding_dino``. ``DETECTOR_MODEL`` / ``--detector`` are
+optional overrides for running the HTTP service directly.
 
 Usage (see scripts/start_yolo_service.sh for venv/weight setup)::
 
-    DETECTOR_MODEL=yoloe_26 ./scripts/start_yolo_service.sh
+    ./scripts/start_yolo_service.sh
 
 Endpoints::
 
-    GET  /health  -> {"ok": true, "detector": ..., "model": ..., "weights": ...}
-    POST /detect   -> {"model": ..., "detections": [[left...], [right...]]}
+    GET  /health    -> {"ok": true, "configured": ..., "detector": ..., "loaded": ...}
+    POST /configure -> {"ok": true, "detector": ..., "model": ..., "weights": ...}
+    POST /detect    -> {"model": ..., "detections": [[left...], [right...]]}
+    POST /unload    -> {"ok": true, "unloaded": true|false}
+
+``/unload`` releases the loaded detector and its cache without stopping the
+HTTP process, so the evaluator can tear one pipeline down before loading models
+for the next pipeline configuration.
 """
 
 import argparse
 import base64
+import gc
 import json
 import os
 import sys
@@ -39,6 +48,9 @@ import detectors  # noqa: E402
 
 MODELS_DIR = HOST_VISION / "models"
 DEFAULT_PORT = 5006
+DEFAULT_CONFIDENCE = 0.25
+DEFAULT_TEXT_THRESHOLD = 0.25
+DEFAULT_MAX_DETECTIONS = 10
 WEIGHTS_ENV = {
     detectors.YOLO_WORLD: "YOLO_MODEL_PATH",
     detectors.YOLOE_26: "YOLOE_MODEL_PATH",
@@ -49,7 +61,7 @@ _CONFIG = {}
 _MODEL = None
 _MODEL_NAME = ""
 _WEIGHTS = ""
-_DETECTOR = detectors.YOLO_WORLD
+_DETECTOR = None
 
 
 def default_weights(detector):
@@ -76,6 +88,52 @@ def build_config(args):
     }
 
 
+def configure(body):
+    """Select the detector backend without stopping the HTTP process.
+
+    The ROS side sends this once at the start of each pipeline. Changing the
+    backend, weights, or device unloads any current model so inference always
+    uses the requested configuration; threshold-only changes do not.
+    """
+    global _CONFIG, _MODEL, _MODEL_NAME, _WEIGHTS, _DETECTOR
+    if not isinstance(body, dict):
+        raise ValueError("configuration body must be a JSON object")
+    selected = body.get("detector") or body.get("model") or body.get("backend")
+    detector = detectors.detector_name(selected)
+    model_path = str(body.get("model_path") or default_weights(detector))
+    name = str(body.get("name")
+               or Path(model_path.replace("\\", "/")).stem
+               or detector)
+    config = {
+        "detector": detector,
+        "model_path": model_path,
+        "device": str(body.get("device") or ""),
+        "confidence_threshold": float(body.get(
+            "confidence_threshold", DEFAULT_CONFIDENCE)),
+        "text_threshold": float(body.get(
+            "text_threshold", DEFAULT_TEXT_THRESHOLD)),
+        "max_detections": int(body.get(
+            "max_detections", DEFAULT_MAX_DETECTIONS)),
+    }
+    model_keys = ("detector", "model_path", "device")
+    model_changed = any(
+        key in _CONFIG and _CONFIG[key] != config[key] for key in model_keys)
+    if model_changed:
+        unload()
+    _CONFIG = config
+    _DETECTOR = detector
+    _MODEL_NAME = name
+    _WEIGHTS = model_path
+    return {
+        "ok": True,
+        "configured": True,
+        "detector": detector,
+        "model": name,
+        "weights": model_path,
+        "loaded": _MODEL is not None,
+    }
+
+
 def _apply_request(config, body):
     """Allow a request to override only the detector thresholds."""
     overrides = dict(config)
@@ -88,6 +146,11 @@ def _apply_request(config, body):
 def detect(body):
     """Run both eyes and return ``(model_name, detections)``."""
     global _MODEL
+    if not isinstance(body, dict):
+        raise ValueError("detection body must be a JSON object")
+    if not _CONFIG:
+        raise ValueError(
+            "Detector model is not configured; POST /configure first")
     images = body.get("images")
     if not isinstance(images, list) or len(images) not in (1, 2):
         raise ValueError(
@@ -111,12 +174,32 @@ def detect(body):
             detectors.detections_for_image(_MODEL, rgb, classes, config))
 
     # The stereo-net pipeline needs the mask pixels for dense-depth sampling. Keep
-    # them off the normal open_vocab response so those answers stay small.
+    # them off the normal triangulation response so those answers stay small.
     if not body.get("include_depth_samples"):
         for eye in detections:
             for detection in eye:
                 detection.pop("depth_sample_pixels", None)
     return _MODEL_NAME, detections
+
+
+def _empty_cuda_cache():
+    """Release CUDA allocations when torch is available; ignore other setups."""
+    try:
+        import torch
+        torch.cuda.empty_cache()
+    except Exception:
+        pass
+
+
+def unload():
+    """Release the loaded detector and let the next request reload it."""
+    global _MODEL
+    loaded = _MODEL is not None
+    _MODEL = None
+    detectors.clear_cache()
+    gc.collect()
+    _empty_cuda_cache()
+    return {"ok": True, "unloaded": loaded}
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -141,18 +224,37 @@ class Handler(BaseHTTPRequestHandler):
             return
         self._json(200, {
             "ok": True,
+            "configured": bool(_CONFIG),
             "detector": _DETECTOR,
             "model": _MODEL_NAME,
             "weights": _WEIGHTS,
+            "loaded": _MODEL is not None,
         })
 
     def do_POST(self):
-        if self.path.split("?")[0] != "/detect":
+        route = self.path.split("?")[0]
+        try:
+            length = int(self.headers.get("Content-Length", 0))
+            body = json.loads(self.rfile.read(length).decode("utf-8") or "{}")
+        except (ValueError, UnicodeDecodeError) as error:
+            self._json(400, {"error": "invalid JSON body: %s" % error})
+            return
+        if route == "/configure":
+            try:
+                self._json(200, configure(body))
+            except ValueError as error:
+                self._json(400, {"error": str(error)})
+            except Exception as error:  # keep the service alive
+                sys.stderr.write("[detector] configure failed: %s\n" % error)
+                self._json(500, {"error": "configure failed: %s" % error})
+            return
+        if route == "/unload":
+            self._json(200, unload())
+            return
+        if route != "/detect":
             self._json(404, {"error": "not found"})
             return
         try:
-            length = int(self.headers.get("Content-Length", 0))
-            body = json.loads(self.rfile.read(length).decode("utf-8"))
             start = time.time()
             name, detections = detect(body)
             self._json(200, {
@@ -173,9 +275,10 @@ def parse_args(argv=None):
                         help="bind address (127.0.0.1 is enough with host networking)")
     parser.add_argument("--port", type=int, default=DEFAULT_PORT,
                         help="TCP port (default: %d)" % DEFAULT_PORT)
-    parser.add_argument("--detector", default=os.environ.get(
-        "DETECTOR_MODEL", detectors.YOLO_WORLD), choices=detectors.DETECTORS,
-        help="open-vocabulary backend (default: $DETECTOR_MODEL / yolo_world)")
+    parser.add_argument("--detector", default=os.environ.get("DETECTOR_MODEL"),
+                        choices=detectors.DETECTORS,
+                        help="optional initial backend; clients normally select "
+                             "it with POST /configure")
     parser.add_argument("--model", default=None,
                         help="weights path or HF model id (default: per-detector "
                              "YOLO_MODEL_PATH / YOLOE_MODEL_PATH / "
@@ -193,26 +296,43 @@ def parse_args(argv=None):
     parser.add_argument("--max-detections", type=int, default=10,
                         help="default maximum detections per image")
     args = parser.parse_args(argv)
-    if args.model is None:
-        args.model = default_weights(args.detector)
-    if args.name is None:
-        args.name = Path(args.model.replace("\\", "/")).stem or args.detector
+    if args.detector:
+        if args.model is None:
+            args.model = default_weights(args.detector)
+        if args.name is None:
+            args.name = (Path(args.model.replace("\\", "/")).stem
+                         or args.detector)
     return args
 
 
 def main(argv=None):
     global _CONFIG, _MODEL, _MODEL_NAME, _WEIGHTS, _DETECTOR
     args = parse_args(argv)
-    _CONFIG = build_config(args)
+    _CONFIG = {}
     _MODEL = None
-    _MODEL_NAME = args.name
-    _WEIGHTS = args.model
-    _DETECTOR = args.detector
+    _MODEL_NAME = ""
+    _WEIGHTS = ""
+    _DETECTOR = None
+    if args.detector:
+        configure({
+            "detector": args.detector,
+            "model_path": args.model,
+            "name": args.name,
+            "device": args.device,
+            "confidence_threshold": args.confidence,
+            "text_threshold": args.text_threshold,
+            "max_detections": args.max_detections,
+        })
 
     server = ThreadingHTTPServer((args.host, args.port), Handler)
-    print("Detector service on http://%s:%d -> %s / %s (model %s)"
-          % (args.host, args.port, args.detector, args.model, args.name),
+    print("Detector service on http://%s:%d" % (args.host, args.port),
           flush=True)
+    if args.detector:
+        print("Initial detector: %s / %s" % (args.detector, args.name),
+              flush=True)
+    else:
+        print("No detector selected; POST /configure before /detect.",
+              flush=True)
     print("Load happens on the first /detect request; GET /health for status.",
           flush=True)
     try:

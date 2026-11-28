@@ -3,18 +3,20 @@
 # the capture/eval tools and stereo_vision.launch.py.
 #
 # Both pipelines take the operator's text target plus the rectified left/right
-# JPEGs and return the object's location. An explicit `pipeline:=` launch arg,
-# --pipeline on vision_eval, or VISION_PIPELINE overrides the choice below.
+# JPEGs and return the object's location. An explicit `pipeline:=` launch arg or
+# VISION_PIPELINE overrides the choice below for the live node. Offline
+# vision_eval runs both pipelines by default; use --pipeline NAME to select one.
 #
 # The per-eye camera values must match the rectified intrinsics passed to
 # stereo_vision.launch.py. Detection and triangulation use the left eye; the
 # right eye is kept separate so the camera node does not force a shared K.
 # Bearing uses atan((left.cx - u) / left.fx), positive to the left.
 
-# Vision pipeline used when no explicit selector is given:
-#   open_vocab  - detect in both eyes, triangulate distance from disparity
+# Live vision pipeline used when no explicit selector is given (vision_eval
+# ignores this default and evaluates both pipelines unless --pipeline is passed):
+#   triangulation - detect in both eyes, triangulate distance from disparity
 #   stereo-net  - detect in the left eye, read dense-stereo depth
-pipeline: open_vocab
+pipeline: triangulation
 
 camera:
   # Rectified image size in pixels. Must match the launch width/height and the
@@ -60,11 +62,16 @@ camera:
 # open_vocab: an open-vocabulary detector runs on the computer as an HTTP
 # service (scripts/start_yolo_service.sh); this container only sends JPEGs and
 # matches the returned detections. One detector runs at a time: yolo_world,
-# yoloe_26, or grounding_dino. The backend and weights are configured on the
-# host via DETECTOR_MODEL and YOLO_MODEL_PATH / YOLOE_MODEL_PATH /
-# GROUNDING_DINO_MODEL (plus YOLO_DEVICE), not here.
+# yoloe_26, or grounding_dino. The host service starts without a model; the ROS
+# client sends this `detector` choice to POST /configure when it starts. Change
+# it here to switch backends; the host start script prepares all three.
 open_vocab:
-  # Fallback model name recorded when the detector service does not report one.
+  # Host detector backend selected by POST /configure. Known weights stems are
+  # also accepted, e.g. yolov8s-world, yoloe-26s-seg, grounding-dino-tiny.
+  detector: yolo_world
+
+  # Model name recorded in results. The service reports its own name, so this is
+  # only a fallback; update it when switching to a different backend.
   name: yolov8s-world
 
   # Base URL of the host detector service. Overridden by YOLO_SERVICE_URL in the
@@ -92,12 +99,16 @@ open_vocab:
 
 # stereo-net: the detector above runs on the left image only; a host dense-stereo
 # service (scripts/start_stereo_service.sh) reads depth from a disparity map.
-# One depth model runs at a time, selected on the host with DEPTH_MODEL:
-#   lite_any_stereo | fast_foundation_stereo | rt_igevpp
-# The model/weights/device are configured on the host, not here. `name` below
-# is only the fallback recorded when the service does not report a name.
+# One depth model runs at a time. The host service starts without a model; the
+# ROS client sends this `model` choice to POST /configure when it runs the
+# stereo-net pipeline. The host start script prepares all three repositories and
+# checkpoints, so no DEPTH_MODEL variable is needed.
 stereo-net:
-  # Fallback dense depth model name recorded when the service omits one.
+  # Host dense-stereo backend selected by POST /configure:
+  #   lite_any_stereo | fast_foundation_stereo | rt_igevpp
+  model: lite_any_stereo
+
+  # Fallback depth model name recorded when the service omits one.
   name: lite_any_stereo
 
   # Base URL of the host depth service. Overridden by STEREO_SERVICE_URL in the

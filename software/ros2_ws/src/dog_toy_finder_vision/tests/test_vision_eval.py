@@ -6,6 +6,7 @@ import json
 import os
 import random
 import shutil
+import signal
 import sys
 import tempfile
 import unittest
@@ -20,11 +21,23 @@ sys.path.insert(0, SRC_ROOT)
 from dog_toy_finder_vision import depth_client  # noqa: E402
 from dog_toy_finder_vision import vision_config  # noqa: E402
 from dog_toy_finder_vision import vision_eval  # noqa: E402
+from dog_toy_finder_vision import vision_pipelines  # noqa: E402
 from dog_toy_finder_vision import yolo_client  # noqa: E402
 try:  # installed ROS workspace vs. plain source checkout
     from dog_toy_finder_data import llm_trials  # noqa: E402
 except ImportError:  # pragma: no cover - host-side fallback
     import llm_trials  # noqa: E402
+
+_REAL_CONFIGURE_PIPELINE = vision_eval._configure_pipeline
+_REAL_UNLOAD_PIPELINE = vision_eval._unload_pipeline
+
+REPO_ROOT = os.path.abspath(os.path.join(SRC_ROOT, "..", "..", "..", ".."))
+BLACK_BOTTLE_PILOT_ROOT = os.path.join(
+    REPO_ROOT, "data", "vision", "pilot_captures")
+BLACK_BOTTLE_RUNS = ("pilot_black_bottle", "pilot_black_bottle_lights_on")
+BLACK_BOTTLE_CAPTURES_PRESENT = all(
+    os.path.isdir(os.path.join(BLACK_BOTTLE_PILOT_ROOT, run_id))
+    for run_id in BLACK_BOTTLE_RUNS)
 
 
 def _detection(u, v, label):
@@ -56,6 +69,31 @@ class FakeClient:
         return found[0], found[1], "fake-world"
 
 
+def _fake_detect_both(left_jpeg, right_jpeg, classes, config):
+    left, right, _ = FakeClient()(
+        left_jpeg, right_jpeg, classes, config)
+    return left, right, "fake-world"
+
+
+def _fake_detect_one(jpeg, classes, config):
+    detections, _, _ = FakeClient()(jpeg, jpeg, classes, config)
+    for entry in detections:
+        entry["center_source"] = "box_center"
+        entry["mask_area_px"] = 0
+        entry["depth_sample_pixels"] = []
+    return detections, "fake-world"
+
+
+def _fake_sample_depth(left_jpeg, right_jpeg, spec, config):
+    fx = vision_config.eye_intrinsics(config, "left")["fx"]
+    baseline = float(config["camera"]["baseline_m"])
+    return {
+        "model": "fake-stereo", "depth_m": fx * baseline / 20.0,
+        "disparity_px": 20.0, "sample_source": spec["sample_source"],
+        "sample_count": 49, "valid_count": 49,
+    }
+
+
 class OfflineEvalTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
@@ -71,6 +109,18 @@ class OfflineEvalTests(unittest.TestCase):
         self.config_path = os.path.join(self.temp.name, "test_config.json")
         with open(self.config_path, "w") as handle:
             json.dump(self.config, handle)
+        # Offline replay tests inject fake model calls, so keep evaluator tests
+        # from contacting real host services when the evaluator configures and
+        # tears down models around each pipeline.
+        configure_patch = mock.patch.object(
+            vision_eval, "_configure_pipeline", return_value=None)
+        self.configure_mock = configure_patch.start()
+        self.addCleanup(configure_patch.stop)
+        unload_patch = mock.patch.object(
+            vision_eval, "_unload_pipeline",
+            return_value={"detector": {"ok": True, "unloaded": False}})
+        self.unload_mock = unload_patch.start()
+        self.addCleanup(unload_patch.stop)
         self.root = os.path.join(self.temp.name, "captures")
         self.capture_dir = os.path.join(self.root, "run1", "cap1")
         os.makedirs(self.capture_dir)
@@ -200,7 +250,7 @@ class OfflineEvalTests(unittest.TestCase):
         self._write_synthetic_pair()
         _, shot_dirs = self._write_multi_shot_scene()
         result, meta = vision_eval.evaluate_capture(
-            shot_dirs[1], self.config, "open_vocab", client=FakeClient())
+            shot_dirs[1], self.config, "triangulation", client=FakeClient())
         self.assertEqual(result["id"], "scene1_shot_02")
         self.assertEqual(result["scene_id"], "scene1")
         self.assertEqual(result["shot_index"], 2)
@@ -243,7 +293,7 @@ class OfflineEvalTests(unittest.TestCase):
         self._write_multi_object_meta()
         client = FakeClient()
         result, meta = vision_eval.evaluate_capture(
-            self.capture_dir, self.config, "open_vocab", client=client)
+            self.capture_dir, self.config, "triangulation", client=client)
 
         self.assertEqual([obj["id"] for obj in result["objects"]], [
             "cap1", "cap1__additional_01", "cap1__additional_02"])
@@ -275,7 +325,7 @@ class OfflineEvalTests(unittest.TestCase):
              contextlib.redirect_stdout(io.StringIO()):
             code = vision_eval.main([
                 "--config", self.config_path, "--captures-dir", self.root,
-                "--pipeline", "open_vocab", "--output-csv", csv_path,
+                "--pipeline", "triangulation", "--output-csv", csv_path,
                 "--results-json", results_path, "--summary-json", summary_path])
         self.assertEqual(code, 0)
 
@@ -323,7 +373,7 @@ class OfflineEvalTests(unittest.TestCase):
                                evaluate_with_fake_client), \
              contextlib.redirect_stdout(io.StringIO()):
             code = vision_eval.main([
-                "--config", self.config_path, "--captures-dir", self.root, "--pipeline", "open_vocab",
+                "--config", self.config_path, "--captures-dir", self.root, "--pipeline", "triangulation",
                 "--seed", "42", "--output-csv", csv_path,
                 "--results-json", results_path, "--summary-json", summary_path])
         self.assertEqual(code, 0)
@@ -370,7 +420,7 @@ class OfflineEvalTests(unittest.TestCase):
              contextlib.redirect_stdout(io.StringIO()):
             code = vision_eval.main([
                 "--config", self.config_path, "--pilot", "--pipeline",
-                "open_vocab", "--seed", "42"])
+                "triangulation", "--seed", "42"])
         self.assertEqual(code, 0)
         default_dir.assert_called_once_with(pilot=True)
         for name in ("vision_eval_trials.csv", "vision_eval_results.jsonl",
@@ -396,7 +446,7 @@ class OfflineEvalTests(unittest.TestCase):
                                evaluate_with_fake_client), \
              contextlib.redirect_stdout(io.StringIO()):
             code = vision_eval.main([
-                "--config", self.config_path, "--captures-dir", self.root, "--pipeline", "open_vocab",
+                "--config", self.config_path, "--captures-dir", self.root, "--pipeline", "triangulation",
                 "--seed", "1",
                 "--output-csv", os.path.join(self.temp.name,
                                              "shuffled_scenes.csv"),
@@ -482,15 +532,15 @@ class OfflineEvalTests(unittest.TestCase):
         client = FakeClient()
 
         result, meta = vision_eval.evaluate_capture(
-            self.capture_dir, self.config, "open_vocab", client=client)
+            self.capture_dir, self.config, "triangulation", client=client)
 
         self.assertEqual(result["id"], "cap1")
-        self.assertEqual(result["pipeline"], "open_vocab")
+        self.assertEqual(result["pipeline"], "triangulation")
         self.assertEqual(result["models"], ["fake-world"])
         self.assertEqual(len(client.calls), 1, "one request carries both eyes")
         entry = result["results"][0]
         self.assertTrue(entry["target_visible"])
-        self.assertEqual(entry["method"], "open_vocab")
+        self.assertEqual(entry["method"], "triangulation")
         self.assertEqual(entry["distance_source"], "stereo_triangulation")
         self.assertAlmostEqual(
             entry["lateral_bearing_deg"],
@@ -505,7 +555,7 @@ class OfflineEvalTests(unittest.TestCase):
         row = llm_trials.vision_row(
             result, entry, "fake-world", "run1",
             ground_truth=meta["ground_truth"], bearing_tolerance=5.0)
-        self.assertEqual(row["method"], "open_vocab")
+        self.assertEqual(row["method"], "triangulation")
         self.assertNotIn("size", row)
         self.assertNotIn("gt_size", row)
         self.assertEqual(row["gt_lateral_bearing_deg"],
@@ -581,18 +631,18 @@ class OfflineEvalTests(unittest.TestCase):
         summary_path = os.path.join(self.temp.name, "summary.json")
         with contextlib.redirect_stdout(io.StringIO()):
             code = vision_eval.main([
-                "--config", self.config_path, "--captures-dir", self.root, "--pipeline", "open_vocab",
+                "--config", self.config_path, "--captures-dir", self.root, "--pipeline", "triangulation",
                 "--output-csv", csv_path, "--results-json", results_path,
                 "--summary-json", summary_path])
         self.assertEqual(code, 0)
         with open(summary_path) as handle:
             summary = json.load(handle)
-        self.assertEqual(summary["pipeline"], "open_vocab")
+        self.assertEqual(summary["pipeline"], "triangulation")
         self.assertEqual(summary["rows"], 1)
         self.assertEqual(summary["models"], ["fake-world"])
         rows, fields = llm_trials.read_csv(csv_path)
         self.assertEqual(len(rows), 1)
-        self.assertEqual(rows[0]["method"], "open_vocab")
+        self.assertEqual(rows[0]["method"], "triangulation")
         self.assertIn("method", fields)
         self.assertTrue(os.path.isfile(results_path))
 
@@ -616,7 +666,7 @@ class OfflineEvalTests(unittest.TestCase):
                                evaluate_with_fake_client), \
              contextlib.redirect_stdout(output):
             code = vision_eval.main([
-                "--config", self.config_path, "--captures-dir", self.root, "--pipeline", "open_vocab",
+                "--config", self.config_path, "--captures-dir", self.root, "--pipeline", "triangulation",
                 "--seed", "42", "--limit", "2",
                 "--output-csv", csv_path, "--results-json", results_path,
                 "--summary-json", summary_path])
@@ -648,7 +698,7 @@ class OfflineEvalTests(unittest.TestCase):
              mock.patch.object(yolo_client, "detect", detect_both), \
              contextlib.redirect_stdout(io.StringIO()):
             code = vision_eval.main([
-                "--config", self.config_path, "--captures-dir", self.root, "--pipeline", "open_vocab",
+                "--config", self.config_path, "--captures-dir", self.root, "--pipeline", "triangulation",
                 "--output-csv", os.path.join(self.temp.name, "generated.csv"),
                 "--results-json", os.path.join(self.temp.name,
                                                "generated.jsonl"),
@@ -659,6 +709,397 @@ class OfflineEvalTests(unittest.TestCase):
         self.assertEqual(summary["shuffle_seed"], 777)
         self.assertEqual(summary["capture_order"], [os.path.join(
             "run1", "cap1")])
+
+    def test_main_runs_all_pipelines_by_default_with_shared_order(self):
+        self._write_synthetic_pair()
+        with mock.patch.object(yolo_client, "detect", _fake_detect_both), \
+             mock.patch.object(yolo_client, "detect_one", _fake_detect_one), \
+             mock.patch.object(depth_client, "sample", _fake_sample_depth), \
+             contextlib.redirect_stdout(io.StringIO()) as output:
+            code = vision_eval.main([
+                "--config", self.config_path, "--captures-dir", self.root,
+                "--seed", "42"])
+        self.assertEqual(code, 0)
+        self.assertIn("seed 42", output.getvalue())
+
+        summaries = {}
+        for pipeline in vision_pipelines.PIPELINES:
+            csv_path = os.path.join(
+                self.temp.name, "vision_eval_%s_trials.csv" % pipeline)
+            jsonl_path = os.path.join(
+                self.temp.name, "vision_eval_%s_results.jsonl" % pipeline)
+            summary_path = os.path.join(
+                self.temp.name, "vision_eval_%s_summary.json" % pipeline)
+            for path in (csv_path, jsonl_path, summary_path):
+                self.assertTrue(os.path.isfile(path), path)
+            rows, _ = llm_trials.read_csv(csv_path)
+            self.assertEqual(len(rows), 1)
+            self.assertEqual(rows[0]["method"], pipeline)
+            with open(summary_path) as handle:
+                summary = json.load(handle)
+            self.assertEqual(summary["pipeline"], pipeline)
+            self.assertEqual(summary["shuffle_seed"], 42)
+            self.assertEqual(summary["shot_order"], [os.path.join(
+                "run1", "cap1")])
+            summaries[pipeline] = summary
+        self.assertEqual(
+            summaries["triangulation"]["models"], ["fake-world"])
+        self.assertEqual(
+            summaries["stereo-net"]["models"], ["fake-stereo"])
+
+        combined_csv = os.path.join(
+            self.temp.name, "vision_eval_all_trials.csv")
+        self.assertTrue(os.path.isfile(combined_csv))
+        rows, _ = llm_trials.read_csv(combined_csv)
+        self.assertEqual(len(rows), 2)
+        self.assertEqual({row["method"] for row in rows}, set(summaries))
+
+        all_summary_path = os.path.join(
+            self.temp.name, "vision_eval_all_summary.json")
+        with open(all_summary_path) as handle:
+            combined = json.load(handle)
+        self.assertEqual(combined["kind"], "vision_eval_all")
+        self.assertEqual(
+            combined["pipelines"], ["triangulation", "stereo-net"])
+        self.assertEqual(combined["failed_pipelines"], [])
+        self.assertEqual(combined["shuffle_seed"], 42)
+        self.assertEqual(combined["rows"], 2)
+        self.assertEqual(combined["trial_csv"], combined_csv)
+        self.assertEqual(set(combined["runs"]), set(summaries))
+        for pipeline, entry in combined["runs"].items():
+            self.assertTrue(os.path.isfile(entry["summary_json"]))
+            self.assertEqual(entry["rows"], 1)
+
+    def test_main_logs_pipeline_configuration_and_current_scene(self):
+        self._write_synthetic_pair()
+        with mock.patch.object(yolo_client, "detect", _fake_detect_both), \
+             mock.patch.object(yolo_client, "detect_one", _fake_detect_one), \
+             mock.patch.object(depth_client, "sample", _fake_sample_depth), \
+             contextlib.redirect_stdout(io.StringIO()) as output:
+            code = vision_eval.main([
+                "--config", self.config_path, "--captures-dir", self.root,
+                "--seed", "42"])
+        self.assertEqual(code, 0)
+        text = output.getvalue()
+        self.assertIn("starting pipeline=triangulation detector=yolov8s-world",
+                      text)
+        self.assertIn(
+            "processing pipeline=triangulation detector=yolov8s-world "
+            "scene=cap1 shot=cap1", text)
+        self.assertIn("finished pipeline=triangulation detector=fake-world", text)
+        self.assertIn(
+            "starting pipeline=stereo-net detector=yolov8s-world "
+            "depth=lite_any_stereo", text)
+        self.assertIn(
+            "processing pipeline=stereo-net detector=yolov8s-world "
+            "depth=lite_any_stereo scene=cap1 shot=cap1", text)
+        self.assertIn(
+            "finished pipeline=stereo-net detector=fake-world "
+            "depth=fake-stereo", text)
+
+    def test_unload_pipeline_releases_only_models_used_by_pipeline(self):
+        with mock.patch.object(
+                yolo_client, "unload",
+                return_value={"ok": True, "detector": True}) as detector_unload, \
+             mock.patch.object(
+                 depth_client, "unload",
+                 return_value={"ok": True, "depth": True}) as depth_unload:
+            open_status = _REAL_UNLOAD_PIPELINE("triangulation", self.config)
+            detector_unload.assert_called_once_with(self.config)
+            depth_unload.assert_not_called()
+            self.assertTrue(open_status["detector"]["detector"])
+
+            detector_unload.reset_mock()
+            stereo_status = _REAL_UNLOAD_PIPELINE("stereo-net", self.config)
+            detector_unload.assert_called_once_with(self.config)
+            depth_unload.assert_called_once_with(self.config)
+            self.assertEqual(set(stereo_status), {"detector", "depth"})
+            self.assertTrue(stereo_status["depth"]["depth"])
+
+    def test_configure_pipeline_selects_only_models_used_by_pipeline(self):
+        with mock.patch.object(yolo_client, "configure") as detector_configure, \
+             mock.patch.object(depth_client, "configure") as depth_configure:
+            _REAL_CONFIGURE_PIPELINE("triangulation", self.config)
+            detector_configure.assert_called_once_with(self.config)
+            depth_configure.assert_not_called()
+
+            detector_configure.reset_mock()
+            depth_configure.reset_mock()
+            _REAL_CONFIGURE_PIPELINE("stereo-net", self.config)
+            detector_configure.assert_called_once_with(self.config)
+            depth_configure.assert_called_once_with(self.config)
+
+    def test_main_configures_each_pipeline_before_its_first_shot(self):
+        self._write_synthetic_pair()
+        events = []
+
+        def configure(pipeline, config):
+            events.append("configure_%s" % pipeline)
+
+        def detect_both(left_jpeg, right_jpeg, classes, config):
+            events.append("triangulation_model")
+            return _fake_detect_both(left_jpeg, right_jpeg, classes, config)
+
+        def detect_one(jpeg, classes, config):
+            events.append("stereo_net_model")
+            return _fake_detect_one(jpeg, classes, config)
+
+        def sample_depth(left_jpeg, right_jpeg, spec, config):
+            events.append("stereo_net_depth")
+            return _fake_sample_depth(left_jpeg, right_jpeg, spec, config)
+
+        self.configure_mock.side_effect = configure
+        with mock.patch.object(yolo_client, "detect", detect_both), \
+             mock.patch.object(yolo_client, "detect_one", detect_one), \
+             mock.patch.object(depth_client, "sample", sample_depth), \
+             contextlib.redirect_stdout(io.StringIO()):
+            code = vision_eval.main([
+                "--config", self.config_path, "--captures-dir", self.root,
+                "--seed", "42"])
+        self.assertEqual(code, 0)
+        self.assertEqual(events, [
+            "configure_triangulation", "triangulation_model",
+            "configure_stereo-net", "stereo_net_model", "stereo_net_depth"])
+
+    def test_main_unloads_models_before_running_next_pipeline(self):
+        self._write_synthetic_pair()
+        events = []
+
+        def detect_both(left_jpeg, right_jpeg, classes, config):
+            events.append("triangulation_model")
+            return _fake_detect_both(left_jpeg, right_jpeg, classes, config)
+
+        def detect_one(jpeg, classes, config):
+            events.append("stereo_net_model")
+            return _fake_detect_one(jpeg, classes, config)
+
+        def sample_depth(left_jpeg, right_jpeg, spec, config):
+            events.append("stereo_net_depth")
+            return _fake_sample_depth(left_jpeg, right_jpeg, spec, config)
+
+        def configure(pipeline, config):
+            events.append("configure_%s" % pipeline)
+
+        def unload(pipeline, config):
+            events.append("unload_%s" % pipeline)
+            return {"detector": {"ok": True, "unloaded": True}}
+
+        self.configure_mock.side_effect = configure
+        self.unload_mock.side_effect = unload
+        with mock.patch.object(yolo_client, "detect", detect_both), \
+             mock.patch.object(yolo_client, "detect_one", detect_one), \
+             mock.patch.object(depth_client, "sample", sample_depth), \
+             contextlib.redirect_stdout(io.StringIO()):
+            code = vision_eval.main([
+                "--config", self.config_path, "--captures-dir", self.root,
+                "--seed", "42"])
+        self.assertEqual(code, 0)
+        self.assertEqual(events, [
+            "configure_triangulation", "triangulation_model",
+            "unload_triangulation", "configure_stereo-net",
+            "stereo_net_model", "stereo_net_depth", "unload_stereo-net"])
+        self.assertEqual(
+            [call.args[0] for call in self.unload_mock.call_args_list],
+            list(vision_pipelines.PIPELINES))
+
+        all_summary_path = os.path.join(
+            self.temp.name, "vision_eval_all_summary.json")
+        with open(all_summary_path) as handle:
+            self.assertEqual(
+                set(json.load(handle)["unloads"]),
+                set(vision_pipelines.PIPELINES))
+
+    @unittest.skipUnless(
+        BLACK_BOTTLE_CAPTURES_PRESENT,
+        "black bottle pilot captures are not present in this checkout")
+    def test_black_bottle_pilot_captures_run_all_pipelines_with_unloads(self):
+        """Use the real pilot shots, but inject fake host model calls.
+
+        The saved black-bottle scenes supply the real metadata and JPEGs. Fake
+        detector/depth clients return named models so this checks that both
+        pipeline configurations run and that the host model unload calls happen
+        before the next pipeline starts, without loading real weights.
+        """
+        offset = vision_config.stereo_disparity_offset_px(self.config)
+        left_u = 150.0
+        right_u = left_u - (20.0 + offset)
+        detector_model = "yolov8s-world"
+        depth_model = "lite_any_stereo"
+
+        def fake_detection(u, v=120.0):
+            return {
+                "label": "black bottle", "confidence": 0.9,
+                "u": float(u), "v": float(v), "width_px": 12,
+                "height_px": 12,
+                "bbox_px": [u - 6.0, v - 6.0, u + 6.0, v + 6.0],
+                "center_source": "box_center", "mask_centroid_px": None,
+                "mask_area_px": 0, "depth_sample_pixels": [],
+            }
+
+        for run_id in BLACK_BOTTLE_RUNS:
+            with self.subTest(run_id=run_id):
+                events = []
+                out_dir = os.path.join(self.temp.name, run_id)
+                os.makedirs(out_dir)
+                self.unload_mock.reset_mock()
+                self.unload_mock.side_effect = _REAL_UNLOAD_PIPELINE
+
+                def detect_both(left_jpeg, right_jpeg, classes, config):
+                    events.append("triangulation_detector")
+                    return ([fake_detection(left_u)],
+                            [fake_detection(right_u)], detector_model)
+
+                def detect_one(jpeg, classes, config):
+                    events.append("stereo_net_detector")
+                    return [fake_detection(left_u)], detector_model
+
+                def sample_depth(left_jpeg, right_jpeg, spec, config):
+                    events.append("stereo_net_depth")
+                    return {
+                        "model": depth_model, "depth_m": 1.25,
+                        "disparity_px": 20.0,
+                        "sample_source": spec["sample_source"],
+                        "sample_count": 9, "valid_count": 9,
+                    }
+
+                def unload_detector(config):
+                    events.append("unload_detector")
+                    return {"ok": True, "unloaded": True}
+
+                def unload_depth(config):
+                    events.append("unload_depth")
+                    return {"ok": True, "unloaded": True}
+
+                with mock.patch.object(yolo_client, "detect", detect_both), \
+                     mock.patch.object(yolo_client, "detect_one", detect_one), \
+                     mock.patch.object(depth_client, "sample", sample_depth), \
+                     mock.patch.object(yolo_client, "unload", unload_detector), \
+                     mock.patch.object(depth_client, "unload", unload_depth), \
+                     contextlib.redirect_stdout(io.StringIO()) as output:
+                    code = vision_eval.main([
+                        "--config", self.config_path,
+                        "--captures-dir", BLACK_BOTTLE_PILOT_ROOT, "--pilot",
+                        "--run-id", run_id, "--seed", "42",
+                        "--output-csv", os.path.join(out_dir, "trials.csv"),
+                        "--results-json", os.path.join(out_dir, "results.jsonl"),
+                        "--summary-json", os.path.join(out_dir, "summary.json")])
+
+                self.assertEqual(code, 0)
+                expected_events = (
+                    ["triangulation_detector"] * 3 + ["unload_detector"]
+                    + ["stereo_net_detector", "stereo_net_depth"] * 3
+                    + ["unload_depth", "unload_detector"])
+                self.assertEqual(events, expected_events)
+
+                combined_csv = os.path.join(out_dir, "trials_all.csv")
+                rows, _ = llm_trials.read_csv(combined_csv)
+                methods = [row["method"] for row in rows]
+                self.assertEqual(len(rows), 6)
+                self.assertEqual(methods.count("triangulation"), 3)
+                self.assertEqual(methods.count("stereo-net"), 3)
+                self.assertEqual({row["gt_distance_m"] for row in rows},
+                                 {"1.25"})
+
+                with open(os.path.join(out_dir, "results_triangulation.jsonl")) \
+                        as handle:
+                    triangulation_entries = [json.loads(line)
+                                             for line in handle]
+                with open(os.path.join(out_dir, "results_stereo-net.jsonl")) \
+                        as handle:
+                    stereo_entries = [json.loads(line) for line in handle]
+                self.assertTrue(all(
+                    entry["results"][0]["model"] == detector_model
+                    for entry in triangulation_entries))
+                self.assertTrue(all(
+                    entry["results"][0]["model"] == depth_model
+                    and entry["results"][0]["detector_model"] == detector_model
+                    for entry in stereo_entries))
+
+                with open(os.path.join(out_dir, "summary_all.json")) as handle:
+                    combined = json.load(handle)
+                self.assertEqual(combined["pipelines"],
+                                 ["triangulation", "stereo-net"])
+                self.assertEqual(set(combined["unloads"]),
+                                 {"triangulation", "stereo-net"})
+
+                text = output.getvalue()
+                self.assertIn("scene=black_bottle_d1p25_op0", text)
+                self.assertIn("pipeline=triangulation", text)
+                self.assertIn("pipeline=stereo-net", text)
+
+    def test_main_does_not_start_next_pipeline_when_unload_fails(self):
+        self._write_synthetic_pair()
+        stereo_net_calls = []
+
+        def unload(pipeline, config):
+            if pipeline == "triangulation":
+                raise RuntimeError("detector unload failed")
+            return {"detector": {"ok": True, "unloaded": True}}
+
+        def detect_one(jpeg, classes, config):
+            stereo_net_calls.append(jpeg)
+            return _fake_detect_one(jpeg, classes, config)
+
+        self.unload_mock.side_effect = unload
+        with mock.patch.object(yolo_client, "detect", _fake_detect_both), \
+             mock.patch.object(yolo_client, "detect_one", detect_one), \
+             mock.patch.object(depth_client, "sample", _fake_sample_depth), \
+             contextlib.redirect_stdout(io.StringIO()), \
+             contextlib.redirect_stderr(io.StringIO()):
+            with self.assertRaisesRegex(RuntimeError, "detector unload failed"):
+                vision_eval.main([
+                    "--config", self.config_path, "--captures-dir", self.root,
+                    "--seed", "42"])
+        self.assertEqual(stereo_net_calls, [])
+
+    def test_main_does_not_start_pipeline_when_configure_fails(self):
+        self._write_synthetic_pair()
+        detector_calls = []
+
+        def configure(pipeline, config):
+            if pipeline == "triangulation":
+                raise RuntimeError("detector configure failed")
+
+        def detect_both(left_jpeg, right_jpeg, classes, config):
+            detector_calls.append(left_jpeg)
+            return _fake_detect_both(left_jpeg, right_jpeg, classes, config)
+
+        self.configure_mock.side_effect = configure
+        with mock.patch.object(yolo_client, "detect", detect_both), \
+             mock.patch.object(yolo_client, "detect_one", _fake_detect_one), \
+             mock.patch.object(depth_client, "sample", _fake_sample_depth), \
+             contextlib.redirect_stdout(io.StringIO()), \
+             contextlib.redirect_stderr(io.StringIO()):
+            with self.assertRaisesRegex(RuntimeError, "detector configure failed"):
+                vision_eval.main([
+                    "--config", self.config_path, "--captures-dir", self.root,
+                    "--seed", "42"])
+        self.assertEqual(detector_calls, [])
+
+    def test_main_all_pipelines_suffixes_explicit_output_paths(self):
+        self._write_synthetic_pair()
+        base_csv = os.path.join(self.temp.name, "custom_trials.csv")
+        base_jsonl = os.path.join(self.temp.name, "custom_results.jsonl")
+        base_summary = os.path.join(self.temp.name, "custom_summary.json")
+        with mock.patch.object(yolo_client, "detect", _fake_detect_both), \
+             mock.patch.object(yolo_client, "detect_one", _fake_detect_one), \
+             mock.patch.object(depth_client, "sample", _fake_sample_depth), \
+             contextlib.redirect_stdout(io.StringIO()):
+            code = vision_eval.main([
+                "--config", self.config_path, "--captures-dir", self.root,
+                "--pipeline", "all", "--output-csv", base_csv,
+                "--results-json", base_jsonl, "--summary-json", base_summary])
+        self.assertEqual(code, 0)
+        for pipeline in vision_pipelines.PIPELINES:
+            for path in (base_csv, base_jsonl, base_summary):
+                self.assertTrue(os.path.isfile(
+                    vision_eval._with_pipeline_suffix(path, pipeline)))
+        self.assertTrue(os.path.isfile(
+            vision_eval._with_pipeline_suffix(base_csv, "all")))
+        self.assertTrue(os.path.isfile(
+            vision_eval._with_pipeline_suffix(base_summary, "all")))
+        for path in (base_csv, base_jsonl, base_summary):
+            self.assertFalse(os.path.exists(path), path)
 
     def test_main_selects_each_pipeline_one_at_a_time(self):
         """`--pipeline` chooses exactly one pipeline per evaluation run."""
@@ -684,7 +1125,7 @@ class OfflineEvalTests(unittest.TestCase):
             }
 
         expected = {
-            "open_vocab": ("open_vocab", "stereo_triangulation"),
+            "triangulation": ("triangulation", "stereo_triangulation"),
             "stereo-net": ("stereo-net", "dense_stereo_depth"),
         }
         for pipeline, (method, distance_source) in expected.items():
@@ -717,59 +1158,169 @@ class OfflineEvalTests(unittest.TestCase):
                 self.assertEqual(rows[0]["method"], method)
                 self.assertIn("method", fields)
 
-    def test_main_honours_environment_and_yaml_pipeline_selection(self):
-        """With no `--pipeline`, $VISION_PIPELINE then YAML choose one pipeline."""
+    def test_main_defaults_to_all_pipelines_despite_environment_and_yaml(self):
+        """Live pipeline selectors do not narrow the offline evaluator."""
         self._write_synthetic_pair()
-
-        def detect_both(left_jpeg, right_jpeg, classes, config):
-            left, right, _ = FakeClient()(left_jpeg, right_jpeg, classes, config)
-            return left, right, "fake-world"
-
-        def detect_one(jpeg, classes, config):
-            detections, _, _ = FakeClient()(jpeg, jpeg, classes, config)
-            for entry in detections:
-                entry["center_source"] = "box_center"
-                entry["mask_area_px"] = 0
-                entry["depth_sample_pixels"] = []
-            return detections, "fake-world"
-
-        def sample_depth(left_jpeg, right_jpeg, spec, config):
-            return {
-                "model": "fake-stereo", "depth_m": 1.0, "disparity_px": 20.0,
-                "sample_source": spec["sample_source"], "sample_count": 49,
-                "valid_count": 49,
-            }
-
+        with open(self.config_path) as handle:
+            config = json.load(handle)
+        config["pipeline"] = "stereo-net"
         config_path = os.path.join(self.temp.name, "stereo-net.yaml")
         with open(config_path, "w") as handle:
-            handle.write("pipeline: stereo-net\n")
-        cases = (
-            ("env", None, {"VISION_PIPELINE": "stereo-net"}, "stereo-net"),
-            ("yaml", config_path, {
-                "VISION_PIPELINE": ""}, "stereo-net"),
-        )
-        for label, config_arg, environ, expected in cases:
-            with self.subTest(source=label):
-                summary_path = os.path.join(self.temp.name,
-                                            label + "_summary.json")
-                argv = ["--config", self.config_path,
-                        "--captures-dir", self.root,
-                        "--output-csv", os.path.join(self.temp.name,
-                                                     label + ".csv"),
-                        "--results-json", os.path.join(self.temp.name,
-                                                       label + ".jsonl"),
-                        "--summary-json", summary_path]
-                if config_arg:
-                    argv += ["--config", config_arg]
-                with mock.patch.dict(os.environ, environ, clear=True), \
-                     mock.patch.object(yolo_client, "detect", detect_both), \
-                     mock.patch.object(yolo_client, "detect_one", detect_one), \
-                     mock.patch.object(depth_client, "sample", sample_depth), \
-                     contextlib.redirect_stdout(io.StringIO()):
-                    code = vision_eval.main(argv)
-                self.assertEqual(code, 0)
-                with open(summary_path) as handle:
-                    self.assertEqual(json.load(handle)["pipeline"], expected)
+            json.dump(config, handle)
+        with mock.patch.dict(os.environ, {"VISION_PIPELINE": "stereo-net"},
+                             clear=True), \
+             mock.patch.object(yolo_client, "detect", _fake_detect_both), \
+             mock.patch.object(yolo_client, "detect_one", _fake_detect_one), \
+             mock.patch.object(depth_client, "sample", _fake_sample_depth), \
+             contextlib.redirect_stdout(io.StringIO()):
+            code = vision_eval.main([
+                "--config", config_path, "--captures-dir", self.root,
+                "--seed", "42"])
+        self.assertEqual(code, 0)
+        for pipeline in vision_pipelines.PIPELINES:
+            summary_path = os.path.join(
+                self.temp.name, "vision_eval_%s_summary.json" % pipeline)
+            with open(summary_path) as handle:
+                self.assertEqual(json.load(handle)["pipeline"], pipeline)
+
+    def test_main_explicit_pipeline_overrides_environment(self):
+        """`--pipeline NAME` keeps the one-pipeline evaluation path."""
+        self._write_synthetic_pair()
+        summary_path = os.path.join(self.temp.name, "explicit_summary.json")
+        with mock.patch.dict(os.environ, {"VISION_PIPELINE": "stereo-net"},
+                             clear=True), \
+             mock.patch.object(yolo_client, "detect", _fake_detect_both), \
+             mock.patch.object(yolo_client, "detect_one", _fake_detect_one), \
+             mock.patch.object(depth_client, "sample", _fake_sample_depth), \
+             contextlib.redirect_stdout(io.StringIO()):
+            code = vision_eval.main([
+                "--config", self.config_path, "--captures-dir", self.root,
+                "--pipeline", "triangulation",
+                "--output-csv", os.path.join(self.temp.name, "explicit.csv"),
+                "--results-json", os.path.join(self.temp.name,
+                                               "explicit.jsonl"),
+                "--summary-json", summary_path])
+        self.assertEqual(code, 0)
+        with open(summary_path) as handle:
+            self.assertEqual(json.load(handle)["pipeline"], "triangulation")
+        self.assertFalse(os.path.exists(os.path.join(
+            self.temp.name, "explicit_summary_triangulation.json")))
+
+    def test_sigint_handler_raises_cleanup_exception(self):
+        """SIGINT is converted into an exception that main() can clean up."""
+        with self.assertRaises(vision_eval._SigintInterrupted):
+            vision_eval._sigint_handler(signal.SIGINT, None)
+
+    def test_main_removes_new_artifacts_when_sigint_arrives(self):
+        self._write_synthetic_pair()
+        csv_path = os.path.join(self.temp.name, "interrupted.csv")
+        results_path = os.path.join(self.temp.name, "interrupted.jsonl")
+        summary_path = os.path.join(self.temp.name, "interrupted.json")
+        written = []
+
+        def interrupted(shots, root, config, args, pipeline, outputs):
+            written.extend(outputs)
+            for path in outputs:
+                with open(path, "w") as handle:
+                    handle.write("partial")
+            raise vision_eval._SigintInterrupted()
+
+        with mock.patch.object(vision_eval, "_evaluate_pipeline",
+                               side_effect=interrupted), \
+             contextlib.redirect_stdout(io.StringIO()), \
+             contextlib.redirect_stderr(io.StringIO()) as errors:
+            code = vision_eval.main([
+                "--config", self.config_path, "--captures-dir", self.root,
+                "--pipeline", "triangulation", "--output-csv", csv_path,
+                "--results-json", results_path,
+                "--summary-json", summary_path])
+        self.assertEqual(code, 130)
+        self.assertEqual(len(written), 3)
+        for path in written:
+            self.assertFalse(os.path.exists(path), path)
+        self.assertIn("SIGINT received", errors.getvalue())
+        self.assertEqual(self.unload_mock.call_count, 1)
+
+    def test_main_restores_existing_artifacts_when_sigint_arrives(self):
+        self._write_synthetic_pair()
+        paths = [
+            os.path.join(self.temp.name, "existing.csv"),
+            os.path.join(self.temp.name, "existing.jsonl"),
+            os.path.join(self.temp.name, "existing.json"),
+        ]
+        originals = {}
+        for path in paths:
+            with open(path, "w") as handle:
+                handle.write("original result")
+            originals[path] = "original result"
+
+        def interrupted(shots, root, config, args, pipeline, outputs):
+            for path in outputs:
+                with open(path, "w") as handle:
+                    handle.write("partial result")
+            raise KeyboardInterrupt()
+
+        with mock.patch.object(vision_eval, "_evaluate_pipeline",
+                               side_effect=interrupted), \
+             contextlib.redirect_stdout(io.StringIO()), \
+             contextlib.redirect_stderr(io.StringIO()) as errors:
+            code = vision_eval.main([
+                "--config", self.config_path, "--captures-dir", self.root,
+                "--pipeline", "triangulation", "--output-csv", paths[0],
+                "--results-json", paths[1], "--summary-json", paths[2]])
+        self.assertEqual(code, 130)
+        for path in paths:
+            with open(path) as handle:
+                self.assertEqual(handle.read(), originals[path])
+        self.assertIn("restored 3 existing file(s)", errors.getvalue())
+
+    def test_main_reports_configure_failure_without_attempting_unload(self):
+        """An unreachable service should not be reported as an unload failure."""
+        self._write_synthetic_pair()
+        self.configure_mock.side_effect = RuntimeError(
+            "detector configure failed")
+        self.unload_mock.side_effect = RuntimeError(
+            "detector unload failed")
+
+        with contextlib.redirect_stdout(io.StringIO()), \
+             contextlib.redirect_stderr(io.StringIO()) as errors:
+            with self.assertRaisesRegex(RuntimeError,
+                                        "detector configure failed"):
+                vision_eval.main([
+                    "--config", self.config_path, "--captures-dir", self.root,
+                    "--seed", "42"])
+        self.unload_mock.assert_not_called()
+        self.assertNotIn("Failed to unload", errors.getvalue())
+
+    def test_main_cleans_artifacts_when_unload_fails_during_sigint(self):
+        """An unload error must not mask SIGINT artifact cleanup."""
+        self._write_synthetic_pair()
+        paths = [
+            os.path.join(self.temp.name, "sigint_unload.csv"),
+            os.path.join(self.temp.name, "sigint_unload.jsonl"),
+            os.path.join(self.temp.name, "sigint_unload.json"),
+        ]
+        self.unload_mock.side_effect = RuntimeError("detector unload failed")
+
+        def interrupted(shots, root, config, args, pipeline, outputs):
+            for path in outputs:
+                with open(path, "w") as handle:
+                    handle.write("partial")
+            raise vision_eval._SigintInterrupted()
+
+        with mock.patch.object(vision_eval, "_evaluate_pipeline",
+                               side_effect=interrupted), \
+             contextlib.redirect_stdout(io.StringIO()), \
+             contextlib.redirect_stderr(io.StringIO()) as errors:
+            code = vision_eval.main([
+                "--config", self.config_path, "--captures-dir", self.root,
+                "--pipeline", "triangulation", "--output-csv", paths[0],
+                "--results-json", paths[1], "--summary-json", paths[2]])
+        self.assertEqual(code, 130)
+        for path in paths:
+            self.assertFalse(os.path.exists(path), path)
+        self.assertIn("Failed to unload host model(s)", errors.getvalue())
+        self.assertIn("SIGINT received", errors.getvalue())
 
 
 if __name__ == "__main__":

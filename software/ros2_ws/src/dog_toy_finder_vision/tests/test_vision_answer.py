@@ -45,12 +45,12 @@ class AnswerTests(unittest.TestCase):
             "target_visible": True,
             "lateral_bearing_deg": 4.0,
             "distance_m": 1.0,
-            "method": "open_vocab",
+            "method": "triangulation",
             "distance_source": "stereo_triangulation",
             "disparity_px": 20.0,
             "bbox_px": [10, 20, 30, 40],
         }, self.config)
-        self.assertEqual(answer["method"], "open_vocab")
+        self.assertEqual(answer["method"], "triangulation")
         self.assertEqual(answer["distance_source"], "stereo_triangulation")
         self.assertEqual(answer["disparity_px"], 20.0)
         self.assertEqual(answer["bbox_px"], [10, 20, 30, 40])

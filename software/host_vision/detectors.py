@@ -105,6 +105,11 @@ def load_detector(config, model=None):
     return backend, _CACHE[key]
 
 
+def clear_cache():
+    """Drop cached detector objects so their weights can be released."""
+    _CACHE.clear()
+
+
 def _as_array(data):
     """Return a numpy view of a torch tensor, numpy array, or nested list."""
     if hasattr(data, "detach"):

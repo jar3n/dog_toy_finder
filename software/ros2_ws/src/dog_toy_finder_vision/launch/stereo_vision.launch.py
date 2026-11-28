@@ -25,14 +25,15 @@ tool and must not be run as part of the robot's live vision processing.
 Run inside the ROS 2 container:
     ros2 launch dog_toy_finder_vision stereo_vision.launch.py
     ros2 launch dog_toy_finder_vision stereo_vision.launch.py \\
-        pipeline:=open_vocab
+        pipeline:=triangulation
     ros2 launch dog_toy_finder_vision stereo_vision.launch.py vision:=false
 
 ``pipeline`` falls back to ``$VISION_PIPELINE``, then the detector YAML's
-``pipeline`` key, then ``open_vocab``. ``open_vocab`` sends rectified JPEGs to
-the host-side detector service (``scripts/start_yolo_service.sh``). ``stereo-net``
-detects in the left image only and asks the host dense-stereo service
-(``scripts/start_stereo_service.sh``) for depth. Torch, models, and weights run
+``pipeline`` key, then ``triangulation``. ``triangulation`` sends rectified
+JPEGs to the host-side detector service (``scripts/start_yolo_service.sh``).
+``stereo-net`` detects in the left image only and asks the host dense-stereo
+service (``scripts/start_stereo_service.sh``) for depth. Torch, models, and
+weights run
 on the computer, never in this container.
 
 Camera geometry is read from ``config_path`` (``vision_detectors.yaml`` by
@@ -283,8 +284,8 @@ def generate_launch_description():
                               default_value=DEFAULT_DETECTOR_CONFIG,
                               description="YAML with stereo geometry and pipeline settings"),
         DeclareLaunchArgument("pipeline", default_value="",
-                              description="Vision pipeline: open_vocab|stereo-net "
-                                          "(default: $VISION_PIPELINE / YAML / open_vocab)"),
+                              description="Vision pipeline: triangulation|stereo-net "
+                                          "(default: $VISION_PIPELINE / YAML / triangulation)"),
         DeclareLaunchArgument("yolo_service_url", default_value="",
                               description="Host open-vocabulary detector service URL "
                                           "(default: $YOLO_SERVICE_URL / YAML / http://localhost:5006)"),

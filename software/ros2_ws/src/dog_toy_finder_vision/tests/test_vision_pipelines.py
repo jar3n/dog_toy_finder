@@ -18,27 +18,27 @@ from dog_toy_finder_vision import vision_pipelines  # noqa: E402
 class PipelineNameTests(unittest.TestCase):
     def test_explicit_value_wins_over_environment_and_config(self):
         name = vision_pipelines.pipeline_name(
-            "stereo-net", {"pipeline": "open_vocab"},
-            {"VISION_PIPELINE": "open_vocab"})
+            "stereo-net", {"pipeline": "triangulation"},
+            {"VISION_PIPELINE": "triangulation"})
         self.assertEqual(name, "stereo-net")
 
     def test_environment_wins_over_config(self):
         name = vision_pipelines.pipeline_name(
-            None, {"pipeline": "stereo-net"}, {"VISION_PIPELINE": "open_vocab"})
-        self.assertEqual(name, "open_vocab")
+            None, {"pipeline": "stereo-net"}, {"VISION_PIPELINE": "triangulation"})
+        self.assertEqual(name, "triangulation")
 
     def test_config_wins_over_default(self):
         name = vision_pipelines.pipeline_name(
             None, {"pipeline": "stereo-net"}, {})
         self.assertEqual(name, "stereo-net")
 
-    def test_default_is_open_vocab(self):
+    def test_default_is_triangulation(self):
         self.assertEqual(vision_pipelines.pipeline_name(None, {}, {}),
-                         "open_vocab")
+                         "triangulation")
 
     def test_names_are_normalised(self):
-        self.assertEqual(vision_pipelines.pipeline_name(" Open_Vocab ", {}, {}),
-                         "open_vocab")
+        self.assertEqual(vision_pipelines.pipeline_name(" TRIANGULATION ", {}, {}),
+                         "triangulation")
 
     def test_unknown_pipeline_is_rejected(self):
         with self.assertRaises(ValueError):
@@ -80,13 +80,13 @@ class RunPipelineTests(unittest.TestCase):
     def setUp(self):
         self.config = vision_config.load_config()
 
-    def test_open_vocab_returns_one_entry(self):
+    def test_triangulation_returns_one_entry(self):
         entries = vision_pipelines.run_pipeline(
-            "open_vocab", "red ball", _jpeg(), _jpeg(), self.config,
+            "triangulation", "red ball", _jpeg(), _jpeg(), self.config,
             client=_empty_client)
         self.assertEqual(len(entries), 1)
         entry = entries[0]
-        self.assertEqual(entry["method"], "open_vocab")
+        self.assertEqual(entry["method"], "triangulation")
         self.assertEqual(entry["distance_source"], "none")
         self.assertFalse(entry["target_visible"])
         self.assertEqual(entry["model"], "fake-world")

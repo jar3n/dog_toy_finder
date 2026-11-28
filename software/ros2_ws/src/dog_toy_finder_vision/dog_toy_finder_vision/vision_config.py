@@ -26,7 +26,7 @@ DEFAULT_CONFIG_PATH = os.path.join(
 # Minimal defaults so a partial user config still loads. The committed YAML is
 # the authoritative, fully commented example.
 DEFAULTS = {
-    "pipeline": "open_vocab",
+    "pipeline": "triangulation",
     "camera": {
         "width": 320,
         "height": 240,
@@ -52,6 +52,7 @@ DEFAULTS = {
         "right_rectified_topic": "/stereo/right/image_rect_color",
     },
     "open_vocab": {
+        "detector": "yolo_world",
         "name": "yolov8s-world",
         "service_url": "http://localhost:5006",
         "timeout_s": 60,
@@ -62,6 +63,7 @@ DEFAULTS = {
         "max_vertical_delta_px": 20,
     },
     "stereo-net": {
+        "model": "lite_any_stereo",
         "name": "lite_any_stereo",
         "service_url": "http://localhost:5007",
         "timeout_s": 180,
@@ -234,6 +236,67 @@ def get(config, *keys, default=None):
             return default
         value = value[key]
     return value
+
+
+# --- Host service model selection ------------------------------------------
+
+DETECTOR_BACKENDS = ("yolo_world", "yoloe_26", "grounding_dino")
+DETECTOR_NAME_ALIASES = {
+    "yolo_world": "yolo_world",
+    "yolov8s_world": "yolo_world",
+    "yolov8s-world": "yolo_world",
+    "yoloe_26": "yoloe_26",
+    "yoloe-26": "yoloe_26",
+    "yoloe_26s_seg": "yoloe_26",
+    "yoloe-26s-seg": "yoloe_26",
+    "grounding_dino": "grounding_dino",
+    "grounding-dino": "grounding_dino",
+    "grounding_dino_tiny": "grounding_dino",
+    "grounding-dino-tiny": "grounding_dino",
+}
+DEPTH_BACKENDS = ("lite_any_stereo", "fast_foundation_stereo", "rt_igevpp")
+
+
+def _normalise_name(value):
+    return str(value or "").strip().lower().replace("-", "_")
+
+
+def detector_backend(config):
+    """Return the host detector backend selected by ``open_vocab`` config.
+
+    ``open_vocab.name`` historically held the reported weights name, so accept
+    both backend ids and the known weight stems as aliases.
+    """
+    configured = (get(config, "open_vocab", "detector")
+                  or get(config, "open_vocab", "name")
+                  or "yolov8s-world")
+    name = _normalise_name(configured)
+    if name in DETECTOR_BACKENDS:
+        return name
+    if name in DETECTOR_NAME_ALIASES:
+        return DETECTOR_NAME_ALIASES[name]
+    raise ValueError(
+        "Unknown detector %r; choose one of: %s"
+        % (configured, ", ".join(DETECTOR_BACKENDS)))
+
+
+def detector_display_name(config):
+    """Return the model name to record in results for the detector service."""
+    return str(get(config, "open_vocab", "name")
+               or detector_backend(config))
+
+
+def depth_backend(config):
+    """Return the dense-stereo backend selected by ``stereo-net`` config."""
+    configured = (get(config, "stereo-net", "model")
+                  or get(config, "stereo-net", "name")
+                  or "lite_any_stereo")
+    name = _normalise_name(configured)
+    if name in DEPTH_BACKENDS:
+        return name
+    raise ValueError(
+        "Unknown dense stereo model %r; choose one of: %s"
+        % (configured, ", ".join(DEPTH_BACKENDS)))
 
 
 # --- Lateral bearing -------------------------------------------------------

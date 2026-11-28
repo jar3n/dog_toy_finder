@@ -84,13 +84,69 @@ class ServiceConfigTests(unittest.TestCase):
         self.assertEqual(service._CONFIG["camera"]["fx"], 100.0)
 
 
+class ConfigureTests(unittest.TestCase):
+    def setUp(self):
+        service._CONFIG = {}
+        service._MODEL = None
+        service._MODEL_NAME = ""
+        service._WEIGHTS = ""
+        service._BACKEND = None
+
+    def test_configure_selects_backend_without_loading_weights(self):
+        status = service.configure({
+            "model": "fast_foundation_stereo",
+            "name": "fast",
+            "iters": 8,
+        })
+        self.assertTrue(status["ok"])
+        self.assertTrue(status["configured"])
+        self.assertEqual(status["model"], dense_stereo.FAST_FOUNDATION_STEREO)
+        self.assertEqual(status["name"], "fast")
+        self.assertFalse(status["loaded"])
+        self.assertIsNone(service._MODEL)
+
+    def test_configure_unloads_when_backend_changes(self):
+        service.configure({"model": "lite_any_stereo"})
+        service._MODEL = object()
+        with mock.patch.object(service, "unload", wraps=service.unload) as unload:
+            status = service.configure({"model": "rt_igevpp"})
+        unload.assert_called_once_with()
+        self.assertFalse(status["loaded"])
+        self.assertIsNone(service._MODEL)
+
+    def test_configure_keeps_loaded_model_when_iters_are_unchanged(self):
+        service.configure({"model": "lite_any_stereo"})
+        loaded = object()
+        service._MODEL = loaded
+        with mock.patch.object(service, "unload") as unload:
+            service.configure({"model": "lite_any_stereo", "max_disp": 96})
+        unload.assert_not_called()
+        self.assertIs(service._MODEL, loaded)
+        self.assertEqual(service._CONFIG["max_disp"], 96)
+
+    def test_depth_requires_configuration(self):
+        with self.assertRaisesRegex(ValueError, "not configured"):
+            service.depth({"images": [_jpeg(), _jpeg()],
+                           "window": {"u": 100, "v": 120, "radius": 3}})
+
+    def test_main_starts_unconfigured_without_a_model_variable(self):
+        with mock.patch.dict(os.environ, {}, clear=True), \
+                mock.patch.object(service, "ThreadingHTTPServer") as server:
+            service.main([])
+        self.assertEqual(service._CONFIG, {})
+        self.assertIsNone(service._BACKEND)
+        self.assertFalse(service._MODEL_NAME)
+        server.return_value.serve_forever.assert_called_once_with()
+
+
 class HostServiceTests(unittest.TestCase):
     def setUp(self):
-        service._CONFIG = service.build_config(service.parse_args([]))
+        service._CONFIG = {}
         service._MODEL = None
         service._MODEL_NAME = "fake-stereo"
         service._WEIGHTS = "fake.pth"
-        service._BACKEND = dense_stereo.LITE_ANY_STEREO
+        service._BACKEND = None
+        service.configure({"model": "lite_any_stereo", "name": "fake-stereo"})
 
     def _patch_backend(self):
         return (
@@ -139,6 +195,22 @@ class HostServiceTests(unittest.TestCase):
                          "the model must load only once per service process")
         self.assertEqual(disparity_mock.call_count, 2)
 
+    def test_unload_releases_loaded_depth_model(self):
+        load, disparity, sample = self._patch_backend()
+        body = {
+            "images": [_jpeg(), _jpeg()],
+            "window": {"u": 100, "v": 120, "radius": 3},
+        }
+        with load as load_mock, disparity, sample:
+            service.depth(body)
+            self.assertEqual(load_mock.call_count, 1)
+        with mock.patch.object(service.dense_stereo, "clear_cache") as clear:
+            status = service.unload()
+        self.assertTrue(status["unloaded"])
+        self.assertIsNone(service._MODEL)
+        clear.assert_called_once_with()
+        self.assertFalse(service.unload()["unloaded"])
+
     def test_http_round_trip_with_container_client(self):
         load, disparity, sample = self._patch_backend()
         with load, disparity, sample as sample_mock:
@@ -169,6 +241,49 @@ class HostServiceTests(unittest.TestCase):
             sample_mock.call_args.kwargs["config"]["camera"][
                 "disparity_offset_px"],
             vision_config.stereo_disparity_offset_px(config))
+
+    def test_configure_endpoint_works_with_container_client(self):
+        load, disparity, sample = self._patch_backend()
+        with load, disparity, sample as sample_mock:
+            server = ThreadingHTTPServer(("127.0.0.1", 0), service.Handler)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            self.addCleanup(server.server_close)
+            self.addCleanup(server.shutdown)
+            url = "http://127.0.0.1:%d" % server.server_port
+            config = vision_config.load_config()
+            with mock.patch.dict(os.environ, {"STEREO_SERVICE_URL": url}):
+                status = depth_client.configure(config)
+                self.assertTrue(status["ok"])
+                self.assertEqual(status["model"], "lite_any_stereo")
+                result = depth_client.sample(
+                    _jpeg_bytes(), _jpeg_bytes(),
+                    {"sample_source": "mask_pixels",
+                     "points": [[100, 120], [101, 120]]}, config)
+            self.assertEqual(result["model"], "lite_any_stereo")
+            self.assertEqual(result["depth_m"], 1.0)
+            self.assertEqual(sample_mock.call_args.kwargs["points"],
+                             [[100, 120], [101, 120]])
+
+    def test_unload_endpoint_works_with_container_client(self):
+        load, disparity, sample = self._patch_backend()
+        with load, disparity, sample:
+            server = ThreadingHTTPServer(("127.0.0.1", 0), service.Handler)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            self.addCleanup(server.server_close)
+            self.addCleanup(server.shutdown)
+            url = "http://127.0.0.1:%d" % server.server_port
+            config = vision_config.load_config()
+            with mock.patch.dict(os.environ, {"STEREO_SERVICE_URL": url}):
+                depth_client.sample(
+                    _jpeg_bytes(), _jpeg_bytes(),
+                    {"sample_source": "mask_pixels",
+                     "points": [[100, 120], [101, 120]]}, config)
+                self.assertIsNotNone(service._MODEL)
+                status = depth_client.unload(config)
+        self.assertTrue(status["unloaded"])
+        self.assertIsNone(service._MODEL)
 
     def test_invalid_requests_are_rejected(self):
         with self.assertRaises(ValueError):

@@ -25,16 +25,18 @@ docker compose build ros2
 ```
 
 The `ros2` image installs Pillow so vision nodes can convert ROS images to JPEG.
-Open-vocabulary inference for the `open_vocab` pipeline runs on the computer via
-`./scripts/start_yolo_service.sh` (host venv with CPU torch, ultralytics,
-transformers, and weights in `software/host_vision/models/`). One detector runs
-at a time, selected with `DETECTOR_MODEL` (`yolo_world`, `yoloe_26`, or
-`grounding_dino`). The container only talks to it over HTTP at
-`YOLO_SERVICE_URL` (default `http://localhost:5006`). The `stereo-net` pipeline also
-uses `./scripts/start_stereo_service.sh` for dense-stereo depth on the host
-(`STEREO_SERVICE_URL`, default `http://localhost:5007`; one model via
-`DEPTH_MODEL`). Vision does not need an Ollama server; Ollama is used separately
-for ROSA planning.
+Open-vocabulary inference for the `triangulation` pipeline runs on the computer
+via `./scripts/start_yolo_service.sh` (host venv with CPU torch, ultralytics,
+transformers, and weights in `software/host_vision/models/`). The service starts
+in the background without a model selection; the container selects the backend
+with `POST /configure` from `open_vocab.detector` in the vision YAML
+(`yolo_world`, `yoloe_26`, or `grounding_dino`) and talks to it over HTTP at
+`YOLO_SERVICE_URL` (default `http://localhost:5006`). The `stereo-net` pipeline
+also uses `./scripts/start_stereo_service.sh` for dense-stereo depth on the host
+(`STEREO_SERVICE_URL`, default `http://localhost:5007`; backend from
+`stereo-net.model` in the YAML). Stop both with
+`./scripts/stop_host_vision_services.sh`. Vision does not need an Ollama server;
+Ollama is used separately for ROSA planning.
 
 ## micro-ROS agent
 

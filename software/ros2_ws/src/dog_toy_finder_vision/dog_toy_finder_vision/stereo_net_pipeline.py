@@ -1,14 +1,14 @@
 """Open-vocabulary detection in one eye plus dense-stereo depth.
 
 This is the ``stereo-net`` comparison pipeline. The text target is found by the
-same host open-vocabulary detector as ``open_vocab``, but only in the rectified
+same host open-vocabulary detector as ``triangulation``, but only in the rectified
 left image. A dense stereo model on the computer computes a disparity map from
 the full pair; its median over the detected object's mask pixels (YOLOE-26) or
 over a small window at the box centre (YOLO-World / Grounding DINO) gives the
 distance. Depth is ``fx * baseline / disparity`` after subtracting the
 ``left.cx - right.cx`` principal-point offset from the network's raw
 ``u_left - u_right`` output; bearing uses the same ``atan((cx - u) / fx)``
-convention as ``open_vocab``.
+convention as ``triangulation``.
 
 Only detection numbers and the depth samples cross HTTP. Weights, torch, and
 the dense stereo models stay on the computer. Tests inject small callables with

@@ -2,9 +2,10 @@
 
 Two kinds of trial are compared with the same tooling:
 
-- ``vision``: one row per evaluated object, shot, and model name produced by the
-  selected pipeline. ``vision_eval`` writes these when replaying stereo captures,
-  including every object recorded for a multi-object scene.
+- ``vision``: one row per evaluated object, shot, and model name produced by a
+  vision pipeline. ``vision_eval`` writes these when replaying stereo captures,
+  including every object recorded for a multi-object scene. Its all-pipeline
+  run also writes a combined CSV with rows from both pipelines.
 - ``planning``: one row per prompt and model. ``rosa_agent --compare`` writes
   these, including the reply and the tools the model called.
 
@@ -16,9 +17,9 @@ columns and print a per-model summary.
 
 Usage inside the ROS 2 container::
 
-    ros2 run dog_toy_finder_data llm_trials score vision_eval_trials.csv
+    ros2 run dog_toy_finder_data llm_trials score vision_eval_all_trials.csv
     ros2 run dog_toy_finder_data llm_trials aggregate planning_trials.csv
-    ros2 run dog_toy_finder_data llm_trials analyze vision_eval_trials.csv
+    ros2 run dog_toy_finder_data llm_trials analyze vision_eval_all_trials.csv
     ros2 run dog_toy_finder_data llm_trials template --kind vision \
         --models yolov8s-world --output manual_vision_trials.csv
 """
@@ -295,7 +296,8 @@ def vision_row(result, entry, model, run_id, distance_tolerance=0.25,
         "target": result.get("target", ""),
         "model": entry.get("model") or model or "",
         # Older vision rows were produced by an ML/VLM estimator. New pipelines
-        # label themselves (e.g. open_vocab); keep `ml` as the fallback.
+        # label themselves (e.g. triangulation); legacy rows may use `open_vocab`.
+        # Keep `ml` as the fallback.
         "method": entry.get("method") or "ml",
         "image": result.get("image", ""),
     })

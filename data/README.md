@@ -25,10 +25,15 @@ data/
           scene.json
           shot_01/
             ...
-    vision_eval_trials.csv
-    vision_eval_trials_scored.csv
-    vision_eval_results.jsonl
-    vision_eval_summary.json
+    vision_eval_triangulation_trials.csv
+    vision_eval_stereo-net_trials.csv
+    vision_eval_all_trials.csv
+    vision_eval_all_trials_scored.csv
+    vision_eval_triangulation_results.jsonl
+    vision_eval_stereo-net_results.jsonl
+    vision_eval_triangulation_summary.json
+    vision_eval_stereo-net_summary.json
+    vision_eval_all_summary.json
     vision_eval_analysis.json
   planning/
     <run_id>/
@@ -47,19 +52,22 @@ data/
   their default `vision_eval_*` outputs out of the normal captures tree;
   explicit `--output-dir`, `--captures-dir`, and output paths still win.
 - `vision_eval_*` files are written by `dog_toy_finder_vision vision_eval`,
-  which replays every shot through one selected vision pipeline per invocation.
-  `vision_eval_trials.csv` has one scored row per model per object per shot, with
-  ground truth and scored columns already filled. The primary toy and each
-  `additional_objects` entry are evaluated with their own ground truth; the
-  primary object keeps the shot ID (`_shot_NN` for multi-shot scenes) and
-  additional objects append `__additional_NN`. The `model` column is the
-  detector name for `open_vocab` or the dense depth model name for `stereo-net`.
-  `vision_eval_summary.json` records the selected pipeline, `shuffle_seed`,
-  randomized `scene_order`, `shot_order` within each scene, `shots_per_scene`,
-  `objects_per_scene`, and the per-model summary. The trial CSV
-  schema is
-  unchanged: new vision rows use `method=open_vocab` or `method=stereo-net`,
-  while `method=ml` only appears on legacy rows.
+  which replays every shot through both pipelines in one invocation. Each
+  pipeline gets its own `trials.csv`, `results.jsonl`, and `summary.json`;
+  `vision_eval_all_trials.csv` combines both pipelines' rows for paired
+  analysis, and `vision_eval_all_summary.json` indexes the runs and records the
+  host model unload status after each pipeline. Each trial CSV
+  has one scored row per model per object per shot, with ground truth and scored
+  columns already filled. The primary toy and each `additional_objects` entry
+  are evaluated with their own ground truth; the primary object keeps the shot
+  ID (`_shot_NN` for multi-shot scenes) and additional objects append
+  `__additional_NN`. The `model` column is the detector name for `triangulation` or
+  the dense depth model name for `stereo-net`. Each per-pipeline summary records
+  its pipeline, the shared `shuffle_seed`, randomized `scene_order`, `shot_order`
+  within each scene, `shots_per_scene`, `objects_per_scene`, and the per-model
+  summary. The trial CSV schema is unchanged: new vision rows use
+  `method=triangulation` or `method=stereo-net`. Older pilot rows may still say
+  `method=open_vocab`; `method=ml` only appears on the retired ML path.
 - `planning/` is written by `rosa_agent --compare --output-csv` (and the
   interactive session when `--output-csv` is set), one row per prompt and model.
 - `*_scored.csv` is created by `ros2 run dog_toy_finder_data llm_trials score`

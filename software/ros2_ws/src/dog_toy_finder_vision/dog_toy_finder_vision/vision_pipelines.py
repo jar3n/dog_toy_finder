@@ -3,7 +3,7 @@
 Every pipeline takes a text target plus the rectified left/right JPEGs and
 returns answer entries in the ``/vision/result`` schema.
 
-``open_vocab``
+``triangulation``
     Run the host open-vocabulary detector on both eyes and triangulate matched
     detections from disparity.
 ``stereo-net``
@@ -17,16 +17,16 @@ parameter or CLI flag), ``VISION_PIPELINE``, the detector YAML, then the default
 
 import os
 
-OPEN_VOCAB = "open_vocab"
+TRIANGULATION = "triangulation"
 STEREO_NET = "stereo-net"
-PIPELINES = (OPEN_VOCAB, STEREO_NET)
+PIPELINES = (TRIANGULATION, STEREO_NET)
 
 
 def pipeline_name(explicit=None, config=None, environ=None):
     """Return a validated pipeline name from the first configured source."""
     env = os.environ if environ is None else environ
     name = (explicit or env.get("VISION_PIPELINE")
-            or (config or {}).get("pipeline") or OPEN_VOCAB)
+            or (config or {}).get("pipeline") or TRIANGULATION)
     name = str(name).strip().lower()
     if name not in PIPELINES:
         raise ValueError("Unknown vision pipeline %r; choose one of: %s"
@@ -43,7 +43,7 @@ def run_pipeline(name, target, left_jpeg, right_jpeg, config, client=None,
     injects the host dense-stereo sampling call for ``stereo-net``.
     """
     name = pipeline_name(name, config)
-    if name == OPEN_VOCAB:
+    if name == TRIANGULATION:
         from . import open_vocab_stereo
         return [open_vocab_stereo.detect(
             left_jpeg, right_jpeg, target, config, client=client)]

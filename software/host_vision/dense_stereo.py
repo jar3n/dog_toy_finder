@@ -235,6 +235,11 @@ def load_model(config, model=None):
     return name, loaded
 
 
+def clear_cache():
+    """Drop cached depth models so their weights can be released."""
+    _CACHE.clear()
+
+
 def _pad_pair(left, right, multiple=32):
     """Pad a rectified pair to the multiple required by the dense networks."""
     left = np.asarray(left, dtype=np.float32)

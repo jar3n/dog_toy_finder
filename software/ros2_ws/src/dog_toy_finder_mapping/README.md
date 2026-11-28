@@ -42,7 +42,7 @@ disabled with `use_vision:=false`.
 pipeline answer has `target_visible: true`, the mapper uses its numeric
 `lateral_bearing_deg` (degrees from the optical axis, positive = robot-left /
 ROS `+y`) and `distance_m` to place the toy in the robot's frame. For
-`open_vocab`, `distance_m` comes from stereo triangulation. If several detector
+`triangulation`, `distance_m` comes from stereo triangulation. If several detector
 answers arrive in one `/vision/result`, bearings and distances are fused by
 median. The numeric bearing is the sole lateral measurement; no coarse side
 label is emitted or accepted. If no answer provides a usable `distance_m`, the

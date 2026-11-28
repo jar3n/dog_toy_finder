@@ -140,12 +140,12 @@ class ServiceConfigTests(unittest.TestCase):
         with mock.patch.dict(os.environ, {"YOLOE_MODEL_PATH": "/tmp/custom.pt"}):
             self.assertEqual(service.default_weights("yoloe_26"), "/tmp/custom.pt")
 
-    def test_parse_args_selects_detector_and_derives_name(self):
+    def test_parse_args_needs_no_model_selection(self):
         with mock.patch.dict(os.environ, {}, clear=True):
             args = service.parse_args([])
-        self.assertEqual(args.detector, "yolo_world")
-        self.assertTrue(args.model.endswith("yolov8s-world.pt"))
-        self.assertEqual(args.name, "yolov8s-world")
+        self.assertIsNone(args.detector)
+        self.assertIsNone(args.model)
+        self.assertIsNone(args.name)
 
         args = service.parse_args(["--detector", "grounding_dino"])
         self.assertEqual(args.model, "IDEA-Research/grounding-dino-tiny")
@@ -158,6 +158,62 @@ class ServiceConfigTests(unittest.TestCase):
         self.assertEqual(args.detector, "yoloe_26")
         self.assertEqual(args.model, "/opt/yoloe-26s-seg.pt")
         self.assertEqual(args.name, "yoloe-26s-seg")
+
+
+class ConfigureTests(unittest.TestCase):
+    def setUp(self):
+        service._CONFIG = {}
+        service._MODEL = None
+        service._MODEL_NAME = ""
+        service._WEIGHTS = ""
+        service._DETECTOR = None
+
+    def test_configure_selects_backend_without_loading_weights(self):
+        status = service.configure({
+            "detector": "yoloe_26",
+            "name": "yoloe-26s-seg",
+            "confidence_threshold": 0.4,
+        })
+        self.assertTrue(status["ok"])
+        self.assertTrue(status["configured"])
+        self.assertEqual(status["detector"], "yoloe_26")
+        self.assertEqual(status["model"], "yoloe-26s-seg")
+        self.assertFalse(status["loaded"])
+        self.assertEqual(service._CONFIG["confidence_threshold"], 0.4)
+        self.assertIsNone(service._MODEL)
+
+    def test_configure_unloads_when_backend_changes(self):
+        service.configure({"detector": "yolo_world"})
+        service._MODEL = object()
+        with mock.patch.object(service, "unload", wraps=service.unload) as unload:
+            status = service.configure({"detector": "grounding_dino"})
+        unload.assert_called_once_with()
+        self.assertFalse(status["loaded"])
+        self.assertIsNone(service._MODEL)
+
+    def test_configure_keeps_loaded_model_when_only_thresholds_change(self):
+        service.configure({"detector": "yolo_world"})
+        loaded = object()
+        service._MODEL = loaded
+        with mock.patch.object(service, "unload") as unload:
+            service.configure({"detector": "yolo_world",
+                               "confidence_threshold": 0.5})
+        unload.assert_not_called()
+        self.assertIs(service._MODEL, loaded)
+        self.assertEqual(service._CONFIG["confidence_threshold"], 0.5)
+
+    def test_detect_requires_configuration(self):
+        with self.assertRaisesRegex(ValueError, "not configured"):
+            service.detect({"images": [_jpeg(90)], "classes": ["red ball"]})
+
+    def test_main_starts_unconfigured_without_a_model_variable(self):
+        with mock.patch.dict(os.environ, {}, clear=True), \
+                mock.patch.object(service, "ThreadingHTTPServer") as server:
+            service.main([])
+        self.assertEqual(service._CONFIG, {})
+        self.assertIsNone(service._DETECTOR)
+        self.assertFalse(service._MODEL_NAME)
+        server.return_value.serve_forever.assert_called_once_with()
 
 
 class HostServiceTests(unittest.TestCase):
@@ -189,6 +245,19 @@ class HostServiceTests(unittest.TestCase):
         self.assertEqual(detections[0][0]["label"], "red ball")
         self.assertEqual(detections[0][0]["center_source"], "box_center")
         self.assertIn("mask_centroid_px", detections[0][0])
+
+    def test_unload_releases_loaded_detector(self):
+        with mock.patch.object(service.detectors, "load_detector",
+                               return_value=("yolo_world", RedDotModel())):
+            service.detect({"images": [_jpeg(90)], "classes": ["red ball"]})
+        self.assertIsNotNone(service._MODEL)
+
+        with mock.patch.object(service.detectors, "clear_cache") as clear:
+            status = service.unload()
+        self.assertTrue(status["unloaded"])
+        self.assertIsNone(service._MODEL)
+        clear.assert_called_once_with()
+        self.assertFalse(service.unload()["unloaded"])
 
     def test_request_threshold_overrides_are_applied(self):
         seen = {}
@@ -246,6 +315,29 @@ class HostServiceTests(unittest.TestCase):
         self.assertAlmostEqual(left[0]["u"], 90.0, delta=1.0)
         self.assertAlmostEqual(right[0]["u"], 70.0, delta=1.0)
 
+    def test_configure_endpoint_works_with_container_client(self):
+        with mock.patch.object(service.detectors, "load_detector",
+                               return_value=("yolo_world", RedDotModel())):
+            server = ThreadingHTTPServer(("127.0.0.1", 0), service.Handler)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            self.addCleanup(server.server_close)
+            self.addCleanup(server.shutdown)
+            url = "http://127.0.0.1:%d" % server.server_port
+            config = vision_config.load_config()
+            with mock.patch.dict(os.environ, {"YOLO_SERVICE_URL": url}):
+                status = yolo_client.configure(config)
+                self.assertTrue(status["ok"])
+                self.assertEqual(status["detector"], "yolo_world")
+                self.assertEqual(status["model"], "yolov8s-world")
+                left, right, name = yolo_client.detect(
+                    base64.b64decode(_jpeg(90)),
+                    base64.b64decode(_jpeg(70)),
+                    ["red ball"], config)
+            self.assertEqual(name, "yolov8s-world")
+            self.assertAlmostEqual(left[0]["u"], 90.0, delta=1.0)
+            self.assertAlmostEqual(right[0]["u"], 70.0, delta=1.0)
+
     def test_single_image_request_supports_stereo_net_pipeline(self):
         """The dense pipeline asks for mask pixels on the left image only."""
         with mock.patch.object(service.detectors, "load_detector",
@@ -264,6 +356,25 @@ class HostServiceTests(unittest.TestCase):
         self.assertEqual(len(detections), 1)
         self.assertAlmostEqual(detections[0]["u"], 90.0, delta=1.0)
         self.assertIn("depth_sample_pixels", detections[0])
+
+    def test_unload_endpoint_works_with_container_client(self):
+        with mock.patch.object(service.detectors, "load_detector",
+                               return_value=("yolo_world", RedDotModel())):
+            server = ThreadingHTTPServer(("127.0.0.1", 0), service.Handler)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            self.addCleanup(server.server_close)
+            self.addCleanup(server.shutdown)
+            url = "http://127.0.0.1:%d" % server.server_port
+            config = vision_config.load_config()
+            with mock.patch.dict(os.environ, {"YOLO_SERVICE_URL": url}):
+                yolo_client.detect(base64.b64decode(_jpeg(90)),
+                                   base64.b64decode(_jpeg(70)),
+                                   ["red ball"], config)
+                self.assertIsNotNone(service._MODEL)
+                status = yolo_client.unload(config)
+        self.assertTrue(status["unloaded"])
+        self.assertIsNone(service._MODEL)
 
     def test_invalid_requests_are_rejected(self):
         with self.assertRaises(ValueError):

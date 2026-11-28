@@ -104,6 +104,44 @@ class TestVisionConfig(unittest.TestCase):
         })
         self.assertEqual(vision_config.stereo_disparity_offset_px(config), 0.0)
 
+    def test_detector_backend_accepts_backend_ids_and_weights_aliases(self):
+        self.assertEqual(vision_config.detector_backend({}), "yolo_world")
+        self.assertEqual(
+            vision_config.detector_backend(
+                {"open_vocab": {"detector": "grounding_dino"}}),
+            "grounding_dino")
+        self.assertEqual(
+            vision_config.detector_backend(
+                {"open_vocab": {"detector": "yoloe-26s-seg"}}),
+            "yoloe_26")
+        self.assertEqual(
+            vision_config.detector_backend(
+                {"open_vocab": {"name": "yolov8s-world"}}),
+            "yolo_world")
+        self.assertEqual(
+            vision_config.detector_display_name(
+                {"open_vocab": {"name": "yolov8s-world"}}),
+            "yolov8s-world")
+
+    def test_unknown_detector_backend_is_rejected(self):
+        with self.assertRaisesRegex(ValueError, "Unknown detector"):
+            vision_config.detector_backend(
+                {"open_vocab": {"detector": "not-a-model"}})
+
+    def test_depth_backend_accepts_model_key_and_legacy_name(self):
+        self.assertEqual(vision_config.depth_backend({}), "lite_any_stereo")
+        self.assertEqual(
+            vision_config.depth_backend(
+                {"stereo-net": {"model": "rt_igevpp"}}),
+            "rt_igevpp")
+        self.assertEqual(
+            vision_config.depth_backend(
+                {"stereo-net": {"name": "fast_foundation_stereo"}}),
+            "fast_foundation_stereo")
+        with self.assertRaisesRegex(ValueError, "Unknown dense stereo model"):
+            vision_config.depth_backend(
+                {"stereo-net": {"model": "not-a-model"}})
+
     def test_pilot_capture_dir_is_a_sibling_of_captures(self):
         with mock.patch.dict(os.environ, {}, clear=True):
             normal = vision_config.default_capture_dir()

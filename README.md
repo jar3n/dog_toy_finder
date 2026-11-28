@@ -1,8 +1,9 @@
 # Dog Toy Finder Robot
 
 A differential-drive ROS 2 robot that searches for dog toys with a stereo camera
-pair and a selectable vision pipeline: `open_vocab` (two-eye detection and
-triangulation) or `stereo-net` (one-eye detection plus dense-stereo depth).
+pair and a selectable vision pipeline: `triangulation` (two-eye detection and
+disparity triangulation) or `stereo-net` (one-eye detection plus dense-stereo
+depth).
 
 - **Local brain:** Raspberry Pi Pico 2 W running micro-ROS
 - **Link:** Wi-Fi (UDP) to a computer running the micro-ROS agent
@@ -13,7 +14,7 @@ triangulation) or `stereo-net` (one-eye detection plus dense-stereo depth).
 ## What it does
 
 - Captures a stereo pair, rectifies it, computes disparity and a point cloud,
-  then runs a selectable vision pipeline. `open_vocab` uses one host-side
+  then runs a selectable vision pipeline. `triangulation` uses one host-side
   open-vocabulary detector (YOLO-World, YOLOE-26, or Grounding DINO), matches
   detections between the eyes, and triangulates the target's location from
   disparity using `fx` and the stereo baseline. `stereo-net` uses the same detector
@@ -99,18 +100,19 @@ Vision runs on the computer: the two ESP32-CAMs serve still frames over HTTP,
 `stereo_vision.launch.py` turns them into images, disparity and a point cloud,
 and `vision_node` answers `/vision/ask` requests from the planner, the search
 harness, or ROSA using the selected vision pipeline. Choose it with the launch
-arg `pipeline:=open_vocab|stereo-net`, the `VISION_PIPELINE` environment variable,
-or the top-level `pipeline` key in `vision_detectors.yaml` (`vision_eval` also
-has `--pipeline`). Both pipelines are implemented; `stereo-net` uses one-image
-detection plus dense-stereo depth so the two approaches can be compared. Vision
-answers report `distance_m` along the optical axis, signed `center_offset_m`
-from the optical-axis center, and `lateral_bearing_deg` =
-`atan(center_offset_m / distance_m)` in degrees (positive = robot-left / ROS
-`+y`); no coarse side label is emitted or accepted. For comparison,
-`vision_capture` saves several rectified shots per scene with operator-measured
-ground truth, and `vision_eval` replays every shot offline through the configured
-pipeline in a seed-recorded order that shuffles scenes and the shots within each
-scene.
+arg `pipeline:=triangulation|stereo-net`, the `VISION_PIPELINE` environment variable,
+or the top-level `pipeline` key in `vision_detectors.yaml`. Both pipelines are
+implemented; `stereo-net` uses one-image detection plus dense-stereo depth so
+the two approaches can be compared. Vision answers report `distance_m` along
+the optical axis, signed `center_offset_m` from the optical-axis center, and
+`lateral_bearing_deg` = `atan(center_offset_m / distance_m)` in degrees (positive
+= robot-left / ROS `+y`); no coarse side label is emitted or accepted. For
+comparison, `vision_capture` saves several rectified shots per scene with
+operator-measured ground truth, and `vision_eval` replays every shot offline
+through both pipelines in one command, writing separate per-pipeline outputs
+plus a combined CSV. Host models are unloaded between pipelines so the next
+configuration loads fresh weights. A seed-recorded order shuffles scenes and the
+shots within each scene; `--pipeline NAME` evaluates only one pipeline.
 
 ## Running the full system
 
@@ -129,14 +131,16 @@ docker compose run --rm ros2
 ```
 
 The `ros2` image has only Pillow (to convert ROS images to JPEG); detector and
-dense-stereo inference run on the computer, not in Docker. Before starting the
-vision node, run `./scripts/start_yolo_service.sh` in another host terminal once
-(it creates a local venv, installs CPU torch/ultralytics/transformers, and
-downloads the weights). Select the detector with
-`DETECTOR_MODEL=yolo_world|yoloe_26|grounding_dino`. For the `stereo-net` pipeline
-also start `./scripts/start_stereo_service.sh` (one depth model at a time,
-`DEPTH_MODEL=lite_any_stereo|fast_foundation_stereo|rt_igevpp`). No vision Ollama
-server is needed; Ollama is used separately by the ROSA planner.
+dense-stereo inference run on the computer, not in Docker. Start the host vision
+services in the background once with `./scripts/start_host_vision_services.sh`
+(or start them individually with `./scripts/start_yolo_service.sh` and
+`./scripts/start_stereo_service.sh`). On first run they create a local venv,
+install CPU torch/ultralytics/transformers, and download all supported weights.
+No model variable is needed: the vision node or `vision_eval` selects the
+backend with `POST /configure` using `open_vocab.detector` and `stereo-net.model`
+in `software/ros2_ws/src/dog_toy_finder_vision/config/vision_detectors.yaml`.
+Stop both services with `./scripts/stop_host_vision_services.sh`. No vision
+Ollama server is needed; Ollama is used separately by the ROSA planner.
 
 Inside the container:
 
