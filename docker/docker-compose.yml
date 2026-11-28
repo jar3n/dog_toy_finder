@@ -1,5 +1,8 @@
 # Run from the docker/ folder:  docker compose build   |   docker compose run --rm ros2
-# The whole repo is mounted at /workspace in every container.
+# The whole repo is mounted at /workspace in every container. HOST_UID/HOST_GID
+# default to 1000:1000; override them in the shell or a local .env if the host
+# account uses different IDs. Files written into /workspace then stay owned by
+# the host user instead of root.
 services:
   # micro-ROS agent for the Pico's Wi-Fi/UDP link. The ROS 2 image does not
   # include this package, so it runs as its own container. Host networking lets
@@ -18,33 +21,20 @@ services:
       - ..:/workspace
     environment:
       - ROS_DOMAIN_ID=0
+      - HOST_UID=${HOST_UID:-1000}
+      - HOST_GID=${HOST_GID:-1000}
     stdin_open: true
     tty: true
     command: bash
-
-  gazebo:
-    build: ./gazebo
-    container_name: gazebo-sim
-    ports:
-      # Browser desktop. 127.0.0.1 keeps it private to your computer.
-      - "127.0.0.1:6080:6080"
-    extra_hosts:
-      # Lets ROSA reach Ollama running on your computer (macOS and Windows)
-      - "host.docker.internal:host-gateway"
-    volumes:
-      - ..:/workspace
-    environment:
-      - DISPLAY=:1
-      - ROS_DOMAIN_ID=0
-      - LIBGL_ALWAYS_SOFTWARE=1
-      - QT_X11_NO_MITSHM=1
-    shm_size: "1gb"
 
   microros_builder:
     build: ./microros_builder
     container_name: microros-builder
     volumes:
       - ..:/workspace
+    environment:
+      - HOST_UID=${HOST_UID:-1000}
+      - HOST_GID=${HOST_GID:-1000}
     stdin_open: true
     tty: true
     command: bash

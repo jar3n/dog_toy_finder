@@ -1,9 +1,10 @@
 #include "wifi/wifi_log.h"
 
 #include <stdarg.h>
-#include <stdint.h>
+#include <string.h>
 #include <stdio.h>
 
+#include <pico/time.h>
 #include "pico/cyw43_arch.h"
 
 #include "lwip/ip_addr.h"
@@ -39,11 +40,29 @@ static void send_datagram(const char *message, size_t length) {
     return;
   }
 
+  // Prefix the UDP payload with the time since boot so a listener can tell
+  // when each message was sent. USB serial output is left unchanged.
+  char prefixed[WIFI_LOG_MAX_MESSAGE_LENGTH + 32];
+  int prefix_length = snprintf(
+    prefixed, sizeof prefixed, "[%llu ms] ",
+    (unsigned long long) (time_us_64() / 1000));
+  if (prefix_length < 0) {
+    prefix_length = 0;
+  }
+  size_t payload_length = (size_t) prefix_length + length;
+  if (payload_length >= sizeof prefixed) {
+    payload_length = sizeof prefixed - 1;
+  }
+  if (payload_length > prefix_length) {
+    memcpy(prefixed + prefix_length, message, payload_length - prefix_length);
+  }
+
   cyw43_arch_lwip_begin();
-  struct pbuf *packet = pbuf_alloc(PBUF_TRANSPORT, (u16_t) length, PBUF_RAM);
+  struct pbuf *packet = pbuf_alloc(
+    PBUF_TRANSPORT, (u16_t) payload_length, PBUF_RAM);
   err_t result = packet == NULL
     ? ERR_MEM
-    : pbuf_take(packet, message, (u16_t) length);
+    : pbuf_take(packet, prefixed, (u16_t) payload_length);
   if (result == ERR_OK) {
     result = udp_sendto_if(
       log_pcb,

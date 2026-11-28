@@ -1,7 +1,7 @@
 """ROSA tools that use the stereo vision node.
 
 These tools ask the vision node (/vision/ask -> /vision/result) and report what
-the VLMs saw. They work whether one model or several are configured, and
+the vision pipelines saw. They work whether one model or several are configured, and
 summarise the first model's answer for the planner.
 """
 
@@ -12,6 +12,22 @@ from langchain_core.tools import tool
 from .vision import get_vision
 
 MAX_TARGET_LEN = 80
+
+
+def _bearing_text(entry):
+    """Format a numeric lateral bearing, or 'unknown' when it is missing."""
+    try:
+        return f"{float(entry.get('lateral_bearing_deg')):+.1f}"
+    except (TypeError, ValueError):
+        return "unknown"
+
+
+def _distance_text(entry):
+    """Format a numeric distance in metres, or 'unknown' when it is missing."""
+    try:
+        return f"{float(entry.get('distance_m')):.2f}"
+    except (TypeError, ValueError):
+        return "unknown"
 
 
 def _summary(result):
@@ -25,24 +41,23 @@ def _summary(result):
     first = entries[0]
     lines = []
     if len(entries) > 1:
-        lines.append("Compared %d models:" % len(entries))
+        lines.append("Compared %d detectors/models:" % len(entries))
     for e in entries:
         model = e.get("model", "?")
+        if e.get("method"):
+            model = "%s/%s" % (e["method"], model)
         if e.get("error"):
             lines.append(f"  {model}: ERROR {e['error']}")
             continue
         desc = e.get("description", "")
         visible = e.get("target_visible", False)
-        pos = e.get("position", "none")
-        size = e.get("size", "none")
+        bearing = _bearing_text(e)
         obstacle = e.get("obstacle_ahead", "none")
-        dist = e.get("distance_m")
-        extra = ""
-        if dist is not None:
-            extra = f", ~{dist:.2f} m"
+        distance = _distance_text(e)
         lines.append(
-            f"  {model}: {desc} | target_visible={visible} position={pos} "
-            f"size={size} obstacle_ahead={obstacle}{extra} "
+            f"  {model}: {desc} | target_visible={visible} "
+            f"lateral_bearing_deg={bearing} "
+            f"obstacle_ahead={obstacle}, ~{distance} m "
             f"({e.get('seconds', 0):.1f}s)")
     if len(entries) == 1:
         e = entries[0]
@@ -51,7 +66,8 @@ def _summary(result):
         path = "clear" if e.get("path_clear") else f"blocked by {e.get('obstacle_ahead')}"
         return (
             f"{e.get('description', '')} Target visible: {e.get('target_visible')}. "
-            f"Position: {e.get('position')}, size: {e.get('size')}. "
+            f"Lateral bearing: {_bearing_text(e)} deg. "
+            f"Estimated distance: {_distance_text(e)} m. "
             f"Path ahead: {path}."
         )
     # Multi-model: also give a compact consensus line.

@@ -1,0 +1,22 @@
+# Host-only dependencies for the open-vocabulary detector and dense-stereo
+# services. Install matching CPU torch/torchvision first so the PyPI torchvision
+# wheel does not break ultralytics' NMS operator:
+#   pip install torch==2.15.0+cpu torchvision==0.29.2+cpu \
+#       --index-url https://download.pytorch.org/whl/cpu
+#   pip install -r software/host_vision/requirements.txt
+# YOLOE-26 requires ultralytics >= 8.4; Grounding DINO uses transformers/timm.
+# The dense-stereo adapters use omegaconf/einops/timm to load upstream models.
+ultralytics>=8.4,<9
+transformers>=4.45
+timm
+accelerate
+omegaconf
+einops
+scipy
+scikit-image
+opencv-python-headless
+imageio
+huggingface_hub
+pillow
+numpy
+pyyaml

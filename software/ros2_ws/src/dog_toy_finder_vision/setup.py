@@ -12,8 +12,9 @@ setup(
             ["resource/" + package_name],
         ),
         ("share/" + package_name, ["package.xml"]),
-        ("share/" + package_name + "/launch", ["launch/stereo.launch.py",
-                                                "launch/vision.launch.py"]),
+        ("share/" + package_name + "/launch", ["launch/stereo_vision.launch.py"]),
+        ("share/" + package_name + "/config",
+         ["config/vision_detectors.yaml"]),
     ],
     install_requires=["setuptools"],
     zip_safe=True,
@@ -25,6 +26,8 @@ setup(
         "console_scripts": [
             "stereo_camera_node = dog_toy_finder_vision.stereo_camera_node:main",
             "vision_node = dog_toy_finder_vision.vision_node:main",
+            "vision_capture = dog_toy_finder_vision.vision_capture:main",
+            "vision_eval = dog_toy_finder_vision.vision_eval:main",
         ],
     },
 )

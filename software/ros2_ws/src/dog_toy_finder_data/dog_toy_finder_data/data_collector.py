@@ -1,7 +1,7 @@
 """Data collector: records a structured dataset during a test run.
 
 Subscribes to poses, vision results, and stereo images, and writes them to a
-directory so runs can be analysed offline (VLM benchmarking, odometry drift,
+directory so runs can be analysed offline (vision pipeline benchmarking, odometry drift,
 success correlation, etc.).
 
 Topics recorded

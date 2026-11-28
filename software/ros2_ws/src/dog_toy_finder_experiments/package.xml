@@ -17,6 +17,7 @@
   <exec_depend>nav_msgs</exec_depend>
   <exec_depend>sensor_msgs</exec_depend>
   <exec_depend>std_msgs</exec_depend>
+  <exec_depend>dog_toy_finder_data</exec_depend>
   <exec_depend>dog_toy_finder_motion</exec_depend>
 
   <export>

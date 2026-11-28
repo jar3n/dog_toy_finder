@@ -182,6 +182,9 @@ class WheelOdometryNode(Node):
 
         left = float(msg.position[left_index])
         right = float(msg.position[right_index])
+        # These correct /joint_states only. The Pico already applies
+        # ENCODER_*_INVERT to the raw counts before publishing, so leave these
+        # false unless a side still reads backwards after the firmware fix.
         if self.invert_left:
             left = -left
         if self.invert_right:

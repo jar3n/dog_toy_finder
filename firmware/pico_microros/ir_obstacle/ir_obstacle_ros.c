@@ -55,9 +55,13 @@ static bool init_publisher(void) {
     return true;
 }
 
-bool ir_obstacle_ros_init(void) {
+bool ir_obstacle_ros_check(void) {
     hardware_ready = ir_obstacle_init();
-    if (!hardware_ready) {
+    return hardware_ready;
+}
+
+bool ir_obstacle_ros_init(void) {
+    if (!ir_obstacle_ros_check()) {
         wifi_log_printf("ir_obstacle: sensor init failed\n");
         return false;
     }

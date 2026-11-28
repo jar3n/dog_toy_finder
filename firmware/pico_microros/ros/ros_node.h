@@ -12,12 +12,13 @@ extern "C" {
 /**
  * Initialize the micro-ROS session over the Wi-Fi UDP transport.
  *
- * Probes the configured agent a few times, then creates the rcl support
- * structures and a single node. Blocks for at most a few seconds at boot;
- * returns false when the agent is unreachable so the rest of the firmware can
- * keep running.
+ * Waits for the agent, creates the rcl support structures and a single node,
+ * then retries agent time sync until the epoch clock is valid. There is no
+ * attempt limit: the LED keeps blinking while either the agent or a plausible
+ * host-epoch clock is pending.
  *
- * @return true when the node is connected to the agent, false otherwise.
+ * @return true when the node is connected and time-synchronized, false when
+ * setup fails before an agent session can be created.
  */
 bool ros_node_init(void);
 
@@ -30,10 +31,10 @@ bool ros_node_ready(void);
 rcl_node_t *ros_node_handle(void);
 
 /**
- * Current time in nanoseconds.
+ * Current host-epoch time in nanoseconds for message headers.
  *
- * Uses the agent-synchronized epoch when rmw_uros_sync_session() succeeded and
- * falls back to time since boot otherwise. Useful for message stamps.
+ * Returns zero when the session is not synchronized with a plausible host
+ * epoch; boot-time values are never used as message stamps.
  */
 int64_t ros_node_time_ns(void);
 

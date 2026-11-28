@@ -48,7 +48,9 @@
 #define LWIP_IPV4                   1
 #define LWIP_TCP                    1
 #define LWIP_UDP                    1
-#define LWIP_DNS                    1
+#define LWIP_IGMP                   1
+#define LWIP_NETIF_EXT_STATUS_CALLBACK 1
+#define MDNS_MAX_SERVICES           1
 #define LWIP_TCP_KEEPALIVE          1
 #define LWIP_NETIF_TX_SINGLE_PBUF   1
 #define DHCP_DOES_ARP_CHECK         0

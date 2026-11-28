@@ -6,6 +6,13 @@ FROM ros:humble
 # computer-side stack (odometry, EKF, TF, and the URDF publisher).
 RUN apt-get update && apt-get install -y \
     python3-pip \
+    python3-numpy \
+    python3-pil \
+    python3-yaml \
+    libnss-mdns \
+    avahi-utils \
+    dbus \
+    avahi-daemon \
     python3-colcon-common-extensions \
     ros-humble-rclpy \
     ros-humble-robot-localization \
@@ -19,6 +26,12 @@ RUN apt-get update && apt-get install -y \
     ros-humble-camera-info-manager \
     && rm -rf /var/lib/apt/lists/*
 
+# Enable mDNS (.local) resolution inside the container. With network_mode: host
+# the multicast queries reach the LAN, and libnss-mdns resolves *.local names
+# such as the ESP32-CAM hostnames without an avahi daemon.
+RUN sed -i 's/^hosts:.*/hosts: files mdns4_minimal [NOTFOUND=return] dns/' /etc/nsswitch.conf \
+    && grep '^hosts:' /etc/nsswitch.conf
+
 # Pre-install Python dependencies (used in the ROSA guide)
 RUN pip3 install --no-cache-dir \
     ollama \
@@ -31,6 +44,28 @@ RUN pip3 install --no-cache-dir \
     'posthog>=2.4,<4.0' \
     requests
 
+# The open_vocab pipeline sends rectified JPEGs to a host-side detector service
+# (scripts/start_yolo_service.sh) running YOLO-World, YOLOE-26, or Grounding
+# DINO. torch, ultralytics, transformers, and the weights stay on the computer,
+# so this image only needs Pillow to convert ROS Image messages to JPEG
+# (installed as python3-pil above).
+
+# The entrypoint starts D-Bus/Avahi as root, then drops to the host user for
+# the requested command so colcon, captures, and test output written to the
+# mounted /workspace are owned by the caller instead of root.
+RUN apt-get update && apt-get install -y --no-install-recommends gosu \
+    && rm -rf /var/lib/apt/lists/*
+ARG CONTAINER_UID=1000
+ARG CONTAINER_GID=1000
+RUN if ! getent group "${CONTAINER_GID}" >/dev/null; then \
+        groupadd -g "${CONTAINER_GID}" dockeruser; \
+    fi \
+    && if ! getent passwd "${CONTAINER_UID}" >/dev/null; then \
+        useradd -u "${CONTAINER_UID}" -g "${CONTAINER_GID}" -m -s /bin/bash dockeruser; \
+    fi \
+    && mkdir -p /home/dockeruser \
+    && chown "${CONTAINER_UID}:${CONTAINER_GID}" /home/dockeruser
+
 # Source ROS 2 automatically in every shell
 RUN echo "source /opt/ros/humble/setup.bash" >> /etc/bash.bashrc
 ENV PYTHONPATH="/opt/ros/humble/lib/python3.10/dist-packages:/opt/ros/humble/local/lib/python3.10/dist-packages:${PYTHONPATH}"
@@ -38,3 +73,10 @@ ENV LD_LIBRARY_PATH="/opt/ros/humble/lib:${LD_LIBRARY_PATH}"
 ENV AMENT_PREFIX_PATH="/opt/ros/humble"
 
 WORKDIR /workspace
+
+# Start D-Bus and an Avahi daemon so .local (mDNS) names such as the
+# ESP32-CAM hostnames resolve inside the container (host networking).
+COPY entrypoint.sh /usr/local/bin/entrypoint.sh
+RUN chmod +x /usr/local/bin/entrypoint.sh
+ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
+CMD ["bash"]

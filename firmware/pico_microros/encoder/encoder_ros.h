@@ -8,6 +8,16 @@ extern "C" {
 #endif
 
 /**
+ * Check the wheel encoders without creating a ROS publisher.
+ *
+ * Runs the GPIO decoder and pin checks only; the micro-ROS publisher work is
+ * left to encoder_ros_init(), which must run once the agent is available.
+ *
+ * @return true when both encoders were configured, false on a GPIO setup error.
+ */
+bool encoder_ros_check(void);
+
+/**
  * Initialize both wheel encoders and the joint-state publisher.
  *
  * The GPIO decoders and the position/velocity filters are always initialized,

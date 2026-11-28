@@ -12,7 +12,7 @@ ros2 launch dog_toy_finder_planning autonomous_search.launch.py \
 ```
 
 Strategy: expanding square with vision homing and obstacle avoidance, stopping
-when the target is seen as medium/large.
+when the estimated distance is within `found_distance`.
 
 ## Path planning utilities
 

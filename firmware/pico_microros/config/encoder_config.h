@@ -1,11 +1,9 @@
 #pragma once
 
-// Copy this file to config/encoder_config.h and adjust to the robot.
-// encoder_config.h is ignored by git; the build creates it from this file
-// automatically when it is missing or empty.
-//
-// Wiring (GPIO numbers) lives in config/pinout.h. This file holds the encoder
-// geometry, direction, filtering, and ROS settings.
+// Encoder geometry, direction, filtering, and ROS settings. Edit this file in
+// place. Wiring (GPIO numbers) lives in config/pinout.h.
+
+#include "config/timing_config.h"
 
 // ---------------------------------------------------------------------------
 // TT encoded gearmotor geometry
@@ -27,8 +25,15 @@
 
 // Set to 1 when a side counts backwards for the robot's forward direction.
 // Swapping the A/B wires is equivalent.
+//
+// Measured on the assembled robot: turning each wheel forward by hand made the
+// left count increase (+2.6 rad over half a turn) but the right count decrease
+// (-3.4 rad). A forward /cmd_vel also spun the right wheel physically forward
+// while its encoder counted negative, so the wiring, not the motor, is
+// reversed. Inverting the right channel makes both wheels report forward as
+// positive, which is required for correct /wheel/odom and EKF fusion.
 #define ENCODER_LEFT_INVERT 0
-#define ENCODER_RIGHT_INVERT 0
+#define ENCODER_RIGHT_INVERT 1
 
 // ---------------------------------------------------------------------------
 // Velocity estimate
@@ -50,6 +55,7 @@
 #define ENCODER_LEFT_JOINT_NAME "left_wheel_joint"
 #define ENCODER_RIGHT_JOINT_NAME "right_wheel_joint"
 
-// Publish and log periods in milliseconds. 20 ms = 50 Hz.
-#define ENCODER_PUBLISH_PERIOD_MS 20
+// Publish and log periods in milliseconds. Publishing uses the shared 50 Hz
+// tick defined in config/timing_config.h.
+#define ENCODER_PUBLISH_PERIOD_MS CONTROL_PERIOD_MS
 #define ENCODER_LOG_PERIOD_MS 1000

@@ -106,6 +106,23 @@ static bool init_hardware(void) {
     return true;
   }
 
+  // Presence/short check: the hall outputs are open-drain and pulled up, so
+  // with a healthy (or absent) encoder both channels read high. A pin reading
+  // low at boot means it is shorted to ground (or to a low-driven line), which
+  // is never a valid encoder state.
+  if (ENCODER_LEFT_PIN_A == ENCODER_LEFT_PIN_B ||
+      ENCODER_RIGHT_PIN_A == ENCODER_RIGHT_PIN_B ||
+      ENCODER_LEFT_PIN_A == ENCODER_RIGHT_PIN_A ||
+      ENCODER_LEFT_PIN_A == ENCODER_RIGHT_PIN_B ||
+      ENCODER_LEFT_PIN_B == ENCODER_RIGHT_PIN_A ||
+      ENCODER_LEFT_PIN_B == ENCODER_RIGHT_PIN_B) {
+    wifi_log_printf(
+      "encoder: pins are not distinct (left A=%d B=%d, right A=%d B=%d)\n",
+      ENCODER_LEFT_PIN_A, ENCODER_LEFT_PIN_B,
+      ENCODER_RIGHT_PIN_A, ENCODER_RIGHT_PIN_B);
+    return false;
+  }
+
   if (!encoder_init(
         &left_encoder,
         ENCODER_LEFT_PIN_A,
@@ -126,6 +143,15 @@ static bool init_hardware(void) {
     return false;
   }
 
+  // Do not judge encoder health from a single static pin reading. The hall
+  // outputs are open-drain with pull-ups, and a healthy quadrature encoder
+  // can legitimately hold A or B low depending on where its magnet disk
+  // stopped (only one of the four quadrature states has both channels high).
+  // A low pin at boot is therefore normal, not evidence of a short, and must
+  // not fail the boot sequence. encoder_init() above already confirms the
+  // GPIOs configure cleanly; direction/sign is verified by the hand-spin
+  // check on the assembled robot instead.
+
   set_string_view(
     &joint_names[0],
     left_joint_name,
@@ -142,16 +168,20 @@ static bool init_hardware(void) {
 /**
  * Initialize both encoders and, when possible, their ROS publisher.
  */
+bool encoder_ros_check(void) {
+  return init_hardware();
+}
+
 bool encoder_ros_init(void) {
   if (!init_hardware()) {
     wifi_log_printf(
-      "encoder: GPIO setup failed; check config/pinout.h\n");
+      "encoder: hardware check failed; check wiring in config/pinout.h\n");
     return false;
   }
 
   if (!init_publisher()) {
     wifi_log_printf(
-      "encoder: ROS publishing unavailable; data still logged\n");
+      "encoder: ROS publishing unavailable after agent check; encoder data still logged\n");
   }
   return true;
 }

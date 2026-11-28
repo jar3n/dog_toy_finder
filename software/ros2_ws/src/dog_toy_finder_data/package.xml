@@ -4,8 +4,9 @@
   <name>dog_toy_finder_data</name>
   <version>0.1.0</version>
   <description>
-    Data collection and dataset tools for Dog Toy Finder experiments: records
-    poses, vision results, and stereo images to a structured directory.
+    Data collection, dataset tools, and LLM comparison trials for Dog Toy
+    Finder experiments: records poses, vision results, and stereo images, and
+    scores several vision models or planners against ground truth.
   </description>
   <maintainer email="dogtoyfinder@example.com">Dog Toy Finder Team</maintainer>
   <license>Apache-2.0</license>

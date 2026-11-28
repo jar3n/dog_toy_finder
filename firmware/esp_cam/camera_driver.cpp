@@ -6,8 +6,8 @@
 #include "camera_pins.h"
 #include "config.h"
 
-// Start the camera in JPEG mode at VGA resolution. Falls back to QVGA in DRAM
-// when no PSRAM is present (some boards ship without it).
+// Start the camera in JPEG mode at CAMERA_FRAME_SIZE. Falls back to
+// CAMERA_FALLBACK_FRAME_SIZE in DRAM when no PSRAM is present.
 bool start_camera() {
     camera_config_t config = {};
     config.ledc_channel = LEDC_CHANNEL_0;
@@ -30,17 +30,17 @@ bool start_camera() {
     config.pin_reset = RESET_GPIO_NUM;
     config.xclk_freq_hz = 20000000;
     config.pixel_format = PIXFORMAT_JPEG;
-    // VGA keeps each frame small (20-40 KB) while giving enough resolution for
-    // stereo disparity; raise to SVGA/XGA if the host needs more detail.
-    config.frame_size = FRAMESIZE_VGA;
+    // The configured size keeps each frame small while giving enough detail
+    // for stereo disparity; change it in config.h if the host needs more.
+    config.frame_size = CAMERA_FRAME_SIZE;
     config.jpeg_quality = 12;              // 0-63, lower = better quality, bigger
     config.fb_count = 2;
     config.fb_location = CAMERA_FB_IN_PSRAM;
     config.grab_mode = CAMERA_GRAB_LATEST;
 
     if (!psramFound()) {
-        Serial.println("No PSRAM found: using QVGA in DRAM.");
-        config.frame_size = FRAMESIZE_QVGA;
+        Serial.println("No PSRAM found: using the fallback frame size in DRAM.");
+        config.frame_size = CAMERA_FALLBACK_FRAME_SIZE;
         config.fb_count = 1;
         config.fb_location = CAMERA_FB_IN_DRAM;
     }

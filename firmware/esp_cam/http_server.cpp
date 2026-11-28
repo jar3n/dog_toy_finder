@@ -28,8 +28,8 @@ static esp_err_t index_handler(httpd_req_t *req) {
         "<h2>ESP32-CAM %s eye</h2>"
         "<p><button onclick=\"img.src='/capture?t='+Date.now()\">New photo</button> "
         "<button onclick=\"img.src='/capture?flash=1&t='+Date.now()\">New photo with flash</button></p>"
-        "<img id='img' src='/capture' style='max-width:100%'></body></html>";
-    char body[420];
+        "<img id='img' src='/capture' style='max-width:100%%'></body></html>";
+    char body[1024];
     snprintf(body, sizeof(body), page, CAMERA_SIDE, CAMERA_SIDE);
     httpd_resp_set_type(req, "text/html");
     return httpd_resp_sendstr(req, body);
@@ -127,8 +127,10 @@ static esp_err_t status_handler(httpd_req_t *req) {
              "\"rssi_dbm\":%d,\"photos_served\":%lu,\"frame_seq\":%lu,"
              "\"last_capture_ms\":%lu,\"uptime_ms\":%lu}",
              CAMERA_SIDE, s ? s->id.PID : 0,
-             (s && s->status.framesize == FRAMESIZE_VGA) ? 640 : 320,
-             (s && s->status.framesize == FRAMESIZE_VGA) ? 480 : 240,
+             (s && s->status.framesize == CAMERA_FRAME_SIZE)
+                 ? CAMERA_FRAME_WIDTH : CAMERA_FALLBACK_FRAME_WIDTH,
+             (s && s->status.framesize == CAMERA_FRAME_SIZE)
+                 ? CAMERA_FRAME_HEIGHT : CAMERA_FALLBACK_FRAME_HEIGHT,
              WiFi.RSSI(), (unsigned long) photos_served,
              (unsigned long) frame_seq, (unsigned long) last_capture_ms,
              (unsigned long) millis());

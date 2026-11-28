@@ -1,29 +1,30 @@
-"""Vision node: answers questions about the stereo camera image with one or more
-Ollama vision models, so different LLMs can be compared on the same photo.
+"""Vision node answering ``/vision/ask`` with a selectable pipeline.
 
-Subscribes  /stereo/left/image_raw     sensor_msgs/Image
-            /stereo/right/image_raw    sensor_msgs/Image
-            /vision/ask                std_msgs/String   JSON {"id", "target"}
-Publishes   /vision/result             std_msgs/String   JSON (see below)
+Both pipelines take the operator's text target and the rectified left/right
+JPEGs, then return one answer entry with the object's location. The node reads
+``vision_detectors.yaml`` for the camera intrinsics, baseline, valid depth
+range, and open-vocabulary detector settings.
 
-The node always uses the stereo pair: both eyes are sent to the VLM so it can
-reason about depth and distance, not just appearance.
+Subscribes  /stereo/{left,right}/image_rect_color  sensor_msgs/Image
+             /vision/ask                         std_msgs/String
+Publishes   /vision/result                       std_msgs/String (JSON)
 
 Parameters
 ----------
-models      : str   comma-separated list of Ollama vision models to run
-model       : str   fallback single model when `models` is empty
-ollama_url  : str   Ollama endpoint
+config_path       : str   detector YAML path (from full_system_eval.conf)
+pipeline          : str   triangulation|stereo-net (empty = VISION_PIPELINE / YAML)
+yolo_service_url  : str   host detector service (empty = env / YAML / default)
+stereo_service_url: str   host dense-depth service (empty = env / YAML / default)
+left_rect_topic   : str   override the left rectified-color topic
+right_rect_topic : str   override the right rectified-color topic
 """
 
-import base64
 import io
 import json
 import os
 import queue
 import threading
 import time
-import urllib.request
 
 import rclpy
 from PIL import Image as PilImage
@@ -33,93 +34,76 @@ from rclpy.time import Time
 from sensor_msgs.msg import Image
 from std_msgs.msg import String
 
+from . import depth_client, vision_config, vision_pipelines, yolo_client
+
 RESULTS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "results", "images")
 FRESH_PHOTO_TIMEOUT = 5.0
 
-ANSWER_SCHEMA = {
-    "type": "object",
-    "properties": {
-        "description": {"type": "string"},
-        "target_visible": {"type": "boolean"},
-        "position": {"type": "string", "enum": ["left", "center", "right", "none"]},
-        "size": {"type": "string", "enum": ["small", "medium", "large", "none"]},
-        "obstacle_ahead": {"type": "string"},
-    },
-    "required": ["description", "target_visible", "position", "size", "obstacle_ahead"],
-}
-
-COMMON = (
-    "You are the forward-facing stereo camera of a small robot car that drives on the "
-    "floor. You are given TWO images: the first is the LEFT eye, the second is the "
-    "RIGHT eye, taken at the same instant. Use the pair to judge depth and distance, "
-    "not just appearance. Answer in this order. "
-    "description: {description} ")
-
-TARGET_DESC = ("one or two sentences naming every object you see, its color, and "
-               "whether it is on the left, in the center, or on the right of the image.")
-SCENE_DESC = ("two or three sentences naming every object you see, its color, and "
-              "whether it is on the left, in the center, or on the right of the image.")
-
-TARGET_PROMPT = COMMON.format(description=TARGET_DESC) + (
-    "target_visible: true only if the target ({target}) appears in your description. "
-    "position: which third of the image the target's center is in: left, center, or right "
-    "(none if not visible). "
-    "size: how wide the target looks compared with the image width: small (less than one "
-    "tenth), medium, or large (more than one quarter); none if not visible. "
-    "obstacle_ahead: the name of the object, other than the target, that stands in the "
-    "center third of the image where the robot would drive into it if it drove straight "
-    "ahead; write none if there is no such object. Walls do not count. "
-    "Also state the target's approximate distance in metres if you can estimate it from "
-    "the stereo pair.")
-
-SCENE_PROMPT = COMMON.format(description=SCENE_DESC) + (
-    "There is no target: set target_visible false, position none, and size none. "
-    "obstacle_ahead: the name of the object that stands in the center third of the image "
-    "where the robot would drive into it if it drove straight ahead; write none if there "
-    "is no such object. Walls do not count. "
-    "Also state how far away the nearest central obstacle is in metres if you can "
-    "estimate it from the stereo pair.")
-
-
-def tidy(answer):
-    obstacle = answer["obstacle_ahead"].strip().strip(".")
-    if obstacle.lower() in ("", "none", "nothing", "no", "n/a"):
-        obstacle = "none"
-    answer["obstacle_ahead"] = obstacle
-    answer["path_clear"] = obstacle == "none"
-    if not answer["target_visible"]:
-        answer["position"] = answer["size"] = "none"
-    return answer
+# Copied from a single pipeline answer to the top level of /vision/result for
+# the mapping and planning consumers that expect them there.
+TOP_LEVEL_KEYS = (
+    "description", "target_visible", "lateral_bearing_deg",
+    "center_offset_m", "distance_m", "obstacle_ahead", "path_clear", "seconds",
+    "method", "distance_source", "model", "detector_model", "bbox_px",
+    "bbox_right_px", "disparity_px", "center_source", "mask_centroid_px",
+    "mask_area_px", "depth_sample_source", "depth_sample_count",
+    "depth_valid_count", "depth_disparity_px",
+)
 
 
 class VisionNode(Node):
     def __init__(self):
         super().__init__("vision_node")
-        self.declare_parameter("model", os.environ.get("VISION_MODEL", "gemma3"))
-        self.declare_parameter("models", "")
-        self.declare_parameter("ollama_url", os.environ.get(
-            "OLLAMA_URL", "http://localhost:11434"))
-        self.chat_url = self.get_parameter("ollama_url").value.rstrip("/") + "/api/chat"
-        models_param = self.get_parameter("models").value.strip()
-        if models_param:
-            self.models = [m.strip() for m in models_param.split(",") if m.strip()]
-        else:
-            self.models = [self.get_parameter("model").value]
+        self.declare_parameter("config_path", "")
+        self.declare_parameter("pipeline", "")
+        self.declare_parameter("yolo_service_url", "")
+        self.declare_parameter("stereo_service_url", "")
+        self.declare_parameter("left_rect_topic", "")
+        self.declare_parameter("right_rect_topic", "")
+
+        self.config = vision_config.load_config(
+            self.get_parameter("config_path").value or None)
+        service_url = self.get_parameter("yolo_service_url").value
+        if service_url:
+            self.config.setdefault("open_vocab", {})["service_url"] = service_url
+        stereo_url = self.get_parameter("stereo_service_url").value
+        if stereo_url:
+            self.config.setdefault("stereo-net", {})["service_url"] = stereo_url
+        self.pipeline = vision_pipelines.pipeline_name(
+            self.get_parameter("pipeline").value, self.config)
+
+        left_topic = self.get_parameter("left_rect_topic").value or \
+            vision_config.get(self.config, "camera", "left_rectified_topic")
+        right_topic = self.get_parameter("right_rect_topic").value or \
+            vision_config.get(self.config, "camera", "right_rectified_topic")
 
         self.lock = threading.Lock()
         self.latest = None          # (left_msg, right_msg)
         self.questions = queue.Queue()
 
         self.result_pub = self.create_publisher(String, "/vision/result", 10)
-        self.create_subscription(Image, "/stereo/left/image_raw",
-                                 self.on_left, qos_profile_sensor_data)
-        self.create_subscription(Image, "/stereo/right/image_raw",
-                                 self.on_right, qos_profile_sensor_data)
+        self.create_subscription(Image, left_topic, self.on_left,
+                                 qos_profile_sensor_data)
+        self.create_subscription(Image, right_topic, self.on_right,
+                                 qos_profile_sensor_data)
         self.create_subscription(String, "/vision/ask", self.on_ask, 10)
         threading.Thread(target=self.worker, daemon=True).start()
         os.makedirs(RESULTS, exist_ok=True)
         self.get_logger().info(
-            f"Vision node ready: stereo eyes, models {self.models} at {self.chat_url}")
+            "Vision node ready: pipeline=%s, rectified stereo %s + %s"
+            % (self.pipeline, left_topic, right_topic))
+        try:
+            self.configure_host_models()
+        except Exception as error:
+            # The services may start after this node; each ask retries configure.
+            self.get_logger().warning(
+                "Could not configure host vision models yet: %s" % error)
+
+    def configure_host_models(self):
+        """Select this node's detector/depth models on the running services."""
+        yolo_client.configure(self.config)
+        if self.pipeline == vision_pipelines.STEREO_NET:
+            depth_client.configure(self.config)
 
     def on_left(self, msg):
         with self.lock:
@@ -167,35 +151,42 @@ class VisionNode(Node):
     def worker(self):
         while rclpy.ok():
             request, asked_at = self.questions.get()
-            result = {"id": request["id"], "target": request["target"],
-                      "models": self.models, "stereo": True}
+            result = {
+                "id": request["id"],
+                "target": request["target"],
+                "pipeline": self.pipeline,
+                "models": [],
+                "stereo": True,
+                "image_source": "rectified_color",
+            }
             try:
                 photo = self.fresh_photo(asked_at)
                 if photo is None:
-                    result["error"] = "No new stereo photo. Is the stereo pipeline running?"
+                    result["error"] = (
+                        "No new rectified stereo photo. Is the stereo pipeline running?")
                 else:
                     left_msg, right_msg = photo
-                    left_jpeg = self._to_jpeg(left_msg)
-                    right_jpeg = self._to_jpeg(right_msg)
-                    jpegs = [left_jpeg, right_jpeg]
+                    jpegs = [self._to_jpeg(left_msg), self._to_jpeg(right_msg)]
                     result["image"] = self.save(left_msg, request["id"])
-                    result["results"] = [
-                        self.ask_model(m, jpegs, request["target"])
-                        for m in self.models
-                    ]
-                    if len(self.models) == 1:
-                        single = result["results"][0]
-                        for key in ("description", "target_visible", "position",
-                                    "size", "obstacle_ahead", "path_clear",
-                                    "seconds"):
+                    self.configure_host_models()
+                    entries = vision_pipelines.run_pipeline(
+                        self.pipeline, request["target"],
+                        jpegs[0], jpegs[1], self.config)
+                    result["results"] = entries
+                    result["models"] = [entry.get("model", "unknown")
+                                        for entry in entries]
+                    if len(entries) == 1:
+                        single = entries[0]
+                        for key in TOP_LEVEL_KEYS:
                             if key in single:
                                 result[key] = single[key]
             except Exception as error:
                 result["error"] = f"Vision node error: {error}"
             self.result_pub.publish(String(data=json.dumps(result)))
             self.get_logger().info(
-                f"[{request['target'] or 'scene'}] "
-                f"{len(self.models)} model(s) done")
+                "[%s] %s produced %d answer(s)"
+                % (request["target"] or "scene", self.pipeline,
+                   len(result.get("results", []))))
 
     def save(self, msg, request_id):
         os.makedirs(RESULTS, exist_ok=True)
@@ -203,33 +194,6 @@ class VisionNode(Node):
         with open(os.path.join(RESULTS, name), "wb") as f:
             f.write(self._to_jpeg(msg))
         return os.path.join("vision", "results", "images", name)
-
-    def ask_model(self, model, jpegs, target):
-        prompt = TARGET_PROMPT.format(target=target) if target else SCENE_PROMPT
-        images_b64 = [base64.b64encode(j).decode() for j in jpegs]
-        body = {
-            "model": model,
-            "stream": False,
-            "think": False,
-            "format": ANSWER_SCHEMA,
-            "keep_alive": "30m",
-            "options": {"temperature": 0, "num_ctx": 8192},
-            "messages": [{"role": "user", "content": prompt,
-                          "images": images_b64}],
-        }
-        start = time.time()
-        try:
-            req = urllib.request.Request(self.chat_url, data=json.dumps(body).encode(),
-                                         headers={"Content-Type": "application/json"})
-            with urllib.request.urlopen(req, timeout=180) as reply:
-                answer = json.loads(json.load(reply)["message"]["content"])
-            answer = tidy({k: answer[k] for k in ANSWER_SCHEMA["required"]})
-        except Exception as error:
-            return {"model": model, "error": f"Vision model failed: {error}",
-                    "seconds": round(time.time() - start, 2)}
-        answer["model"] = model
-        answer["seconds"] = round(time.time() - start, 2)
-        return answer
 
 
 def main():

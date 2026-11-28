@@ -1,8 +1,10 @@
 #include "ros/ros_node.h"
 
 #include <rcl/rcl.h>
+#include <rcl/init_options.h>
 #include <rclc/rclc.h>
 #include <rmw_microros/custom_transport.h>
+#include <rmw_microros/init_options.h>
 #include <rmw_microros/rmw_microros.h>
 #include <rmw_microros/time_sync.h>
 
@@ -10,24 +12,29 @@
 #include "pico/time.h"
 
 #include "config/ros_config.h"
+#include "status_led/status_led.h"
 #include "udp_transport/picow_udp_transport.h"
 #include "wifi/wifi.h"
 #include "wifi/wifi_log.h"
-
-#ifndef ROS_INIT_ATTEMPTS
-#define ROS_INIT_ATTEMPTS 3
-#endif
 
 #ifndef ROS_INIT_RETRY_DELAY_MS
 #define ROS_INIT_RETRY_DELAY_MS 1000
 #endif
 
 #ifndef ROS_AGENT_PING_TIMEOUT_MS
-#define ROS_AGENT_PING_TIMEOUT_MS 100
+#define ROS_AGENT_PING_TIMEOUT_MS 500
 #endif
 
 #ifndef ROS_TIME_SYNC_TIMEOUT_MS
-#define ROS_TIME_SYNC_TIMEOUT_MS 1000
+#define ROS_TIME_SYNC_TIMEOUT_MS 5000
+#endif
+
+#ifndef ROS_TIME_SYNC_RETRY_DELAY_MS
+#define ROS_TIME_SYNC_RETRY_DELAY_MS 1000
+#endif
+
+#ifndef ROS_MIN_VALID_EPOCH_NS
+#define ROS_MIN_VALID_EPOCH_NS 1000000000000000LL
 #endif
 
 static bool node_ready = false;
@@ -37,6 +44,68 @@ static picow_udp_transport_context_t transport_context = {
   .agent_ip = ROS_AGENT_IP,
   .agent_port = ROS_AGENT_PORT,
 };
+
+/**
+ * Return whether micro-ROS reports a plausible host-epoch clock.
+ *
+ * A synchronized flag alone is not enough: a failed exchange can leave a
+ * boot-time offset in place. Reject stamps at or below the configured minimum
+ * so boot-time values are never treated as a valid epoch.
+ */
+static bool ros_node_epoch_is_valid(int64_t stamp_ns) {
+  return rmw_uros_epoch_synchronized() && stamp_ns > ROS_MIN_VALID_EPOCH_NS;
+}
+
+/**
+ * Service the LED during a blocking wait without using one long sleep.
+ */
+static void ros_node_wait_ms(uint32_t duration_ms) {
+  while (duration_ms > 0) {
+    uint32_t step = duration_ms > 50 ? 50 : duration_ms;
+    status_led_task();
+    sleep_ms(step);
+    duration_ms -= step;
+  }
+}
+
+/**
+ * Block until the agent has synchronized this session's epoch clock.
+ *
+ * Each attempt gets a generous timeout because the Pico/Wi-Fi link can stall
+ * for more than a second. Retries are indefinite, matching the agent wait
+ * above; the LED keeps blinking while sync is pending.
+ */
+static void ros_node_wait_for_time_sync(void) {
+  unsigned int attempt = 1;
+
+  while (!ros_node_epoch_is_valid(rmw_uros_epoch_nanos())) {
+    status_led_task();
+    rmw_ret_t status = rmw_uros_sync_session(ROS_TIME_SYNC_TIMEOUT_MS);
+    int64_t stamp_ns = rmw_uros_epoch_nanos();
+    bool synchronized = ros_node_epoch_is_valid(stamp_ns);
+    status_led_task();
+
+    if (status == RMW_RET_OK && synchronized) {
+      wifi_log_printf(
+        "ros: time sync ready after %u attempt(s); epoch %lld.%09lld s\n",
+        attempt,
+        (long long) (stamp_ns / 1000000000LL),
+        (long long) (stamp_ns % 1000000000LL));
+      return;
+    }
+
+    wifi_log_printf(
+      "ros: time sync attempt %u failed (status=%d, synchronized=%s, "
+      "stamp=%lld ns); retrying\n",
+      attempt,
+      (int) status,
+      rmw_uros_epoch_synchronized() ? "true" : "false",
+      (long long) stamp_ns);
+
+    ros_node_wait_ms(ROS_TIME_SYNC_RETRY_DELAY_MS);
+    attempt++;
+  }
+}
 
 /**
  * Return whether the shared micro-ROS node has been created.
@@ -53,25 +122,35 @@ rcl_node_t *ros_node_handle(void) {
 }
 
 /**
- * Return the current time in nanoseconds for message headers.
+ * Return the current host-epoch time in nanoseconds for message headers.
  *
- * Uses the agent-synchronized epoch when available and falls back to
- * microseconds since boot when no time sync has happened.
+ * Returns 0 instead of boot time when the session is not synchronized. Zero is
+ * rejected by downstream ROS nodes as a bad timestamp, which is safer than
+ * mixing boot-time and epoch-time stamps in the same sensor fuse.
  */
 int64_t ros_node_time_ns(void) {
-  int64_t stamp_ns = rmw_uros_epoch_synchronized() ? rmw_uros_epoch_nanos() : 0;
-  if (stamp_ns <= 0) {
-    stamp_ns = (int64_t) time_us_64() * 1000;
+  int64_t stamp_ns = rmw_uros_epoch_nanos();
+  return ros_node_epoch_is_valid(stamp_ns) ? stamp_ns : 0;
+}
+
+/**
+ * Release temporary init options and report an unexpected cleanup failure.
+ */
+static void ros_node_fini_init_options(rcl_init_options_t *init_options) {
+  rcl_ret_t status = rcl_init_options_fini(init_options);
+  if (status != RCL_RET_OK) {
+    wifi_log_printf("ros: init options cleanup failed (%d)\n", (int) status);
   }
-  return stamp_ns;
 }
 
 /**
  * Connect the shared micro-ROS session and create the node.
  *
- * Checks Wi-Fi, installs the custom UDP transport, pings the agent up to
- * ROS_INIT_ATTEMPTS times, initializes rcl, and creates a single node with
- * rosout disabled. On success it also synchronizes the session clock.
+ * Checks Wi-Fi, installs the custom UDP transport, waits for the agent to
+ * answer a ping, initializes rcl with the stable client key, creates a single
+ * node with rosout disabled, and waits for a valid agent-synchronized epoch
+ * clock. The stable key makes the agent reuse one session across Pico reboots
+ * instead of accumulating duplicate /dtf_pico entities.
  * Repeated calls return true immediately once connected.
  *
  * @return true when the node is ready to create publishers.
@@ -87,7 +166,7 @@ bool ros_node_init(void) {
   }
 
   rmw_ret_t transport_status = rmw_uros_set_custom_transport(
-    true,
+    false,
     &transport_context,
     picow_udp_transport_open,
     picow_udp_transport_close,
@@ -98,35 +177,64 @@ bool ros_node_init(void) {
     return false;
   }
 
+  // Wait for the micro-ROS agent indefinitely: it may be started on the
+  // computer only after the Pico is powered on. There is no attempt limit and
+  // no automatic reset; the LED keeps blinking until the agent answers.
   bool agent_found = false;
-  for (unsigned attempt = 1; attempt <= ROS_INIT_ATTEMPTS; ++attempt) {
-    wifi_log_printf(
-      "ros: pinging agent udp://%s:%u (attempt %u/%u)\n",
+  wifi_log_printf(
+      "ros: attempting to connect to the micro-ROS bridge at udp://%s:%u\n",
       ROS_AGENT_IP,
-      (unsigned) ROS_AGENT_PORT,
-      attempt,
-      (unsigned) ROS_INIT_ATTEMPTS);
+      (unsigned) ROS_AGENT_PORT);
+
+  while (!agent_found) {
+    status_led_task();
 
     if (rmw_uros_ping_agent(ROS_AGENT_PING_TIMEOUT_MS, 1) == RMW_RET_OK) {
       agent_found = true;
       break;
     }
 
-    if (attempt < ROS_INIT_ATTEMPTS) {
-      sleep_ms(ROS_INIT_RETRY_DELAY_MS);
-    }
-  }
-
-  if (!agent_found) {
-    wifi_log_printf(
-      "ros: no agent at udp://%s:%u; micro-ROS disabled\n",
-      ROS_AGENT_IP,
-      (unsigned) ROS_AGENT_PORT);
-    return false;
+    // Service the LED blink while waiting for the agent to come up, instead
+    // of a single blocking sleep.
+    ros_node_wait_ms(ROS_INIT_RETRY_DELAY_MS);
   }
 
   rcl_allocator_t allocator = rcl_get_default_allocator();
-  rcl_ret_t status = rclc_support_init(&support, 0, NULL, &allocator);
+
+  // A stable Micro XRCE-DDS client key is the key to surviving a Pico reboot
+  // without duplicate graph entities. Without it the agent assigns a new key
+  // on every boot and keeps the old proxy client alive, so each reboot adds
+  // another /dtf_pico node, /cmd_vel subscription, and /imu/data publisher.
+  rcl_init_options_t init_options = rcl_get_zero_initialized_init_options();
+  rcl_ret_t status = rcl_init_options_init(&init_options, allocator);
+  if (status != RCL_RET_OK) {
+    wifi_log_printf("ros: init options failed (%d)\n", (int) status);
+    return false;
+  }
+
+  rmw_init_options_t *rmw_options =
+    rcl_init_options_get_rmw_init_options(&init_options);
+  if (rmw_options == NULL) {
+    wifi_log_printf("ros: no RMW init options available\n");
+    ros_node_fini_init_options(&init_options);
+    return false;
+  }
+
+  rmw_ret_t rmw_status =
+    rmw_uros_options_set_client_key(ROS_CLIENT_KEY, rmw_options);
+  if (rmw_status != RMW_RET_OK) {
+    wifi_log_printf("ros: stable client key rejected (%d)\n", (int) rmw_status);
+    ros_node_fini_init_options(&init_options);
+    return false;
+  }
+
+  wifi_log_printf(
+    "ros: using stable client key 0x%08lX\n",
+    (unsigned long) ROS_CLIENT_KEY);
+
+  status = rclc_support_init_with_options(
+    &support, 0, NULL, &init_options, &allocator);
+  ros_node_fini_init_options(&init_options);
   if (status != RCL_RET_OK) {
     wifi_log_printf("ros: rcl init failed (%d)\n", (int) status);
     return false;
@@ -148,11 +256,11 @@ bool ros_node_init(void) {
     return false;
   }
 
+  // Do not publish stamped data until the epoch clock is valid. Sync retries
+  // indefinitely, so a dropped NTP exchange cannot silently degrade to boot
+  // timestamps.
+  ros_node_wait_for_time_sync();
   node_ready = true;
-
-  if (rmw_uros_sync_session(ROS_TIME_SYNC_TIMEOUT_MS) != RMW_RET_OK) {
-    wifi_log_printf("ros: time sync failed; message stamps use boot time\n");
-  }
 
   wifi_log_printf("ros: node \"%s\" connected to the agent\n", ROS_NODE_NAME);
   return true;

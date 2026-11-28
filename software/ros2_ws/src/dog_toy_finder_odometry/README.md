@@ -23,7 +23,7 @@ in the twist. It does not publish TF by default because the EKF owns
 |---|---|---|
 | `left_joint_name` / `right_joint_name` | firmware joint names | `JointState` entries to read |
 | `wheel_radius` | 0.0325 | drive-wheel radius, metres |
-| `wheel_separation` | 0.15 | wheel contact spacing, metres |
+| `wheel_separation` | 0.133 | wheel contact spacing, metres |
 | `invert_left` / `invert_right` | false | flip a side's counting direction |
 | `publish_tf` | false | publish `odom -> base_link` directly |
 | `linear_speed_std` / `turn_rate_std` | 0.03 / 0.10 | covariance for the EKF |
